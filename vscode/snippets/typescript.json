@@ -1,0 +1,7 @@
+{
+  "Export hook": {
+    "prefix": "enh",
+    "body": ["interface $1Props {}", "", "export function $1(props: $1Props) {}"],
+    "description": "Define a hook with named export"
+  }
+}
