@@ -1,8 +1,3 @@
-# zsh-config
-
-- [oh-my-zsh](./docs/oh-my-zsh.md)
-- [zim](./docs/zim.md)
-
 ## WSL2 注意事项
 
 如果使用 WSL2，默认会将 windows 的 PATH 环境变量挂载到 WSL2 中，导致 zsh 的速度变慢
