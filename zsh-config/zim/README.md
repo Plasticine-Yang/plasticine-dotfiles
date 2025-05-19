@@ -27,3 +27,9 @@ zimfw install
 ```shell
 p10k configure
 ```
+
+## Uninstall
+
+```shell
+rm -rf ~/.zshrc ~/.zimrc ~/.zim ~/.zsh_history ~/.zsh_sessions ~/.zcompdump ~/.zcompdump.dat ~/.zcompdump.zwc ~/.p10k.zsh
+```

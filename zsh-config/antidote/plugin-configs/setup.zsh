@@ -1,0 +1,10 @@
+PLASTICINE_ANTIDOTE_PLUGIN_CONFIGS_DIR="${PLASTICINE_LINUX_CONFIG_DIR}/zsh-config/antidote/plugin-configs"
+
+# vi-mode
+source ${PLASTICINE_ANTIDOTE_PLUGIN_CONFIGS_DIR}/vi-mode.zsh
+
+# nvm
+source ${PLASTICINE_ANTIDOTE_PLUGIN_CONFIGS_DIR}/nvm.zsh
+
+# p10k.zsh
+source ${PLASTICINE_ANTIDOTE_PLUGIN_CONFIGS_DIR}/p10k.zsh
