@@ -8,8 +8,6 @@
       "",
       "const $1: FC<$1Props> = memo((props) => {$2})",
       "",
-      "$1.displayName = '$1'",
-      "",
       "export default $1"
     ],
     "description": "Define a React functional component with default export"
@@ -25,5 +23,17 @@
       "export const $1: FC<$1Props> = memo((props) => {$2})"
     ],
     "description": "Define a React functional component with named export"
+  },
+
+  "Export default FC no props": {
+    "prefix": "edfcnp",
+    "body": ["import { memo, type FC } from \"react\"", "", "const $1: FC = memo(() => {$2})", "", "export default $1"],
+    "description": "Define a React no props functional component with default export"
+  },
+
+  "Export named FC no props": {
+    "prefix": "enfcnp",
+    "body": ["import { memo, type FC } from \"react\"", "", "export const $1: FC = memo(() => {$2})"],
+    "description": "Define a React no props functional component with named export"
   }
 }
