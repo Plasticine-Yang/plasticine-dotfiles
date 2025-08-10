@@ -6,6 +6,8 @@ else
   echo "antidote repository already cloned, skip clone."
 fi
 
+source ${ZDOTDIR:-~}/.antidote/antidote.zsh
+
 # link .zshrc
 cp ~/.plasticine-linux-config/zsh-config/antidote/.zshrc ~/.zshrc
 
