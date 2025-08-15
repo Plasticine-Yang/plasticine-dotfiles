@@ -5,11 +5,11 @@
 安装 neovim
 
 ```shell
-curl -LO https://gh.idayer.com/https://github.com/neovim/neovim/releases/download/stable/nvim-linux64.tar.gz
-tar -zxvf nvim-linux64.tar.gz
-sudo mv ./nvim-linux64 ~/.nvim
+curl -LO https://github.com/neovim/neovim/releases/download/stable/nvim-linux-x86_64.tar.gz
+tar -zxvf nvim-linux-x86_64.tar.gz
+sudo mv ./nvim-linux-x86_64 ~/.nvim
 sudo ln -s ~/.nvim/bin/nvim /usr/local/bin
-rm -rf ./nvim-linux64.tar.gz
+rm -rf ./nvim-linux-x86_64.tar.gz
 ```
 
 使用配置
