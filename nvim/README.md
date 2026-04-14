@@ -15,7 +15,7 @@ rm -rf ./nvim-linux-x86_64.tar.gz
 使用配置
 
 ```shell
-ln -s ~/.plasticine-linux-config/nvim ~/.config/nvim
+ln -s ~/.plasticine-dotfiles/nvim ~/.config/nvim
 ```
 
 ## 入口文件

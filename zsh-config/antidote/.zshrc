@@ -1,4 +1,4 @@
-PLASTICINE_LINUX_CONFIG_DIR=~/.plasticine-linux-config
+PLASTICINE_LINUX_CONFIG_DIR=~/.plasticine-dotfiles
 
 # init antidote
 source "${PLASTICINE_LINUX_CONFIG_DIR}/zsh-config/antidote/init_antidote.zsh"
