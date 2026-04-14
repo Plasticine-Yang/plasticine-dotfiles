@@ -5,7 +5,7 @@ my dotfiles
 ## Usage
 
 ```shell
-curl -fsSL https://raw.githubusercontent.com/Plasticine-Yang/plasticine-dotfiles/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Plasticine-Yang/plasticine-dotfiles/main/install.sh | bash
 ```
 
 或者手动 clone 后运行：
