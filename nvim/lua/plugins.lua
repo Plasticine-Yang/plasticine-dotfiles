@@ -71,6 +71,15 @@ packer.startup({
       end,
     })
 
+    -- toggleterm.nvim 终端管理
+    use({
+      'akinsho/toggleterm.nvim',
+      tag = '*',
+      config = function()
+        require('plugins-config.toggleterm')
+      end,
+    })
+
     -- Automatically set up your configuration after cloning packer.nvim
     -- Put this at the end after all plugins
     if packer_bootstrap then

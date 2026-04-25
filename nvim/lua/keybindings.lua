@@ -56,6 +56,15 @@ map('n', 'qq', ':q!<CR>', opt)
 -- <C-n> toggle file tree
 map('n', '<C-n>', ':NvimTreeToggle<CR>', opt)
 
+-- ================ toggleterm ================
+
+-- <C-t> toggle terminal (float)
+map('n', '<C-t>', ':lua _FLOAT_TERM()<CR>', opt)
+-- <leader>th toggle terminal (horizontal)
+map('n', '<leader>th', ':lua _HORIZONTAL_TERM()<CR>', opt)
+-- <leader>tv toggle terminal (vertical)
+map('n', '<leader>tv', ':lua _VERTICAL_TERM()<CR>', opt)
+
 -- ================ hop.nvim ================
 map('n', '<leader><leader>h', ':HopAnywhereBC<CR>', opt)
 map('n', '<leader><leader>l', ':HopAnywhereAC<CR>', opt)
