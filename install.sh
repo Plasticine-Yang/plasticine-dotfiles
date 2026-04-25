@@ -34,9 +34,7 @@ setup_dotfiles() {
         git clone https://github.com/Plasticine-Yang/plasticine-dotfiles.git "$DOTFILES_DIR"
         log_success "克隆完成！"
     else
-        log_info "发现已存在的 dotfiles 仓库，正在更新..."
-        cd "$DOTFILES_DIR" && git pull
-        log_success "更新完成！"
+        log_info "dotfiles 仓库已存在，跳过克隆。"
     fi
 }
 
