@@ -74,12 +74,6 @@ setup_nvim() {
         log_info "Neovim 已经安装，跳过下载。"
     fi
 
-    local PACKER_DIR="$HOME/.local/share/nvim/site/pack/packer/start/packer.nvim"
-    if [ ! -d "$PACKER_DIR" ]; then
-        log_info "正在安装 packer.nvim..."
-        git clone --depth 1 https://github.com/wbthomason/packer.nvim "$PACKER_DIR"
-    fi
-
     mkdir -p ~/.config
     if [ -L "$HOME/.config/nvim" ] || [ -d "$HOME/.config/nvim" ]; then
         log_warn "~/.config/nvim 已经存在，尝试备份为 nvim.bak..."
