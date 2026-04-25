@@ -49,6 +49,15 @@ setup_zsh() {
     
     if command -v zsh >/dev/null 2>&1; then
         zsh "$DOTFILES_DIR/zsh-config/antidote/install.zsh"
+        
+        if [ "$(basename $SHELL)" != "zsh" ]; then
+            log_info "当前默认 shell 不是 zsh，正在设置为默认 shell..."
+            chsh -s $(which zsh)
+            log_success "已将默认 shell 设置为 zsh！请重新登录或重启终端以应用更改。"
+        else
+            log_info "默认 shell 已经是 zsh。"
+        fi
+        
         log_success "Zsh 配置完成！"
     else
         log_warn "系统中未安装 zsh，请先安装 zsh 后再重新运行或手动配置。"
@@ -140,27 +149,57 @@ setup_git() {
     fi
 }
 
-setup_vscode() {
-    log_info "配置 VSCode Snippets..."
-    if [ "$(uname)" == "Darwin" ]; then
-        VSCODE_SNIPPETS_DIR="$HOME/Library/Application Support/Code/User/snippets"
-    else
-        VSCODE_SNIPPETS_DIR="$HOME/.config/Code/User/snippets"
+setup_env() {
+    log_info "配置环境变量..."
+    ENV_FILE="$HOME/.env"
+    ENV_TEMPLATE="$DOTFILES_DIR/.env"
+    
+    if [ ! -f "$ENV_TEMPLATE" ]; then
+        log_warn "未找到 $ENV_TEMPLATE，跳过..."
+        return
     fi
     
-    if [ -d "$DOTFILES_DIR/vscode/snippets" ]; then
-        mkdir -p "$VSCODE_SNIPPETS_DIR"
-        # 链接每个 snippet 文件
-        for file in "$DOTFILES_DIR"/vscode/snippets/*.json; do
-            if [ -f "$file" ]; then
-                filename=$(basename "$file")
-                ln -sf "$file" "$VSCODE_SNIPPETS_DIR/$filename"
-                log_info "已链接 $filename"
-            fi
-        done
-        log_success "VSCode Snippets 配置链接完成！"
+    if [ -f "$ENV_FILE" ]; then
+        log_info "~/.env 已存在，跳过创建。"
+        return
+    fi
+    
+    cp "$ENV_TEMPLATE" "$ENV_FILE"
+    log_success "环境变量文件 ~/.env 创建完成！"
+    
+    if [ -f ~/.zshrc ]; then
+        if ! grep -q "\.env" ~/.zshrc 2>/dev/null; then
+            echo -e "\n# load env\n[ -f ~/.env ] && source ~/.env" >> ~/.zshrc
+            log_success "已向 ~/.zshrc 添加环境变量加载配置！"
+        else
+            log_info "~/.zshrc 已包含 ~/.env 加载配置，跳过。"
+        fi
+    fi
+}
+
+setup_fnm() {
+    log_info "配置 FNM..."
+    
+    if ! command -v fnm >/dev/null 2>&1; then
+        log_info "未检测到 FNM，正在安装..."
+        curl -fsSL https://fnm.vercel.app/install | bash
+        log_success "FNM 安装完成！"
     else
-        log_warn "未找到 VSCode Snippets 目录，跳过..."
+        log_info "FNM 已经安装，跳过安装。"
+    fi
+    
+    if [ ! -f ~/.zshrc ]; then
+        log_warn "未找到 ~/.zshrc，跳过 shell 配置..."
+        return
+    fi
+    
+    FNM_INIT='eval "$(fnm env --use-on-cd --shell bash)"'
+    
+    if ! grep -q "fnm env" ~/.zshrc 2>/dev/null; then
+        echo -e "\n# fnm\n$FNM_INIT" >> ~/.zshrc
+        log_success "已向 ~/.zshrc 添加 fnm 配置！"
+    else
+        log_info "~/.zshrc 已包含 fnm 配置，跳过。"
     fi
 }
 
@@ -179,7 +218,7 @@ show_help() {
     echo -e "${GREEN}  Plasticine Dotfiles Installer${RESET}"
     echo -e "${BLUE}=======================================${RESET}"
     echo ""
-    echo "默认行为: 自动设置仓库并安装 Zsh, Neovim, Lazygit"
+    echo "默认行为：自动设置仓库并安装 Zsh, Neovim, Git, Env"
     echo ""
     echo "按需安装选项:"
     echo "  --zsh       仅安装配置 Zsh"
@@ -187,12 +226,13 @@ show_help() {
     echo "  --lazygit   仅安装配置 Lazygit"
     echo "  --proxy     仅安装配置 Proxy Utils"
     echo "  --git       仅安装配置 Git 软链接"
-    echo "  --vscode    仅安装配置 VSCode Snippets"
+    echo "  --env       仅配置环境变量"
+    echo "  --fnm       仅安装配置 FNM"
     echo "  --clash     仅安装配置 Clash"
     echo "  --all       安装所有可用组件"
     echo "  --help, -h  显示此帮助信息"
     echo ""
-    echo "示例: ./install.sh --git --vscode"
+    echo "示例：./install.sh --git --env"
 }
 
 # 解析命令行参数
@@ -201,12 +241,17 @@ if [ $# -eq 0 ]; then
     setup_dotfiles
     setup_zsh
     setup_nvim
-    setup_lazygit
+    setup_git
+    setup_env
     log_success "默认配置安装结束！请根据需要重启终端或输入 'zsh' 应用最新配置。"
     exit 0
 fi
 
-# 按需行为
+# 按需行为：先检查是否为 help 参数
+case $1 in
+    -h|--help) show_help; exit 0 ;;
+esac
+
 setup_dotfiles
 
 while [[ "$#" -gt 0 ]]; do
@@ -216,7 +261,8 @@ while [[ "$#" -gt 0 ]]; do
         --lazygit) setup_lazygit ;;
         --proxy) setup_proxy ;;
         --git) setup_git ;;
-        --vscode) setup_vscode ;;
+        --env) setup_env ;;
+        --fnm) setup_fnm ;;
         --clash) setup_clash ;;
         --all)
             setup_zsh
@@ -224,11 +270,12 @@ while [[ "$#" -gt 0 ]]; do
             setup_lazygit
             setup_proxy
             setup_git
-            setup_vscode
+            setup_env
+            setup_fnm
             setup_clash
             ;;
         -h|--help) show_help; exit 0 ;;
-        *) log_error "未知参数: $1"; show_help; exit 1 ;;
+        *) log_error "未知参数：$1"; show_help; exit 1 ;;
     esac
     shift
 done
