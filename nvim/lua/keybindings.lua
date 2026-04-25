@@ -51,6 +51,11 @@ map('n', '<C-s>', ':w<CR>', opt)
 -- qq -- Exit without modifying anything.
 map('n', 'qq', ':q!<CR>', opt)
 
+-- ================ nvim-tree ================
+
+-- <C-n> toggle file tree
+map('n', '<C-n>', ':NvimTreeToggle<CR>', opt)
+
 -- ================ hop.nvim ================
 map('n', '<leader><leader>h', ':HopAnywhereBC<CR>', opt)
 map('n', '<leader><leader>l', ':HopAnywhereAC<CR>', opt)

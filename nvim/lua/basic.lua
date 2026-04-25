@@ -76,3 +76,6 @@ vim.o.showtabline = 2
 vim.o.showmode = false
 -- 配置剪切板
 vim.opt.clipboard = "unnamedplus"
+-- 禁用 netrw 内置文件浏览器
+vim.g.loaded_netrw = 1
+vim.g.loaded_netrwPlugin = 1

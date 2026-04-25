@@ -60,6 +60,17 @@ packer.startup({
       end,
     })
 
+    -- nvim-tree.lua 文件树
+    use({
+      'nvim-tree/nvim-tree.lua',
+      requires = {
+        'nvim-tree/nvim-web-devicons',
+      },
+      config = function()
+        require('plugins-config.nvim-tree')
+      end,
+    })
+
     -- Automatically set up your configuration after cloning packer.nvim
     -- Put this at the end after all plugins
     if packer_bootstrap then
