@@ -9,4 +9,8 @@ source "${PLASTICINE_LINUX_CONFIG_DIR}/zsh-config/antidote/plugin-configs/setup.
 # setup user custom bootstrap shell
 source "${PLASTICINE_LINUX_CONFIG_DIR}/zsh-config/antidote/setup_user_custom_bootstrap_shell.zsh"
 
+# load env
+[ -f ~/.env ] && source ~/.env
+
+# uv env
 . "$HOME/.local/bin/env"
