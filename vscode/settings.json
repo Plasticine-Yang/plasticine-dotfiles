@@ -15,8 +15,6 @@
   // 终端配置
   "terminal.integrated.fontSize": 16,
   "terminal.integrated.defaultProfile.osx": "zsh",
-  // 相对行号
-  "editor.lineNumbers": "relative",
   // 代码滚动吸附
   "editor.stickyScroll.enabled": true,
   // Auto Close Tag 内置了 不需要手动开启
@@ -354,12 +352,9 @@
   "editor.quickSuggestions": {
     "strings": true
   },
-
-  "errorLens.excludeBySource": ["ts(2559)"],
   "[dockercompose]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "vsicons.dontShowNewVersionMessage": true,
-  "editor.accessibilitySupport": "off",
-  "svg.preview.mode": "img"
+  "editor.accessibilitySupport": "off"
 }
