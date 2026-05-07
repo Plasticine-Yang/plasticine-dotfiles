@@ -1,4 +1,6 @@
 # clone antidote if not installed
+set -e
+
 if [[ ! -d "${ZDOTDIR:-$HOME}/.antidote" ]]; then
   echo "clonling antidote repository..."
   git clone --depth=1 https://github.com/mattmc3/antidote.git ${ZDOTDIR:-$HOME}/.antidote
@@ -17,4 +19,6 @@ cp ~/.plasticine-dotfiles/zsh-config/antidote/.zsh_plugins.txt ~/.zsh_plugins.tx
 # link .p10k.zsh
 cp ~/.plasticine-dotfiles/zsh-config/antidote/.p10k.zsh ~/.p10k.zsh
 
-source ~/.zshrc
+if ! source ~/.zshrc; then
+  echo "warning: failed to source ~/.zshrc during install, please open a new shell and retry manually."
+fi

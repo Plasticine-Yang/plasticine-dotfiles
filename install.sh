@@ -27,6 +27,33 @@ log_error() {
     echo -e "${RED}[ERROR]${RESET} $1"
 }
 
+FAILED_SETUPS=()
+
+run_setup() {
+    local setup_name="$1"
+
+    if (set -e; "$setup_name"); then
+        return 0
+    fi
+
+    FAILED_SETUPS+=("$setup_name")
+    log_error "${setup_name} 执行失败，继续执行后续 setup。"
+    return 0
+}
+
+finish_installation() {
+    local success_message="$1"
+
+    if [ ${#FAILED_SETUPS[@]} -eq 0 ]; then
+        log_success "$success_message"
+        return 0
+    fi
+
+    log_warn "以下 setup 执行失败: ${FAILED_SETUPS[*]}"
+    log_warn "其余 setup 已继续执行，请按需重试失败项。"
+    return 1
+}
+
 setup_dotfiles() {
     log_info "设置 dotfiles 仓库..."
     if [ ! -d "$DOTFILES_DIR" ]; then
@@ -42,16 +69,19 @@ setup_zsh() {
     log_info "配置 Zsh (Antidote)..."
     if [ ! -f "$DOTFILES_DIR/zsh-config/antidote/install.zsh" ]; then
         log_warn "未找到 zsh-config/antidote/install.zsh，跳过..."
-        return
+        return 0
     fi
     
     if command -v zsh >/dev/null 2>&1; then
         zsh "$DOTFILES_DIR/zsh-config/antidote/install.zsh"
         
-        if [ "$(basename $SHELL)" != "zsh" ]; then
+        if [ "$(basename "$SHELL")" != "zsh" ]; then
             log_info "当前默认 shell 不是 zsh，正在设置为默认 shell..."
-            chsh -s $(which zsh)
-            log_success "已将默认 shell 设置为 zsh！请重新登录或重启终端以应用更改。"
+            if chsh -s "$(command -v zsh)"; then
+                log_success "已将默认 shell 设置为 zsh！请重新登录或重启终端以应用更改。"
+            else
+                log_warn "设置默认 shell 失败，请手动执行: chsh -s $(command -v zsh)"
+            fi
         else
             log_info "默认 shell 已经是 zsh。"
         fi
@@ -59,6 +89,7 @@ setup_zsh() {
         log_success "Zsh 配置完成！"
     else
         log_warn "系统中未安装 zsh，请先安装 zsh 后再重新运行或手动配置。"
+        return 1
     fi
 }
 
@@ -106,7 +137,7 @@ setup_lazygit() {
                 sudo ln -sf /opt/homebrew/bin/lazygit /usr/local/bin/lg
             else
                 log_error "Mac 系统上未找到 Homebrew，请先安装 Homebrew 或手动安装 Lazygit。"
-                return
+                return 1
             fi
         fi
         log_success "Lazygit 安装完成！"
@@ -119,7 +150,7 @@ setup_proxy() {
     log_info "配置 Proxy Utils..."
     if [ ! -f "$DOTFILES_DIR/proxy/proxy-utils.sh" ]; then
         log_warn "未找到 proxy/proxy-utils.sh，跳过..."
-        return
+        return 0
     fi
     
     sudo ln -sf "$DOTFILES_DIR/proxy/proxy-utils.sh" /usr/local/bin/proxy-utils
@@ -154,12 +185,12 @@ setup_env() {
     
     if [ ! -f "$ENV_TEMPLATE" ]; then
         log_warn "未找到 $ENV_TEMPLATE，跳过..."
-        return
+        return 0
     fi
     
     if [ -f "$ENV_FILE" ]; then
         log_info "~/.env 已存在，跳过创建。"
-        return
+        return 0
     fi
     
     cp "$ENV_TEMPLATE" "$ENV_FILE"
@@ -167,7 +198,13 @@ setup_env() {
     
     if [ -f ~/.zshrc ]; then
         if ! grep -q "\.env" ~/.zshrc 2>/dev/null; then
-            echo -e "\n# load env\n[ -f ~/.env ] && source ~/.env" >> ~/.zshrc
+            cat <<'EOF' >> ~/.zshrc
+
+# load env
+if [ -f ~/.env ]; then
+    source ~/.env
+fi
+EOF
             log_success "已向 ~/.zshrc 添加环境变量加载配置！"
         else
             log_info "~/.zshrc 已包含 ~/.env 加载配置，跳过。"
@@ -188,7 +225,7 @@ setup_fnm() {
     
     if [ ! -f ~/.zshrc ]; then
         log_warn "未找到 ~/.zshrc，跳过 shell 配置..."
-        return
+        return 0
     fi
     
     FNM_INIT='eval "$(fnm env --use-on-cd --shell bash)"'
@@ -220,6 +257,7 @@ setup_clash() {
         log_success "Clash 配置完成！"
     else
         log_warn "未找到 Clash 安装脚本，跳过..."
+        return 0
     fi
 }
 
@@ -249,16 +287,18 @@ show_help() {
 # 解析命令行参数
 if [ $# -eq 0 ]; then
     # 默认行为
-    setup_dotfiles
-    setup_zsh
-    setup_nvim
-    setup_lazygit
-    setup_git
-    setup_env
-    setup_fnm
-    setup_uv
-    log_success "默认配置安装结束！请根据需要重启终端或输入 'zsh' 应用最新配置。"
-    exit 0
+    run_setup setup_dotfiles
+    run_setup setup_zsh
+    run_setup setup_nvim
+    run_setup setup_lazygit
+    run_setup setup_git
+    run_setup setup_env
+    run_setup setup_fnm
+    run_setup setup_uv
+    if finish_installation "默认配置安装结束！请根据需要重启终端或输入 'zsh' 应用最新配置。"; then
+        exit 0
+    fi
+    exit 1
 fi
 
 # 按需行为：先检查是否为 help 参数
@@ -266,29 +306,29 @@ case $1 in
     -h|--help) show_help; exit 0 ;;
 esac
 
-setup_dotfiles
+run_setup setup_dotfiles
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
-        --zsh) setup_zsh ;;
-        --nvim) setup_nvim ;;
-        --lazygit) setup_lazygit ;;
-        --proxy) setup_proxy ;;
-        --git) setup_git ;;
-        --env) setup_env ;;
-        --fnm) setup_fnm ;;
-        --uv) setup_uv ;;
-        --clash) setup_clash ;;
+        --zsh) run_setup setup_zsh ;;
+        --nvim) run_setup setup_nvim ;;
+        --lazygit) run_setup setup_lazygit ;;
+        --proxy) run_setup setup_proxy ;;
+        --git) run_setup setup_git ;;
+        --env) run_setup setup_env ;;
+        --fnm) run_setup setup_fnm ;;
+        --uv) run_setup setup_uv ;;
+        --clash) run_setup setup_clash ;;
         --all)
-            setup_zsh
-            setup_nvim
-            setup_lazygit
-            setup_proxy
-            setup_git
-            setup_env
-            setup_fnm
-            setup_uv
-            setup_clash
+            run_setup setup_zsh
+            run_setup setup_nvim
+            run_setup setup_lazygit
+            run_setup setup_proxy
+            run_setup setup_git
+            run_setup setup_env
+            run_setup setup_fnm
+            run_setup setup_uv
+            run_setup setup_clash
             ;;
         -h|--help) show_help; exit 0 ;;
         *) log_error "未知参数：$1"; show_help; exit 1 ;;
@@ -296,4 +336,8 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-log_success "按需安装流程结束！"
+if finish_installation "按需安装流程结束！"; then
+    exit 0
+fi
+
+exit 1
