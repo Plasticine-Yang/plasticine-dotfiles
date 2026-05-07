@@ -201,6 +201,18 @@ setup_fnm() {
     fi
 }
 
+setup_uv() {
+    log_info "配置 uv..."
+
+    if ! command -v uv >/dev/null 2>&1; then
+        log_info "未检测到 uv，正在安装..."
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        log_success "uv 安装完成！"
+    else
+        log_info "uv 已经安装，跳过安装。"
+    fi
+}
+
 setup_clash() {
     log_info "配置 Clash..."
     if [ -f "$DOTFILES_DIR/clash-installer/clash_installer.sh" ]; then
@@ -216,7 +228,7 @@ show_help() {
     echo -e "${GREEN}  Plasticine Dotfiles Installer${RESET}"
     echo -e "${BLUE}=======================================${RESET}"
     echo ""
-    echo "默认行为：自动设置仓库并安装 Zsh, Neovim, Git, Env, FNM"
+    echo "默认行为：自动设置仓库并安装 Zsh, Neovim, Git, Env, FNM, uv"
     echo ""
     echo "按需安装选项:"
     echo "  --zsh       仅安装配置 Zsh"
@@ -226,6 +238,7 @@ show_help() {
     echo "  --git       仅安装配置 Git 软链接"
     echo "  --env       仅配置环境变量"
     echo "  --fnm       仅安装配置 FNM"
+    echo "  --uv        仅安装配置 uv"
     echo "  --clash     仅安装配置 Clash"
     echo "  --all       安装所有可用组件"
     echo "  --help, -h  显示此帮助信息"
@@ -242,6 +255,7 @@ if [ $# -eq 0 ]; then
     setup_git
     setup_env
     setup_fnm
+    setup_uv
     log_success "默认配置安装结束！请根据需要重启终端或输入 'zsh' 应用最新配置。"
     exit 0
 fi
@@ -262,6 +276,7 @@ while [[ "$#" -gt 0 ]]; do
         --git) setup_git ;;
         --env) setup_env ;;
         --fnm) setup_fnm ;;
+        --uv) setup_uv ;;
         --clash) setup_clash ;;
         --all)
             setup_zsh
@@ -271,6 +286,7 @@ while [[ "$#" -gt 0 ]]; do
             setup_git
             setup_env
             setup_fnm
+            setup_uv
             setup_clash
             ;;
         -h|--help) show_help; exit 0 ;;
