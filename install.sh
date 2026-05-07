@@ -76,12 +76,7 @@ setup_zsh() {
         zsh "$DOTFILES_DIR/zsh-config/antidote/install.zsh"
         
         if [ "$(basename "$SHELL")" != "zsh" ]; then
-            log_info "当前默认 shell 不是 zsh，正在设置为默认 shell..."
-            if chsh -s "$(command -v zsh)"; then
-                log_success "已将默认 shell 设置为 zsh！请重新登录或重启终端以应用更改。"
-            else
-                log_warn "设置默认 shell 失败，请手动执行: chsh -s $(command -v zsh)"
-            fi
+            log_warn "当前默认 shell 不是 zsh，请手动执行: chsh -s $(command -v zsh)"
         else
             log_info "默认 shell 已经是 zsh。"
         fi
