@@ -228,7 +228,7 @@ show_help() {
     echo -e "${GREEN}  Plasticine Dotfiles Installer${RESET}"
     echo -e "${BLUE}=======================================${RESET}"
     echo ""
-    echo "默认行为：自动设置仓库并安装 Zsh, Neovim, Git, Env, FNM, uv"
+    echo "默认行为：自动设置仓库并安装 Zsh, Neovim, Lazygit, Git, Env, FNM, uv"
     echo ""
     echo "按需安装选项:"
     echo "  --zsh       仅安装配置 Zsh"
@@ -252,6 +252,7 @@ if [ $# -eq 0 ]; then
     setup_dotfiles
     setup_zsh
     setup_nvim
+    setup_lazygit
     setup_git
     setup_env
     setup_fnm
