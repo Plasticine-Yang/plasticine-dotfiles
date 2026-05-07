@@ -54,6 +54,29 @@ finish_installation() {
     return 1
 }
 
+run_default_installation() {
+    local skip_git="$1"
+
+    run_setup setup_dotfiles
+    run_setup setup_zsh
+    run_setup setup_nvim
+    run_setup setup_lazygit
+    if [ "$skip_git" != "true" ]; then
+        run_setup setup_git
+    else
+        log_info "检测到 --no-git，跳过 Git 配置。"
+    fi
+    run_setup setup_env
+    run_setup setup_fnm
+    run_setup setup_uv
+
+    if finish_installation "默认配置安装结束！请根据需要重启终端或输入 'zsh' 应用最新配置。"; then
+        return 0
+    fi
+
+    return 1
+}
+
 setup_dotfiles() {
     log_info "设置 dotfiles 仓库..."
     if [ ! -d "$DOTFILES_DIR" ]; then
@@ -264,6 +287,7 @@ show_help() {
     echo "默认行为：自动设置仓库并安装 Zsh, Neovim, Lazygit, Git, Env, FNM, uv"
     echo ""
     echo "按需安装选项:"
+    echo "  --no-git    默认安装时跳过 Git 配置"
     echo "  --zsh       仅安装配置 Zsh"
     echo "  --nvim      仅安装配置 Neovim"
     echo "  --lazygit   仅安装配置 Lazygit"
@@ -279,32 +303,35 @@ show_help() {
     echo "示例：./install.sh --git --env"
 }
 
-# 解析命令行参数
+# 按需行为：先检查是否为 help 参数
+DEFAULT_SKIP_GIT=false
+
 if [ $# -eq 0 ]; then
-    # 默认行为
-    run_setup setup_dotfiles
-    run_setup setup_zsh
-    run_setup setup_nvim
-    run_setup setup_lazygit
-    run_setup setup_git
-    run_setup setup_env
-    run_setup setup_fnm
-    run_setup setup_uv
-    if finish_installation "默认配置安装结束！请根据需要重启终端或输入 'zsh' 应用最新配置。"; then
+    if run_default_installation "$DEFAULT_SKIP_GIT"; then
         exit 0
     fi
     exit 1
 fi
 
-# 按需行为：先检查是否为 help 参数
-case $1 in
-    -h|--help) show_help; exit 0 ;;
-esac
+for arg in "$@"; do
+    case $arg in
+        -h|--help) show_help; exit 0 ;;
+        --no-git) DEFAULT_SKIP_GIT=true ;;
+    esac
+done
+
+if [ $# -eq 1 ] && [ "$1" = "--no-git" ]; then
+    if run_default_installation "$DEFAULT_SKIP_GIT"; then
+        exit 0
+    fi
+    exit 1
+fi
 
 run_setup setup_dotfiles
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
+        --no-git) ;;
         --zsh) run_setup setup_zsh ;;
         --nvim) run_setup setup_nvim ;;
         --lazygit) run_setup setup_lazygit ;;
