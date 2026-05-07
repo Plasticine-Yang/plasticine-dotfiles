@@ -180,7 +180,7 @@ setup_fnm() {
     
     if ! command -v fnm >/dev/null 2>&1; then
         log_info "未检测到 FNM，正在安装..."
-        curl -fsSL https://fnm.vercel.app/install | bash
+        curl -fsSL https://raw.githubusercontent.com/Schniz/fnm/refs/heads/master/.ci/install.sh | bash
         log_success "FNM 安装完成！"
     else
         log_info "FNM 已经安装，跳过安装。"
