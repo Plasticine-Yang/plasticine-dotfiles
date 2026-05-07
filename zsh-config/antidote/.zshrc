@@ -10,4 +10,4 @@ source "${PLASTICINE_LINUX_CONFIG_DIR}/zsh-config/antidote/plugin-configs/setup.
 [ -f ~/.env ] && source ~/.env
 
 # uv env
-. "$HOME/.local/bin/env"
+[ -f "$HOME/.local/bin/env" ] && source "$HOME/.local/bin/env"
