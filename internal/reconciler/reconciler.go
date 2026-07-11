@@ -200,7 +200,11 @@ func (r Reconciler) Doctor(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		result.Checks = append(result.Checks, Check{Name: "reconciliation-state", Healthy: false, Message: err.Error()})
 	} else if loaded.Exists {
+		excluded := componentSet(normalizedComponents(loaded.State.Scope.Excluded))
 		for path, ownership := range loaded.State.Ownership {
+			if excluded[ownership.Component] {
+				continue
+			}
 			got, exists := maybeFileDigest(path)
 			healthy := exists && got == ownership.Digest
 			result.Checks = append(result.Checks, Check{
@@ -209,6 +213,7 @@ func (r Reconciler) Doctor(ctx context.Context, req Request) (Result, error) {
 				Message: path,
 			})
 		}
+		result.Checks = append(result.Checks, orphanedSuspensionChecks(loaded.State)...)
 	} else {
 		result.Checks = append(result.Checks, Check{Name: "reconciliation-state", Healthy: false, Message: "state has not been applied"})
 	}
@@ -365,6 +370,22 @@ func githubSSHDiagnosticCheck(ctx context.Context, output []byte, err error) Che
 	return Check{Name: "github-ssh", Healthy: false, Message: "authentication: GitHub SSH authentication did not report success"}
 }
 
+func orphanedSuspensionChecks(state State) []Check {
+	catalog := componentSet(defaultComponents())
+	var checks []Check
+	for _, component := range normalizedComponents(state.Scope.Excluded) {
+		if catalog[component] {
+			continue
+		}
+		checks = append(checks, Check{
+			Name:    "suspended-orphan:" + string(component),
+			Healthy: false,
+			Message: "suspended component is absent from the selected Desired State catalog",
+		})
+	}
+	return checks
+}
+
 func lockResult(r Reconciler, req Request, blocker *Blocker) Result {
 	result := Result{
 		Outcome:        OutcomeBlocked,
@@ -392,6 +413,22 @@ func recoverPendingWork(home string) error {
 	for _, pending := range loaded.State.PendingWork {
 		currentDigest, exists := maybeFileDigest(pending.Path)
 		ownership, owned := loaded.State.Ownership[pending.Path]
+		if pending.Intent == string(ChangeRetireResource) || pending.Intent == string(ChangeCleanupManagedTool) {
+			switch {
+			case owned && !exists:
+				delete(loaded.State.Ownership, pending.Path)
+				continue
+			case !owned:
+				continue
+			case owned && exists && currentDigest == ownership.Digest:
+				continue
+			case owned && exists && pending.ResourceKind == ResourceManagedBlock && managedBlockRemoved(pending.Path):
+				delete(loaded.State.Ownership, pending.Path)
+				continue
+			default:
+				return nil
+			}
+		}
 		switch {
 		case owned && exists && currentDigest == ownership.Digest:
 			continue

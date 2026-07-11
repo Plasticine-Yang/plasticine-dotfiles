@@ -178,6 +178,7 @@ func (r Reconciler) buildPlan(ctx context.Context, req Request) (planSnapshot, e
 		}
 	}
 	snapshot.planRetirements(state, req.Adopt)
+	snapshot.planManagedToolCleanups(state, req.Adopt)
 	snapshot.finishOutcome()
 	return snapshot, nil
 }
@@ -241,19 +242,35 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 	}
 
 	for _, retirement := range result.Retirements {
-		if err := applyRetirement(retirement, &state); err != nil {
+		change, ok, blocker := retirementChange(retirement, state)
+		if blocker != nil {
+			result.Outcome = OutcomeBlocked
+			result.Blockers = append(result.Blockers, *blocker)
+			return result, nil
+		}
+		if !ok {
+			continue
+		}
+		stop, err := executeRemovalChange(req, &result, &state, change)
+		if err != nil {
 			return Result{}, err
 		}
-		result.DurableEffects = appendUnique(result.DurableEffects, retirement.Path)
+		if stop {
+			return result, nil
+		}
 	}
 
 	var failedCapabilities []Capability
 	failedComponents := map[ComponentID]string{}
 	awaitingOwnerAction := false
+	var cleanupChanges []Change
 	resourceChanges := map[ComponentID][]Change{}
 	for _, change := range result.Changes {
 		switch change.Kind {
 		case ChangeScopeReplacement, ChangeStateMigration:
+			continue
+		case ChangeCleanupManagedTool:
+			cleanupChanges = append(cleanupChanges, change)
 			continue
 		case ChangeSystemDependency:
 			effects, err := r.applySystemDependency(ctx, req, change)
@@ -444,6 +461,20 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 		result.Components = append(result.Components, ComponentResult{Component: component, Status: ComponentSucceeded})
 	}
 
+	if result.Outcome != OutcomePartial {
+		for _, change := range cleanupChanges {
+			stop, err := executeRemovalChange(req, &result, &state, change)
+			if err != nil {
+				return Result{}, err
+			}
+			if stop {
+				return result, nil
+			}
+			if result.Outcome == OutcomePartial {
+				break
+			}
+		}
+	}
 	if result.Outcome != OutcomePartial {
 		state.PendingWork = nil
 	}
@@ -656,16 +687,93 @@ func (s *planSnapshot) planRetirements(state State, adopt bool) {
 		if !s.Active[ownership.Component] {
 			continue
 		}
-		retirement := Retirement{Component: ownership.Component, Path: path, Reason: "owned resource is absent from the selected Desired State catalog"}
+		if ownership.ResourceKind == ResourceManagedTool &&
+			state.ToolLockSHA256 != s.ToolLockSHA256 &&
+			s.hasDesiredResourceKind(ownership.Component, ResourceManagedTool) {
+			continue
+		}
+		if !retirableResourceKind(ownership.ResourceKind) {
+			continue
+		}
+		precondition := preconditionAbsent
 		currentDigest, exists := maybeFileDigest(path)
+		if exists {
+			precondition = currentDigest
+		}
 		if exists && currentDigest != ownership.Digest {
+			if ownership.ResourceKind == ResourceManagedBlock && managedBlockRemovalPreservesOwnerContent(path) {
+				retirement := Retirement{
+					Component:    ownership.Component,
+					Path:         path,
+					ResourceKind: ownership.ResourceKind,
+					Reason:       "owned resource is absent from the selected Desired State catalog",
+					Precondition: precondition,
+				}
+				s.Result.Retirements = append(s.Result.Retirements, retirement)
+				continue
+			}
 			s.conflict(ownership.Component, path, true, "retiring managed path has Owner drift")
 			if !adopt {
 				continue
 			}
 		}
+		retirement := Retirement{
+			Component:    ownership.Component,
+			Path:         path,
+			ResourceKind: ownership.ResourceKind,
+			Reason:       "owned resource is absent from the selected Desired State catalog",
+			Precondition: precondition,
+		}
 		s.Result.Retirements = append(s.Result.Retirements, retirement)
 	}
+}
+
+func (s *planSnapshot) planManagedToolCleanups(state State, adopt bool) {
+	if state.ToolLockSHA256 == s.ToolLockSHA256 {
+		return
+	}
+	for path, ownership := range state.Ownership {
+		if ownership.ResourceKind != ResourceManagedTool {
+			continue
+		}
+		if !s.hasDesiredResourceKind(ownership.Component, ResourceManagedTool) {
+			continue
+		}
+		if _, stillDesired := s.DesiredByPath[path]; stillDesired {
+			continue
+		}
+		if !s.Active[ownership.Component] {
+			continue
+		}
+		precondition := preconditionAbsent
+		currentDigest, exists := maybeFileDigest(path)
+		if exists {
+			precondition = currentDigest
+		}
+		if exists && currentDigest != ownership.Digest {
+			s.conflict(ownership.Component, path, true, "replaced managed tool payload has Owner drift")
+			if !adopt {
+				continue
+			}
+		}
+		s.Result.Changes = append(s.Result.Changes, Change{
+			Component:    ownership.Component,
+			Kind:         ChangeCleanupManagedTool,
+			ResourceKind: ownership.ResourceKind,
+			Path:         path,
+			Summary:      "remove old Managed Tool payload after successful Tool Lock switch",
+			Precondition: precondition,
+		})
+	}
+}
+
+func (s *planSnapshot) hasDesiredResourceKind(component ComponentID, kind ResourceKind) bool {
+	for _, resource := range s.Desired {
+		if resource.Component == component && resource.ResourceKind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *planSnapshot) finishOutcome() {
@@ -1048,12 +1156,9 @@ func writeManagedBlock(path string, block string) error {
 		}
 		return os.WriteFile(path, []byte(text+block), 0o600)
 	}
-	if start < 0 || end < start {
+	start, end, ok := managedBlockSpan(text)
+	if !ok {
 		return fmt.Errorf("managed block markers are not replaceable")
-	}
-	end += len(sshBlockEnd)
-	if end < len(text) && text[end] == '\n' {
-		end++
 	}
 	next := text[:start] + block + text[end:]
 	return os.WriteFile(path, []byte(next), 0o600)
@@ -1095,12 +1200,162 @@ func createBackup(home string, clock func() time.Time, conflict Conflict) (Backu
 	}, nil
 }
 
-func applyRetirement(retirement Retirement, state *State) error {
-	if err := os.Remove(retirement.Path); err != nil && !os.IsNotExist(err) {
+func retirementChange(retirement Retirement, state State) (Change, bool, *Blocker) {
+	ownership, owned := state.Ownership[retirement.Path]
+	if !owned {
+		return Change{}, false, nil
+	}
+	resourceKind := retirement.ResourceKind
+	if resourceKind == "" {
+		resourceKind = ownership.ResourceKind
+	}
+	if !retirableResourceKind(resourceKind) {
+		return Change{}, false, &Blocker{
+			Code:    BlockerOperationalFailure,
+			Message: "refusing to retire non-retirable resource kind " + string(resourceKind),
+		}
+	}
+	return Change{
+		Component:    retirement.Component,
+		Kind:         ChangeRetireResource,
+		ResourceKind: resourceKind,
+		Path:         retirement.Path,
+		Summary:      retirement.Reason,
+		Precondition: retirement.Precondition,
+	}, true, nil
+}
+
+func retirableResourceKind(kind ResourceKind) bool {
+	switch kind {
+	case ResourceManagedPath, ResourceManagedBlock, ResourceManagedTool, ResourceIntegrationShim, ResourceSymlink:
+		return true
+	default:
+		return false
+	}
+}
+
+func executeRemovalChange(req Request, result *Result, state *State, change Change) (bool, error) {
+	if err := verifyPrecondition(change.Path, change.Precondition); err != nil {
+		result.Outcome = OutcomeBlocked
+		result.Blockers = append(result.Blockers, Blocker{Code: BlockerStalePlan, Message: err.Error()})
+		return true, nil
+	}
+	pending := journalEntriesFor([]Change{change})
+	state.PendingWork = append(state.PendingWork, pending...)
+	if err := writeState(req.Home, *state); err != nil {
+		return false, err
+	}
+	result.DurableEffects = appendUnique(result.DurableEffects, StatePath(req.Home))
+	if req.BeforeMutation != nil {
+		req.BeforeMutation(change)
+	}
+	if err := verifyPrecondition(change.Path, change.Precondition); err != nil {
+		state.PendingWork = removeJournalEntries(state.PendingWork, pending)
+		if writeErr := writeState(req.Home, *state); writeErr != nil {
+			return false, writeErr
+		}
+		result.Outcome = OutcomeBlocked
+		result.Blockers = append(result.Blockers, Blocker{Code: BlockerStalePlan, Message: err.Error()})
+		return true, nil
+	}
+	if req.FailBeforeEffectPath == change.Path {
+		result.Outcome = OutcomePartial
+		result.Blockers = append(result.Blockers, Blocker{
+			Code:    BlockerOperationalFailure,
+			Message: "failure injected before removing " + change.Path,
+		})
+		return false, nil
+	}
+	if err := applyRemovalChange(change, state); err != nil {
+		result.Outcome = OutcomePartial
+		result.Blockers = append(result.Blockers, Blocker{Code: BlockerOperationalFailure, Message: err.Error()})
+		return false, nil
+	}
+	state.PendingWork = removeJournalEntries(state.PendingWork, pending)
+	if err := writeState(req.Home, *state); err != nil {
+		return false, err
+	}
+	result.DurableEffects = appendUnique(result.DurableEffects, change.Path)
+	return false, nil
+}
+
+func applyRemovalChange(change Change, state *State) error {
+	if !retirableResourceKind(change.ResourceKind) {
+		return fmt.Errorf("refusing to retire non-retirable resource kind %s", change.ResourceKind)
+	}
+	if change.ResourceKind == ResourceManagedBlock {
+		if err := removeManagedBlock(change.Path); err != nil {
+			return err
+		}
+		delete(state.Ownership, change.Path)
+		return nil
+	}
+	if err := os.Remove(change.Path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	delete(state.Ownership, retirement.Path)
+	delete(state.Ownership, change.Path)
 	return nil
+}
+
+func removeManagedBlock(path string) error {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	text := string(data)
+	start := strings.Index(text, sshBlockStart)
+	end := strings.Index(text, sshBlockEnd)
+	if start < 0 && end < 0 {
+		return nil
+	}
+	start, end, ok := managedBlockSpan(text)
+	if !ok {
+		return fmt.Errorf("managed block markers are not removable")
+	}
+	next := text[:start] + text[end:]
+	if strings.TrimSpace(next) == "" {
+		return os.Remove(path)
+	}
+	return os.WriteFile(path, []byte(next), 0o600)
+}
+
+func managedBlockSpan(text string) (int, int, bool) {
+	start := strings.Index(text, sshBlockStart)
+	end := strings.Index(text, sshBlockEnd)
+	if start < 0 || end < start {
+		return 0, 0, false
+	}
+	end += len(sshBlockEnd)
+	if end < len(text) && text[end] == '\n' {
+		end++
+	}
+	return start, end, true
+}
+
+func managedBlockRemoved(path string) bool {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	return blockState(string(data)) == "absent" || blockState(string(data)) == "empty"
+}
+
+func managedBlockRemovalPreservesOwnerContent(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	start, end, ok := managedBlockSpan(string(data))
+	if !ok {
+		return false
+	}
+	return string(data[start:end]) == githubSSHManagedBlock()
 }
 
 func (r Reconciler) applySystemDependency(ctx context.Context, req Request, change Change) ([]string, error) {

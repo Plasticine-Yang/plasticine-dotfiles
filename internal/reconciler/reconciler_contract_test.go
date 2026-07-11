@@ -1448,6 +1448,601 @@ func TestRetirementDeletesOnlyUnchangedOwnedResources(t *testing.T) {
 	}
 }
 
+func TestRetirementRemovesManagedBlockWithoutDeletingOwnerContent(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Yes = true
+	if _, err := r.Apply(context.Background(), req); err != nil {
+		t.Fatalf("initial apply: %v", err)
+	}
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	retiredPath := filepath.Join(req.WorkstationRoot, ".ssh", "config")
+	body := strings.Join([]string{
+		"Host internal",
+		"  HostName git.internal",
+		"# BEGIN PLASTICINE GITHUB SSH",
+		"Host github.com",
+		"  Include ~/.plasticine/config/ssh/github.conf",
+		"# END PLASTICINE GITHUB SSH",
+		"Host after",
+		"  HostName after.internal",
+		"",
+	}, "\n")
+	writeText(t, retiredPath, body)
+	state.Ownership[retiredPath] = reconciler.Ownership{
+		Component:    reconciler.ComponentGitConfig,
+		Path:         retiredPath,
+		ResourceKind: reconciler.ResourceManagedBlock,
+		Digest:       testDigest(body),
+		AcceptedAt:   state.AppliedAt,
+	}
+	writeStateJSON(t, req.Home, state)
+
+	result, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("retirement apply: %v", err)
+	}
+	if result.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("retirement apply outcome = %s", result.Outcome)
+	}
+	got := readText(t, retiredPath)
+	if strings.Contains(got, "PLASTICINE GITHUB SSH") || strings.Contains(got, "Include ~/.plasticine") {
+		t.Fatalf("managed block was not removed: %q", got)
+	}
+	if !strings.Contains(got, "Host internal") || !strings.Contains(got, "Host after") {
+		t.Fatalf("owner content was not preserved: %q", got)
+	}
+	state, err = reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read post-retirement state: %v", err)
+	}
+	if _, ok := state.Ownership[retiredPath]; ok {
+		t.Fatalf("retired managed block ownership was not released")
+	}
+}
+
+func TestRetirementDoesNotConflictOnManagedBlockOwnerEditsOutsideMarkers(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Yes = true
+	if _, err := r.Apply(context.Background(), req); err != nil {
+		t.Fatalf("initial apply: %v", err)
+	}
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	retiredPath := filepath.Join(req.WorkstationRoot, ".ssh", "config")
+	acceptedBody := strings.Join([]string{
+		"Host internal",
+		"  HostName old.internal",
+		"# BEGIN PLASTICINE GITHUB SSH",
+		"Host github.com",
+		"  Include ~/.plasticine/config/ssh/github.conf",
+		"# END PLASTICINE GITHUB SSH",
+		"",
+	}, "\n")
+	currentBody := strings.Replace(acceptedBody, "old.internal", "new.internal", 1)
+	writeText(t, retiredPath, currentBody)
+	state.Ownership[retiredPath] = reconciler.Ownership{
+		Component:    reconciler.ComponentGitConfig,
+		Path:         retiredPath,
+		ResourceKind: reconciler.ResourceManagedBlock,
+		Digest:       testDigest(acceptedBody),
+		AcceptedAt:   state.AppliedAt,
+	}
+	writeStateJSON(t, req.Home, state)
+
+	plan, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if len(plan.Conflicts) != 0 || len(plan.Retirements) != 1 {
+		t.Fatalf("plan conflicts=%#v retirements=%#v, want preservable managed block retirement", plan.Conflicts, plan.Retirements)
+	}
+	result, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if result.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply outcome = %s blockers=%#v", result.Outcome, result.Blockers)
+	}
+	got := readText(t, retiredPath)
+	if strings.Contains(got, "PLASTICINE GITHUB SSH") {
+		t.Fatalf("managed block was not removed: %q", got)
+	}
+	if !strings.Contains(got, "new.internal") {
+		t.Fatalf("owner edit outside markers was not preserved: %q", got)
+	}
+}
+
+func TestRetirementAdoptionBacksUpDriftBeforeDeletion(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Yes = true
+	if _, err := r.Apply(context.Background(), req); err != nil {
+		t.Fatalf("initial apply: %v", err)
+	}
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	retiredPath := filepath.Join(req.Home, "legacy", "drifted-git-shim")
+	writeText(t, retiredPath, "owner drift")
+	state.Ownership[retiredPath] = reconciler.Ownership{
+		Component:    reconciler.ComponentGitConfig,
+		Path:         retiredPath,
+		ResourceKind: reconciler.ResourceManagedPath,
+		Digest:       testDigest("old managed bytes"),
+		AcceptedAt:   state.AppliedAt,
+	}
+	writeStateJSON(t, req.Home, state)
+
+	req.Adopt = true
+	plan, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("retirement plan: %v", err)
+	}
+	if len(plan.Conflicts) != 1 || len(plan.Retirements) != 1 {
+		t.Fatalf("plan conflicts=%#v retirements=%#v, want adopted retirement drift", plan.Conflicts, plan.Retirements)
+	}
+	applied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("retirement apply: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("retirement apply outcome = %s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+	if pathExists(retiredPath) {
+		t.Fatalf("adopted retirement drift was not deleted")
+	}
+	state, err = reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read post-retirement state: %v", err)
+	}
+	if _, ok := state.Ownership[retiredPath]; ok {
+		t.Fatalf("adopted retirement did not release ownership")
+	}
+	if len(state.Backups) == 0 {
+		t.Fatalf("adopted retirement did not create a backup")
+	}
+	if got := readText(t, state.Backups[len(state.Backups)-1].Backup); got != "owner drift" {
+		t.Fatalf("backup content = %q, want owner drift", got)
+	}
+}
+
+func TestRetirementBlocksStaleExternalEditsBeforeDeletion(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Yes = true
+	if _, err := r.Apply(context.Background(), req); err != nil {
+		t.Fatalf("initial apply: %v", err)
+	}
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	retiredPath := filepath.Join(req.Home, "legacy", "stale-git-shim")
+	writeText(t, retiredPath, "old managed bytes")
+	state.Ownership[retiredPath] = reconciler.Ownership{
+		Component:    reconciler.ComponentGitConfig,
+		Path:         retiredPath,
+		ResourceKind: reconciler.ResourceManagedPath,
+		Digest:       testDigest("old managed bytes"),
+		AcceptedAt:   state.AppliedAt,
+	}
+	writeStateJSON(t, req.Home, state)
+
+	req.Yes = false
+	req.Authorize = func(reconciler.Result) bool {
+		writeText(t, retiredPath, "owner edit after plan")
+		return true
+	}
+	result, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("retirement apply: %v", err)
+	}
+	if result.Outcome != reconciler.OutcomeBlocked || !hasBlocker(result.Blockers, reconciler.BlockerStalePlan) {
+		t.Fatalf("retirement outcome=%s blockers=%#v, want stale-plan block", result.Outcome, result.Blockers)
+	}
+	if got := readText(t, retiredPath); got != "owner edit after plan" {
+		t.Fatalf("retirement deleted or rewrote stale path: %q", got)
+	}
+	state, err = reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read post-retirement state: %v", err)
+	}
+	if len(state.PendingWork) != 0 {
+		t.Fatalf("stale retirement wrote pending work: %#v", state.PendingWork)
+	}
+	if _, ok := state.Ownership[retiredPath]; !ok {
+		t.Fatalf("stale retirement released ownership")
+	}
+}
+
+func TestRetirementPreservesPendingJournalOnInterruptedDeletion(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Yes = true
+	if _, err := r.Apply(context.Background(), req); err != nil {
+		t.Fatalf("initial apply: %v", err)
+	}
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	retiredPath := filepath.Join(req.Home, "legacy", "interrupted-git-shim")
+	writeText(t, retiredPath, "old managed bytes")
+	state.Ownership[retiredPath] = reconciler.Ownership{
+		Component:    reconciler.ComponentGitConfig,
+		Path:         retiredPath,
+		ResourceKind: reconciler.ResourceManagedPath,
+		Digest:       testDigest("old managed bytes"),
+		AcceptedAt:   state.AppliedAt,
+	}
+	writeStateJSON(t, req.Home, state)
+
+	req.FailBeforeEffectPath = retiredPath
+	result, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("retirement apply: %v", err)
+	}
+	if result.Outcome != reconciler.OutcomePartial || !hasBlocker(result.Blockers, reconciler.BlockerOperationalFailure) {
+		t.Fatalf("retirement outcome=%s blockers=%#v, want partial operational failure", result.Outcome, result.Blockers)
+	}
+	if !pathExists(retiredPath) {
+		t.Fatalf("retirement deleted path despite injected interruption")
+	}
+	state, err = reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read interrupted state: %v", err)
+	}
+	if len(state.PendingWork) != 1 {
+		t.Fatalf("pending work = %#v, want one retirement journal entry", state.PendingWork)
+	}
+	pending := state.PendingWork[0]
+	if pending.Path != retiredPath || pending.Intent != string(reconciler.ChangeRetireResource) {
+		t.Fatalf("pending work = %#v, want retirement for %s", pending, retiredPath)
+	}
+	if _, ok := state.Ownership[retiredPath]; !ok {
+		t.Fatalf("interrupted retirement released ownership")
+	}
+}
+
+func TestRetirementRecoveryReleasesOwnershipAfterInterruptedDeletion(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Yes = true
+	if _, err := r.Apply(context.Background(), req); err != nil {
+		t.Fatalf("initial apply: %v", err)
+	}
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	retiredPath := filepath.Join(req.Home, "legacy", "deleted-before-state-commit")
+	state.Ownership[retiredPath] = reconciler.Ownership{
+		Component:    reconciler.ComponentGitConfig,
+		Path:         retiredPath,
+		ResourceKind: reconciler.ResourceManagedPath,
+		Digest:       testDigest("old managed bytes"),
+		AcceptedAt:   state.AppliedAt,
+	}
+	state.PendingWork = []reconciler.JournalEntry{{
+		Component:    reconciler.ComponentGitConfig,
+		Path:         retiredPath,
+		ResourceKind: reconciler.ResourceManagedPath,
+		Intent:       string(reconciler.ChangeRetireResource),
+		Precondition: testDigest("old managed bytes"),
+	}}
+	writeStateJSON(t, req.Home, state)
+
+	result, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("recovery apply: %v", err)
+	}
+	if result.Outcome != reconciler.OutcomeNoChange && result.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("recovery outcome = %s", result.Outcome)
+	}
+	state, err = reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read recovered state: %v", err)
+	}
+	if len(state.PendingWork) != 0 {
+		t.Fatalf("pending retirement was not cleared: %#v", state.PendingWork)
+	}
+	if _, ok := state.Ownership[retiredPath]; ok {
+		t.Fatalf("retired ownership was not released during recovery")
+	}
+}
+
+func TestRetirementDoesNotRunForOneShotFilteredOrSuspendedComponents(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Yes = true
+	if _, err := r.Apply(context.Background(), req); err != nil {
+		t.Fatalf("initial apply: %v", err)
+	}
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	retiredPath := filepath.Join(req.Home, "legacy", "filtered-git-shim")
+	writeText(t, retiredPath, "old managed bytes")
+	state.Ownership[retiredPath] = reconciler.Ownership{
+		Component:    reconciler.ComponentGitConfig,
+		Path:         retiredPath,
+		ResourceKind: reconciler.ResourceManagedPath,
+		Digest:       testDigest("old managed bytes"),
+		AcceptedAt:   state.AppliedAt,
+	}
+	writeStateJSON(t, req.Home, state)
+
+	filteredReq := req
+	filteredReq.Components = []reconciler.ComponentID{reconciler.ComponentShell}
+	filteredPlan, err := r.Plan(context.Background(), filteredReq)
+	if err != nil {
+		t.Fatalf("filtered plan: %v", err)
+	}
+	if len(filteredPlan.Retirements) != 0 {
+		t.Fatalf("one-shot component filter planned retirement: %#v", filteredPlan.Retirements)
+	}
+
+	state.Scope.Excluded = []reconciler.ComponentID{reconciler.ComponentGitConfig}
+	writeStateJSON(t, req.Home, state)
+	suspendedReq := req
+	suspendedReq.ReplaceScope = false
+	suspendedPlan, err := r.Plan(context.Background(), suspendedReq)
+	if err != nil {
+		t.Fatalf("suspended plan: %v", err)
+	}
+	if len(suspendedPlan.Retirements) != 0 {
+		t.Fatalf("suspended component planned retirement: %#v", suspendedPlan.Retirements)
+	}
+	if !pathExists(retiredPath) {
+		t.Fatalf("suspended retirement mutated content during plan")
+	}
+}
+
+func TestRetirementNeverDeletesSystemDependenciesOrToolManagedState(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Yes = true
+	if _, err := r.Apply(context.Background(), req); err != nil {
+		t.Fatalf("initial apply: %v", err)
+	}
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	systemPath := filepath.Join(req.Home, "system", "git")
+	toolStatePath := filepath.Join(req.Home, "runtime", "node", "versions")
+	writeText(t, systemPath, "system dependency marker")
+	writeText(t, toolStatePath, "tool managed state")
+	state.Ownership[systemPath] = reconciler.Ownership{
+		Component:    reconciler.ComponentGitConfig,
+		Path:         systemPath,
+		ResourceKind: reconciler.ResourceSystemDependency,
+		Digest:       testDigest("system dependency marker"),
+		AcceptedAt:   state.AppliedAt,
+	}
+	state.Ownership[toolStatePath] = reconciler.Ownership{
+		Component:    reconciler.ComponentGitConfig,
+		Path:         toolStatePath,
+		ResourceKind: reconciler.ResourceToolManagedState,
+		Digest:       testDigest("tool managed state"),
+		AcceptedAt:   state.AppliedAt,
+	}
+	writeStateJSON(t, req.Home, state)
+
+	plan, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	for _, retirement := range plan.Retirements {
+		if retirement.Path == systemPath || retirement.Path == toolStatePath {
+			t.Fatalf("planned forbidden retirement: %#v", retirement)
+		}
+	}
+	applied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeNoChange && applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply outcome = %s", applied.Outcome)
+	}
+	if got := readText(t, systemPath); got != "system dependency marker" {
+		t.Fatalf("system dependency was mutated: %q", got)
+	}
+	if got := readText(t, toolStatePath); got != "tool managed state" {
+		t.Fatalf("tool managed state was mutated: %q", got)
+	}
+	state, err = reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read post-apply state: %v", err)
+	}
+	if _, ok := state.Ownership[systemPath]; !ok {
+		t.Fatalf("system dependency ownership was released")
+	}
+	if _, ok := state.Ownership[toolStatePath]; !ok {
+		t.Fatalf("tool managed state ownership was released")
+	}
+}
+
+func TestDoctorReportsSuspendedComponentWhoseCatalogDefinitionDisappeared(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	legacyComponent := reconciler.ComponentID("legacy-component")
+	legacyPath := filepath.Join(req.Home, "legacy", "owned")
+	writeText(t, legacyPath, "legacy bytes")
+	writeStateJSON(t, req.Home, reconciler.State{
+		SchemaVersion:  reconciler.CurrentStateSchema,
+		DesiredStateID: "older-release",
+		Target:         req.Target,
+		Scope: reconciler.WorkstationScope{
+			Excluded: []reconciler.ComponentID{legacyComponent},
+		},
+		Ownership: map[string]reconciler.Ownership{
+			legacyPath: {
+				Component:    legacyComponent,
+				Path:         legacyPath,
+				ResourceKind: reconciler.ResourceManagedPath,
+				Digest:       testDigest("legacy bytes"),
+				AcceptedAt:   "2026-07-10T00:00:00Z",
+			},
+		},
+	})
+
+	doctor, err := r.Doctor(context.Background(), req)
+	if err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	if doctor.Outcome != reconciler.OutcomeUnhealthy {
+		t.Fatalf("doctor outcome = %s checks=%#v", doctor.Outcome, doctor.Checks)
+	}
+	if !hasUnhealthyCheck(doctor.Checks, "suspended-orphan:legacy-component") {
+		t.Fatalf("doctor checks=%#v, want suspended orphan report", doctor.Checks)
+	}
+	if checkByName(doctor.Checks, "managed:legacy-component") != nil {
+		t.Fatalf("doctor inspected suspended component ownership: %#v", doctor.Checks)
+	}
+	if got := readText(t, legacyPath); got != "legacy bytes" {
+		t.Fatalf("doctor mutated suspended component content: %q", got)
+	}
+}
+
+func TestManagedToolVersionSwitchCleansOldPayloadAfterSuccessfulInstallWithoutRetirement(t *testing.T) {
+	t.Parallel()
+
+	oldArtifact := []byte("#!/bin/sh\nprintf 'old lazygit\\n'\n")
+	newArtifact := []byte("#!/bin/sh\nprintf 'new lazygit\\n'\n")
+	oldSHA := testDigestBytes(oldArtifact)
+	newSHA := testDigestBytes(newArtifact)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/old":
+			_, _ = w.Write(oldArtifact)
+		case "/new":
+			_, _ = w.Write(newArtifact)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	oldReconciler := managedToolReconciler("managed-tool-old", oldSHA, "v-old", server.URL+"/old", oldSHA)
+	newReconciler := managedToolReconciler("managed-tool-new", newSHA, "v-new", server.URL+"/new", newSHA)
+	req := contractRequest(t.TempDir())
+	req.Exclude = []reconciler.ComponentID{reconciler.ComponentGitHubSSH}
+	req.Components = []reconciler.ComponentID{reconciler.ComponentLazygit}
+	req.Yes = true
+
+	if applied, err := oldReconciler.Apply(context.Background(), req); err != nil || applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("old apply outcome=%s err=%v", applied.Outcome, err)
+	}
+	oldPayload := filepath.Join(req.Home, "tools", "lazygit", "v-old", "lazygit")
+	newPayload := filepath.Join(req.Home, "tools", "lazygit", "v-new", "lazygit")
+	plan, err := newReconciler.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("new plan: %v", err)
+	}
+	for _, retirement := range plan.Retirements {
+		if retirement.Path == oldPayload {
+			t.Fatalf("ordinary tool version switch reported old payload as retirement: %#v", retirement)
+		}
+	}
+	if !hasChangeKindPath(plan.Changes, reconciler.ChangeCleanupManagedTool, oldPayload) {
+		t.Fatalf("plan changes=%#v, want planned cleanup for old payload", plan.Changes)
+	}
+	applied, err := newReconciler.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("new apply: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("new apply outcome = %s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+	if pathExists(oldPayload) {
+		t.Fatalf("old managed tool payload still exists after successful switch")
+	}
+	if got := readText(t, newPayload); got != string(newArtifact) {
+		t.Fatalf("new payload content = %q, want new artifact", got)
+	}
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if _, ok := state.Ownership[oldPayload]; ok {
+		t.Fatalf("old managed tool ownership was not released")
+	}
+	if _, ok := state.Ownership[newPayload]; !ok {
+		t.Fatalf("new managed tool ownership was not recorded")
+	}
+}
+
+func TestManagedToolCatalogRemovalStillReportsRetirementDuringToolLockChange(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Yes = true
+	if _, err := r.Apply(context.Background(), req); err != nil {
+		t.Fatalf("initial apply: %v", err)
+	}
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	removedToolPath := filepath.Join(req.Home, "tools", "removed", "v-old", "removed")
+	writeText(t, removedToolPath, "removed tool")
+	state.ToolLockSHA256 = strings.Repeat("0", 64)
+	state.Ownership[removedToolPath] = reconciler.Ownership{
+		Component:    reconciler.ComponentGitConfig,
+		Path:         removedToolPath,
+		ResourceKind: reconciler.ResourceManagedTool,
+		Digest:       testDigest("removed tool"),
+		AcceptedAt:   state.AppliedAt,
+	}
+	writeStateJSON(t, req.Home, state)
+
+	plan, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	found := false
+	for _, retirement := range plan.Retirements {
+		if retirement.Path == removedToolPath {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("plan retirements=%#v, want catalog-removed managed tool retirement", plan.Retirements)
+	}
+	if hasChangeKindPath(plan.Changes, reconciler.ChangeCleanupManagedTool, removedToolPath) {
+		t.Fatalf("catalog-removed managed tool was planned as version-switch cleanup: %#v", plan.Changes)
+	}
+}
+
 func TestStalePlanPreconditionBlocksExternalEdits(t *testing.T) {
 	t.Parallel()
 
@@ -1700,6 +2295,28 @@ func contractReconciler() reconciler.Reconciler {
 	})
 }
 
+func managedToolReconciler(desiredStateID string, toolLockSHA256 string, version string, artifactURL string, artifactSHA256 string) reconciler.Reconciler {
+	return reconciler.New(reconciler.Options{
+		DesiredStateID: desiredStateID,
+		ToolLockSHA256: toolLockSHA256,
+		ToolLock: release.ToolLock{Tools: map[release.ManagedTool]release.ToolVersion{
+			release.ManagedToolLazygit: {
+				Version: version,
+				Targets: map[platform.ArtifactTarget]release.ToolArtifact{
+					platform.TargetDarwinARM64: {
+						URL:          artifactURL,
+						ArtifactType: release.ArtifactTypeRawExecutable,
+						SHA256:       artifactSHA256,
+					},
+				},
+			},
+		}},
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
+}
+
 func contractRequest(home string) reconciler.Request {
 	return reconciler.Request{
 		Home:            home,
@@ -1746,6 +2363,15 @@ func hasChange(changes []reconciler.Change, component reconciler.ComponentID, ki
 	return false
 }
 
+func hasChangeKindPath(changes []reconciler.Change, kind reconciler.ChangeKind, path string) bool {
+	for _, change := range changes {
+		if change.Kind == kind && change.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
 func hasSystemChange(changes []reconciler.Change) bool {
 	for _, change := range changes {
 		if change.SystemChange {
@@ -1758,6 +2384,15 @@ func hasSystemChange(changes []reconciler.Change) bool {
 func hasHealthyCheck(checks []reconciler.Check, name string) bool {
 	for _, check := range checks {
 		if check.Name == name && check.Healthy {
+			return true
+		}
+	}
+	return false
+}
+
+func hasUnhealthyCheck(checks []reconciler.Check, name string) bool {
+	for _, check := range checks {
+		if check.Name == name && !check.Healthy {
 			return true
 		}
 	}
@@ -1820,6 +2455,9 @@ func writeStateJSON(t *testing.T, home string, state reconciler.State) {
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		t.Fatalf("marshal state: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(reconciler.StatePath(home)), 0o700); err != nil {
+		t.Fatalf("mkdir state dir: %v", err)
 	}
 	if err := os.WriteFile(reconciler.StatePath(home), append(data, '\n'), 0o600); err != nil {
 		t.Fatalf("write state: %v", err)

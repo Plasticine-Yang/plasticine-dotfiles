@@ -50,6 +50,8 @@ const (
 	ChangeStateMigration     ChangeKind = "state-migration"
 	ChangeScopeReplacement   ChangeKind = "scope-replacement"
 	ChangeLoginShell         ChangeKind = "login-shell"
+	ChangeRetireResource     ChangeKind = "retire-resource"
+	ChangeCleanupManagedTool ChangeKind = "cleanup-managed-tool"
 )
 
 type ResourceKind string
@@ -86,9 +88,11 @@ type Conflict struct {
 }
 
 type Retirement struct {
-	Component ComponentID `json:"component"`
-	Path      string      `json:"path"`
-	Reason    string      `json:"reason"`
+	Component    ComponentID  `json:"component"`
+	Path         string       `json:"path"`
+	ResourceKind ResourceKind `json:"resource_kind"`
+	Reason       string       `json:"reason"`
+	Precondition string       `json:"precondition,omitempty"`
 }
 
 type ScopeSummary struct {
