@@ -1,0 +1,197 @@
+docs/adr/0016-materialize-managed-configuration.md
+  s_075a00f4f99323::t_d5ad1e49fc2e8d 1-3
+docs/adr/0017-continue-independent-components.md
+  s_075a00f4f99323::t_89b4c307bfc39e 1-3
+docs/adr/0019-separate-system-dependency-versions.md
+  s_075a00f4f99323::t_e324f988c68f19 1-3
+.agents/skills/setup-matt-pocock-skills/SKILL.md
+  s_bd367d4d362b9a::t_bd5a7247f1e71b 24,67,74
+.gitignore
+  s_bd367d4d362b9a::t_b2149584e65fea 3,5
+.scratch/plasticine-cli/spec.md
+  s_bd367d4d362b9a::t_87cb3655b5743d 1-359
+AGENTS.md
+  s_586f8acf40f388::t_b0b50d0f6677f8 1,3,5,7,9-13
+CONTEXT.md
+  s_bd367d4d362b9a::t_d6248a62bea40e 1-117
+docs/adr/0001-separate-bootstrap-from-cli.md
+  s_bd367d4d362b9a::t_16fd83af0559e6 1-3
+docs/adr/0002-optimize-for-one-owner.md
+  s_bd367d4d362b9a::t_0f5d5419b30162 1-3
+docs/adr/0003-release-cli-and-configuration-together.md
+  s_bd367d4d362b9a::t_c4283580901a1e 1-3
+docs/adr/0004-keep-secrets-outside-reconciliation.md
+  s_742c17b44ab8ed::t_66f888e1d57315 1-3
+docs/adr/0005-ship-go-binaries.md
+  s_bd367d4d362b9a::t_566b8d6b3489ab 1-3
+docs/adr/0006-bootstrap-selects-stable-releases.md
+  s_bd367d4d362b9a::t_e063d25b102d69 1-3
+docs/adr/0007-bootstrap-is-user-scoped.md
+  s_bd367d4d362b9a::t_d9e82fcee62205 1-3
+docs/adr/0008-escalate-per-system-change.md
+  s_bd367d4d362b9a::t_e4954bacd1afda 1-3
+docs/adr/0009-reconcile-tools-and-configuration.md
+  s_bd367d4d362b9a::t_8b5c27bc9f4d07 1-3
+docs/adr/0010-prefer-pinned-user-scoped-artifacts.md
+  s_bd367d4d362b9a::t_c955123e144665 1-3
+docs/adr/0011-limit-full-linux-support.md
+  s_bd367d4d362b9a::t_2f0c962c22723b 1-3
+docs/adr/0012-verify-release-artifacts-with-sha256.md
+  s_bd367d4d362b9a::t_171ef40c7e310c 1-3
+docs/adr/0013-use-apply-for-first-and-later-runs.md
+  s_bd367d4d362b9a::t_74faf23d28ee96 1-3
+docs/adr/0014-plan-before-mutation.md
+  s_bd367d4d362b9a::t_6f4886b998a16b 1-3
+docs/adr/0015-require-explicit-adoption.md
+  s_bd367d4d362b9a::t_ae634ce262e3e0 1-3
+docs/adr/0018-use-one-desired-state.md
+  s_bd367d4d362b9a::t_5390e7e2d1e763 1-7
+docs/adr/0020-configure-github-ssh-locally.md
+  s_bd367d4d362b9a::t_12562d5339627c 1-3
+docs/adr/0021-share-one-linux-ssh-agent.md
+  s_bd367d4d362b9a::t_d3b787e96f676a 1-3
+docs/adr/0022-persist-secret-references.md
+  s_bd367d4d362b9a::t_b6873564da5108 1-3
+docs/adr/0023-leave-nested-tool-ecosystems-tool-managed.md
+  s_bd367d4d362b9a::t_cc5bef4a82bf9b 1-3
+docs/adr/0024-store-cross-platform-state-under-xdg-paths.md
+  s_bd367d4d362b9a::t_9e8e21910bb998 1-7
+docs/adr/0025-keep-the-initial-command-surface-small.md
+  s_bd367d4d362b9a::t_d9b0c3157e4184 1-3
+docs/adr/0026-require-explicit-noninteractive-authorization.md
+  s_bd367d4d362b9a::t_c39042d9ecc39a 1-3
+docs/adr/0027-express-desired-state-in-go.md
+  s_5c2d4f9331e4e7::t_b8a600a4681881 1-3
+docs/adr/0028-use-a-concrete-cli-first-reconciler.md
+  s_bd367d4d362b9a::t_75fa09951f0123 1-3
+docs/adr/0029-limit-release-rollback.md
+  s_bd367d4d362b9a::t_3dfa23308a75f6 1-3
+docs/adr/0030-reconcile-zsh-as-the-login-shell.md
+  s_bd367d4d362b9a::t_a5194069b782f8 1-3
+docs/adr/0031-use-one-managed-block-for-ssh-include.md
+  s_bd367d4d362b9a::t_3bb886f1eef7e0 1-3
+docs/adr/0032-pin-github-ssh-host-keys.md
+  s_bd367d4d362b9a::t_ef6cbaf031aa4c 1-3
+docs/adr/0033-persist-a-workstation-scope.md
+  s_bd367d4d362b9a::t_0cde1ff8bad7ba 1-3
+docs/adr/0034-own-the-personal-git-config-completely.md
+  s_bd367d4d362b9a::t_a5c60bf7aa06c8 1-3
+docs/adr/0035-keep-adoption-and-drift-backups.md
+  s_bd367d4d362b9a::t_09be20ed23733a 1-3
+docs/adr/0036-lock-reconciliation-state.md
+  s_bd367d4d362b9a::t_1c7b7cc8df739e 1-3
+docs/adr/0037-journal-component-application.md
+  s_bd367d4d362b9a::t_098b1c11d163d8 1-3
+docs/adr/0038-plan-state-schema-migrations.md
+  s_bd367d4d362b9a::t_76b3c60fe88450 1-3
+docs/adr/0039-gate-releases-with-interface-level-tests.md
+  s_bd367d4d362b9a::t_89f03fa901b0ff 1-3
+docs/adr/0040-publish-immutable-semver-releases.md
+  s_bd367d4d362b9a::t_141675abc0606e 1-3
+docs/adr/0041-publish-raw-platform-binaries.md
+  s_bd367d4d362b9a::t_0a98c999d74e5c 1-3
+docs/adr/0042-handoff-installation-to-the-candidate-cli.md
+  s_bd367d4d362b9a::t_d0a89f81b57dcc 1-3
+docs/adr/0043-serve-bootstrap-from-the-latest-release.md
+  s_bd367d4d362b9a::t_c75d79c92d7f7e 1-3
+docs/adr/0044-defer-to-apple-command-line-tools-installation.md
+  s_bd367d4d362b9a::t_3a374f90545615 1-3
+docs/adr/0045-batch-missing-apt-dependencies.md
+  s_bd367d4d362b9a::t_388ff006a5e86d 1-3
+docs/adr/0046-install-managed-tools-in-versioned-user-directories.md
+  s_bd367d4d362b9a::t_08adb18581047e 1-3
+docs/adr/0047-cache-artifacts-by-content-digest.md
+  s_bd367d4d362b9a::t_ed0855425a1761 1-3
+docs/adr/0048-separate-code-managed-assets-and-reference-config.md
+  s_bd367d4d362b9a::t_94d6c21ef5d6ed 1-3
+docs/adr/0049-defer-machine-readable-output.md
+  s_bd367d4d362b9a::t_4ed710d4272ea8 1-3
+docs/adr/0050-run-bounded-online-doctor-checks.md
+  s_bd367d4d362b9a::t_8e3549b39c2cc7 1-3
+docs/adr/0051-require-an-explicit-github-private-key.md
+  s_bd367d4d362b9a::t_d82e212d509ef7 1-3
+docs/adr/0052-replace-the-legacy-installer-without-compatibility.md
+  s_bd367d4d362b9a::t_9722d8f13fb213 1-3
+docs/adr/0053-build-releases-reproducibly.md
+  s_bd367d4d362b9a::t_ad4d1575f52298 1-3
+docs/adr/0054-centralize-owned-content-under-plasticine-home.md
+  s_bd367d4d362b9a::t_428213ebb1e375 1-3
+docs/adr/0055-relocate-tool-managed-state-under-plasticine-home.md
+  s_bd367d4d362b9a::t_602a8c56c640d2 1-3
+docs/adr/0056-use-launchers-for-relocated-tool-state.md
+  s_bd367d4d362b9a::t_d45f2bb426c197 1-3
+docs/adr/0057-fix-the-initial-component-graph.md
+  s_bd367d4d362b9a::t_1a049cdd38a767 1-3
+docs/adr/0058-update-managed-tools-only-through-tool-lock.md
+  s_bd367d4d362b9a::t_fce51c4f0c4fa8 1-3
+docs/adr/0059-allow-local-development-builds-to-apply.md
+  s_bd367d4d362b9a::t_1e86a7a7e68bec 1-3
+docs/adr/0060-limit-cli-network-egress-and-forbid-telemetry.md
+  s_bd367d4d362b9a::t_373a438dfdbfce 1-3
+docs/adr/0061-adopt-all-conflicts-in-the-current-plan.md
+  s_bd367d4d362b9a::t_fe76fba11795f4 1-3
+docs/adr/0062-retire-removed-managed-resources-explicitly.md
+  s_bd367d4d362b9a::t_4792f58e056d16 1-3
+docs/adr/0063-set-operating-system-support-floors.md
+  s_bd367d4d362b9a::t_5b2d105b69caa6 1-3
+docs/agents/domain.md
+  s_586f8acf40f388::t_5ece2a42fcf1a5 1,3,5,7-15,18-21,24-32
+docs/agents/issue-tracker.md
+  s_586f8acf40f388::t_4820ab22911602 1-30
+docs/agents/triage-labels.md
+  s_586f8acf40f388::t_850e64e856b8a6 1-15
+install.sh
+  s_bd367d4d362b9a::t_266b26d5225267 223,236
+reference/README.md
+  s_bd367d4d362b9a::t_c295c18d38de4f 1-3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "a847f21678a70fae64523abd90be01ffb4a47aaa",
+  "prompts": {},
+  "sessions": {
+    "s_075a00f4f99323": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a5194cd63a01e2af9102f55",
+        "model": "gpt-5.5__max"
+      },
+      "human_author": "yangwenfeng.0719 <yangwenfeng.0719@bytedance.com>"
+    },
+    "s_586f8acf40f388": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4c22-bdcd-7993-b55e-891cb3bfdb4d",
+        "model": "unknown"
+      },
+      "human_author": "yangwenfeng.0719 <yangwenfeng.0719@bytedance.com>"
+    },
+    "s_5c2d4f9331e4e7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4f25-d030-7090-8ab7-167f9b6f564f",
+        "model": "unknown"
+      },
+      "human_author": "yangwenfeng.0719 <yangwenfeng.0719@bytedance.com>"
+    },
+    "s_742c17b44ab8ed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4c3c-1304-7840-a88e-a51acb9a729b",
+        "model": "unknown"
+      },
+      "human_author": "yangwenfeng.0719 <yangwenfeng.0719@bytedance.com>"
+    },
+    "s_bd367d4d362b9a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4c29-a32a-7512-b033-4d62160fb0a9",
+        "model": "unknown"
+      },
+      "human_author": "yangwenfeng.0719 <yangwenfeng.0719@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
