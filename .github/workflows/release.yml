@@ -1,0 +1,137 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: release validation gates
+    runs-on: ubuntu-latest
+    env:
+      HOME: ${{ runner.temp }}/plasticine-home
+      REQUIRE_SHELLCHECK: "1"
+      PLASTICINE_VERSION: ${{ github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare isolated HOME
+        run: mkdir -p "$HOME"
+
+      - name: Run release validation gates
+        run: scripts/validate-release.sh
+
+  publish:
+    name: publish immutable assets
+    runs-on: ubuntu-latest
+    needs:
+      - validate
+      - native-smoke
+    env:
+      HOME: ${{ runner.temp }}/plasticine-home
+      GH_TOKEN: ${{ github.token }}
+      PLASTICINE_VERSION: ${{ github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare isolated HOME
+        run: mkdir -p "$HOME"
+
+      - name: Refuse duplicate release
+        run: |
+          if gh release view "$PLASTICINE_VERSION" >/dev/null 2>&1; then
+            echo "release already exists: $PLASTICINE_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Build release assets
+        run: scripts/build-release.sh dist
+
+      - name: Verify complete asset set
+        run: |
+          test -x dist/plasticine_darwin_amd64
+          test -x dist/plasticine_darwin_arm64
+          test -x dist/plasticine_linux_amd64
+          test -x dist/plasticine_linux_arm64
+          test -f dist/checksums.txt
+          test -f install.sh
+          go run ./cmd/plasticine-gate artifacts dist
+
+      - name: Create draft release with complete assets
+        run: |
+          prerelease_flag=""
+          case "$PLASTICINE_VERSION" in
+            *-*) prerelease_flag="--prerelease" ;;
+          esac
+          gh release create "$PLASTICINE_VERSION" \
+            dist/plasticine_darwin_amd64 \
+            dist/plasticine_darwin_arm64 \
+            dist/plasticine_linux_amd64 \
+            dist/plasticine_linux_arm64 \
+            dist/checksums.txt \
+            install.sh \
+            --draft \
+            --verify-tag \
+            $prerelease_flag \
+            --title "$PLASTICINE_VERSION" \
+            --notes "Plasticine Workstation CLI $PLASTICINE_VERSION"
+
+      - name: Publish completed release
+        run: gh release edit "$PLASTICINE_VERSION" --draft=false
+
+  native-smoke:
+    name: release native smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs:
+      - validate
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    env:
+      HOME: ${{ runner.temp }}/plasticine-home
+      PLASTICINE_VERSION: ${{ github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare isolated HOME
+        run: mkdir -p "$HOME"
+
+      - name: Build release artifacts
+        run: scripts/build-release.sh dist
+
+      - name: Run native smoke
+        run: PLASTICINE_BINARY="dist/plasticine_$(go env GOOS)_$(go env GOARCH)" scripts/smoke.sh

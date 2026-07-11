@@ -1,0 +1,104 @@
+{
+  "tools": {
+    "neovim": {
+      "version": "v0.12.4",
+      "targets": {
+        "darwin/amd64": {
+          "url": "https://github.com/neovim/neovim/releases/download/v0.12.4/nvim-macos-x86_64.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "03fe16f8dd9f1e9eaf52d5e294913a39917b9e2faea30d7fb0fb385fbd36fe59"
+        },
+        "darwin/arm64": {
+          "url": "https://github.com/neovim/neovim/releases/download/v0.12.4/nvim-macos-arm64.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "51ab83afa66d663627c2ab1be43209b0f4e81360d4598b53efaa4d8195f24c89"
+        },
+        "linux/amd64": {
+          "url": "https://github.com/neovim/neovim/releases/download/v0.12.4/nvim-linux-x86_64.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "012bf3fcac5ade43914df3f174668bf64d05e049a4f032a388c027b1ebd78628"
+        },
+        "linux/arm64": {
+          "url": "https://github.com/neovim/neovim/releases/download/v0.12.4/nvim-linux-arm64.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "ceb7e88c6b681f0515d135dcdfad54f5eb4373b25ce6172197cd9a69c758063f"
+        }
+      }
+    },
+    "lazygit": {
+      "version": "v0.63.0",
+      "targets": {
+        "darwin/amd64": {
+          "url": "https://github.com/jesseduffield/lazygit/releases/download/v0.63.0/lazygit_0.63.0_darwin_x86_64.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "304b1bf7f7bbb5a5d59e34145bce63d42733cd828e4fe41428ced9ee4dbfe942"
+        },
+        "darwin/arm64": {
+          "url": "https://github.com/jesseduffield/lazygit/releases/download/v0.63.0/lazygit_0.63.0_darwin_arm64.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "60e6bf29a1501a57a9d078538aa576a1b4db45779db2e3dd6931a7207f560a9c"
+        },
+        "linux/amd64": {
+          "url": "https://github.com/jesseduffield/lazygit/releases/download/v0.63.0/lazygit_0.63.0_linux_x86_64.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "cf5cfa3e116d7775f3600a51ec1d9ce7ba554a08b9566c7c2da83cb0023efabf"
+        },
+        "linux/arm64": {
+          "url": "https://github.com/jesseduffield/lazygit/releases/download/v0.63.0/lazygit_0.63.0_linux_arm64.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "aac147abf5ce43afe6ae8bcb14b0d479111975a189302d7a99386deca70d57f7"
+        }
+      }
+    },
+    "fnm": {
+      "version": "v1.39.0",
+      "targets": {
+        "darwin/amd64": {
+          "url": "https://github.com/Schniz/fnm/releases/download/v1.39.0/fnm-macos.zip",
+          "artifact_type": "zip",
+          "sha256": "f046483e85c53b3278efe49a3620c8680f22efa58a8dabfd03eafc6b59b31a25"
+        },
+        "darwin/arm64": {
+          "url": "https://github.com/Schniz/fnm/releases/download/v1.39.0/fnm-macos.zip",
+          "artifact_type": "zip",
+          "sha256": "f046483e85c53b3278efe49a3620c8680f22efa58a8dabfd03eafc6b59b31a25"
+        },
+        "linux/amd64": {
+          "url": "https://github.com/Schniz/fnm/releases/download/v1.39.0/fnm-linux.zip",
+          "artifact_type": "zip",
+          "sha256": "7807664f39d39fc518da1c35ba0181e4b3267603c4b1dedeb4b5fc6ae440a224"
+        },
+        "linux/arm64": {
+          "url": "https://github.com/Schniz/fnm/releases/download/v1.39.0/fnm-arm64.zip",
+          "artifact_type": "zip",
+          "sha256": "4eaff58b2c5bf30d0934027572dd0b5bbb60d2a1af309230b53662d4b1d45599"
+        }
+      }
+    },
+    "uv": {
+      "version": "v0.5.4",
+      "targets": {
+        "darwin/amd64": {
+          "url": "https://github.com/astral-sh/uv/releases/download/0.5.4/uv-x86_64-apple-darwin.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "f879864954b2229611155bb201088d0f09becf1436b0ec8707c8f560e98e9209"
+        },
+        "darwin/arm64": {
+          "url": "https://github.com/astral-sh/uv/releases/download/0.5.4/uv-aarch64-apple-darwin.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "f924d82255a0b25fd04a78c7012f90300cdadfb72ca0af4508f3eeaf9509010f"
+        },
+        "linux/amd64": {
+          "url": "https://github.com/astral-sh/uv/releases/download/0.5.4/uv-x86_64-unknown-linux-gnu.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "c5b63d1cd0a894246195250c034f9d82d646dc8f718f1f424cec2bb1a42e7b17"
+        },
+        "linux/arm64": {
+          "url": "https://github.com/astral-sh/uv/releases/download/0.5.4/uv-aarch64-unknown-linux-gnu.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "7a1d505fa5c8425b0391398a49efc747836fcfbb7df82d1cc5b2a048c5d79ccb"
+        }
+      }
+    }
+  }
+}

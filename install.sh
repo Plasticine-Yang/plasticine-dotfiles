@@ -1,292 +1,105 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
-set -e
+set -eu
 
-DOTFILES_DIR="$HOME/.plasticine-dotfiles"
+repo="Plasticine-Yang/plasticine-dotfiles"
+download_base="${PLASTICINE_DOWNLOAD_BASE:-https://github.com/$repo/releases}"
+plasticine_home="${PLASTICINE_HOME:-$HOME/.plasticine}"
+version="${PLASTICINE_VERSION:-}"
 
-# 颜色输出
-GREEN="\033[0;32m"
-BLUE="\033[0;34m"
-YELLOW="\033[0;33m"
-RED="\033[0;31m"
-RESET="\033[0m"
-
-log_info() {
-    echo -e "${BLUE}[INFO]${RESET} $1"
+detect_os() {
+	if [ "${PLASTICINE_OS:-}" ]; then
+		printf '%s\n' "$PLASTICINE_OS"
+		return 0
+	fi
+	case "$(uname -s)" in
+		Darwin) printf '%s\n' "darwin" ;;
+		Linux) printf '%s\n' "linux" ;;
+		*) return 1 ;;
+	esac
 }
 
-log_success() {
-    echo -e "${GREEN}[SUCCESS]${RESET} $1"
+detect_arch() {
+	if [ "${PLASTICINE_ARCH:-}" ]; then
+		printf '%s\n' "$PLASTICINE_ARCH"
+		return 0
+	fi
+	case "$(uname -m)" in
+		x86_64 | amd64) printf '%s\n' "amd64" ;;
+		arm64 | aarch64) printf '%s\n' "arm64" ;;
+		*) return 1 ;;
+	esac
 }
 
-log_warn() {
-    echo -e "${YELLOW}[WARN]${RESET} $1"
+sha256_file() {
+	path="$1"
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum "$path" | awk '{print $1}'
+		return 0
+	fi
+	if command -v shasum >/dev/null 2>&1; then
+		shasum -a 256 "$path" | awk '{print $1}'
+		return 0
+	fi
+	printf '%s\n' "no sha256 tool found" >&2
+	return 1
 }
 
-log_error() {
-    echo -e "${RED}[ERROR]${RESET} $1"
+download() {
+	url="$1"
+	output="$2"
+	curl -fsSL "$url" -o "$output"
 }
 
-FAILED_SETUPS=()
-
-run_setup() {
-    local setup_name="$1"
-
-    if (set -e; "$setup_name"); then
-        return 0
-    fi
-
-    FAILED_SETUPS+=("$setup_name")
-    log_error "${setup_name} 执行失败，继续执行后续 setup。"
-    return 0
+asset_base_url() {
+	if [ "$version" ]; then
+		printf '%s\n' "$download_base/download/$version"
+	else
+		printf '%s\n' "$download_base/latest/download"
+	fi
 }
 
-finish_installation() {
-    local success_message="$1"
-
-    if [ ${#FAILED_SETUPS[@]} -eq 0 ]; then
-        log_success "$success_message"
-        return 0
-    fi
-
-    log_warn "以下 setup 执行失败: ${FAILED_SETUPS[*]}"
-    log_warn "其余 setup 已继续执行，请按需重试失败项。"
-    return 1
+os_name="$(detect_os)" || {
+	printf '%s\n' "unsupported operating system" >&2
+	exit 1
+}
+arch_name="$(detect_arch)" || {
+	printf '%s\n' "unsupported architecture" >&2
+	exit 1
 }
 
-run_default_installation() {
-    local skip_git="$1"
+case "$os_name/$arch_name" in
+	darwin/amd64 | darwin/arm64 | linux/amd64 | linux/arm64) ;;
+	*)
+		printf '%s\n' "unsupported artifact target: $os_name/$arch_name" >&2
+		exit 1
+		;;
+esac
 
-    run_setup setup_dotfiles
-    run_setup setup_zsh
-    run_setup setup_nvim
-    run_setup setup_lazygit
-    if [ "$skip_git" != "true" ]; then
-        run_setup setup_git
-    else
-        log_info "检测到 --no-git，跳过 Git 配置。"
-    fi
-    run_setup setup_fnm
-    run_setup setup_uv
+binary_name="plasticine_${os_name}_${arch_name}"
+base_url="$(asset_base_url)"
+work_dir="$plasticine_home/bootstrap"
+candidate="$work_dir/$binary_name"
+manifest="$work_dir/checksums.txt"
 
-    if finish_installation "默认配置安装结束！请根据需要重启终端或输入 'zsh' 应用最新配置。"; then
-        return 0
-    fi
+mkdir -p "$work_dir"
+rm -f "$candidate" "$candidate.partial" "$manifest" "$manifest.partial"
 
-    return 1
-}
+download "$base_url/$binary_name" "$candidate.partial"
+download "$base_url/checksums.txt" "$manifest.partial"
+mv "$candidate.partial" "$candidate"
+mv "$manifest.partial" "$manifest"
 
-setup_dotfiles() {
-    log_info "设置 dotfiles 仓库..."
-    if [ ! -d "$DOTFILES_DIR" ]; then
-        log_info "正在克隆 plasticine-dotfiles 仓库..."
-        git clone https://github.com/Plasticine-Yang/plasticine-dotfiles.git "$DOTFILES_DIR"
-        log_success "克隆完成！"
-    else
-        log_info "dotfiles 仓库已存在，跳过克隆。"
-    fi
-}
-
-setup_zsh() {
-    log_info "配置 Zsh (Antidote)..."
-    if [ ! -f "$DOTFILES_DIR/zsh-config/antidote/install.zsh" ]; then
-        log_warn "未找到 zsh-config/antidote/install.zsh，跳过..."
-        return 0
-    fi
-    
-    if command -v zsh >/dev/null 2>&1; then
-        zsh "$DOTFILES_DIR/zsh-config/antidote/install.zsh"
-        
-        if [ "$(basename "$SHELL")" != "zsh" ]; then
-            log_warn "当前默认 shell 不是 zsh，请手动执行: chsh -s $(command -v zsh)"
-        else
-            log_info "默认 shell 已经是 zsh。"
-        fi
-        
-        log_success "Zsh 配置完成！"
-    else
-        log_warn "系统中未安装 zsh，请先安装 zsh 后再重新运行或手动配置。"
-        return 1
-    fi
-}
-
-setup_nvim() {
-    log_info "配置 Neovim..."
-    
-    if ! command -v nvim >/dev/null 2>&1; then
-        log_info "未检测到 Neovim，正在下载稳定版..."
-        if [ "$(uname)" == "Linux" ]; then
-            curl -LO https://github.com/neovim/neovim/releases/download/stable/nvim-linux-x86_64.tar.gz
-            tar -zxvf nvim-linux-x86_64.tar.gz
-            sudo mv ./nvim-linux-x86_64 ~/.nvim
-            sudo ln -sf ~/.nvim/bin/nvim /usr/local/bin
-            rm -rf ./nvim-linux-x86_64.tar.gz
-        elif [ "$(uname)" == "Darwin" ]; then
-            log_warn "Mac 系统建议使用 Homebrew 安装 Neovim: brew install neovim"
-        fi
-        log_success "Neovim 安装完成！"
-    else
-        log_info "Neovim 已经安装，跳过下载。"
-    fi
-
-    mkdir -p ~/.config
-    if [ -L "$HOME/.config/nvim" ] || [ -d "$HOME/.config/nvim" ]; then
-        log_warn "~/.config/nvim 已经存在，尝试备份为 nvim.bak..."
-        mv "$HOME/.config/nvim" "$HOME/.config/nvim.bak"
-    fi
-    ln -sf "$DOTFILES_DIR/nvim" "$HOME/.config/nvim"
-    log_success "Neovim 配置链接完成！"
-}
-
-setup_lazygit() {
-    log_info "配置 Lazygit..."
-    
-    if ! command -v lazygit >/dev/null 2>&1; then
-        if [ "$(uname)" == "Linux" ]; then
-            LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | grep '"tag_name":' |  sed -E 's/.*"v*([^"]+)".*/\1/')
-            curl -Lo lazygit.tar.gz "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz"
-            sudo tar xf lazygit.tar.gz -C /usr/local/bin lazygit
-            sudo ln -sf /usr/local/bin/lazygit /usr/local/bin/lg
-            rm -f lazygit.tar.gz
-        elif [ "$(uname)" == "Darwin" ]; then
-            if command -v brew >/dev/null 2>&1; then
-                brew install lazygit
-                sudo ln -sf /opt/homebrew/bin/lazygit /usr/local/bin/lg
-            else
-                log_error "Mac 系统上未找到 Homebrew，请先安装 Homebrew 或手动安装 Lazygit。"
-                return 1
-            fi
-        fi
-        log_success "Lazygit 安装完成！"
-    else
-        log_info "Lazygit 已经安装，跳过下载。"
-    fi
-}
-
-setup_git() {
-    log_info "配置 Git 软链接..."
-    if [ -f "$DOTFILES_DIR/git/.gitconfig" ]; then
-        if [ -f ~/.gitconfig ] || [ -L ~/.gitconfig ]; then
-            log_warn "~/.gitconfig 已经存在，尝试备份为 .gitconfig.bak..."
-            mv ~/.gitconfig ~/.gitconfig.bak
-        fi
-        ln -sf "$DOTFILES_DIR/git/.gitconfig" ~/.gitconfig
-        log_success "Git 配置链接完成！"
-    else
-        log_warn "未找到 $DOTFILES_DIR/git/.gitconfig，跳过..."
-    fi
-}
-
-setup_fnm() {
-    log_info "配置 FNM..."
-    
-    if ! command -v fnm >/dev/null 2>&1; then
-        log_info "未检测到 FNM，正在安装..."
-        curl -fsSL https://raw.githubusercontent.com/Schniz/fnm/refs/heads/master/.ci/install.sh | bash
-        log_success "FNM 安装完成！"
-    else
-        log_info "FNM 已经安装，跳过安装。"
-    fi
-    
-    if [ ! -f ~/.zshrc ]; then
-        log_warn "未找到 ~/.zshrc，跳过 shell 配置..."
-        return 0
-    fi
-    
-    FNM_INIT='eval "$(fnm env --use-on-cd --shell bash)"'
-    
-    if ! grep -q "fnm env" ~/.zshrc 2>/dev/null; then
-        echo -e "\n# fnm\n$FNM_INIT" >> ~/.zshrc
-        log_success "已向 ~/.zshrc 添加 fnm 配置！"
-    else
-        log_info "~/.zshrc 已包含 fnm 配置，跳过。"
-    fi
-}
-
-setup_uv() {
-    log_info "配置 uv..."
-
-    if ! command -v uv >/dev/null 2>&1; then
-        log_info "未检测到 uv，正在安装..."
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        log_success "uv 安装完成！"
-    else
-        log_info "uv 已经安装，跳过安装。"
-    fi
-}
-
-show_help() {
-    echo -e "${BLUE}=======================================${RESET}"
-    echo -e "${GREEN}  Plasticine Dotfiles Installer${RESET}"
-    echo -e "${BLUE}=======================================${RESET}"
-    echo ""
-    echo "默认行为：自动设置仓库并安装 Zsh, Neovim, Lazygit, Git, FNM, uv"
-    echo ""
-    echo "按需安装选项:"
-    echo "  --no-git    默认安装时跳过 Git 配置"
-    echo "  --zsh       仅安装配置 Zsh"
-    echo "  --nvim      仅安装配置 Neovim"
-    echo "  --lazygit   仅安装配置 Lazygit"
-    echo "  --git       仅安装配置 Git 软链接"
-    echo "  --fnm       仅安装配置 FNM"
-    echo "  --uv        仅安装配置 uv"
-    echo "  --all       安装所有可用组件"
-    echo "  --help, -h  显示此帮助信息"
-    echo ""
-    echo "示例：./install.sh --git --nvim"
-}
-
-# 按需行为：先检查是否为 help 参数
-DEFAULT_SKIP_GIT=false
-
-if [ $# -eq 0 ]; then
-    if run_default_installation "$DEFAULT_SKIP_GIT"; then
-        exit 0
-    fi
-    exit 1
+expected="$(awk -v name="$binary_name" '$2 == name { print $1 }' "$manifest")"
+if [ -z "$expected" ]; then
+	printf '%s\n' "checksum manifest missing $binary_name" >&2
+	exit 1
+fi
+actual="$(sha256_file "$candidate")"
+if [ "$actual" != "$expected" ]; then
+	printf '%s\n' "checksum mismatch for $binary_name" >&2
+	exit 1
 fi
 
-for arg in "$@"; do
-    case $arg in
-        -h|--help) show_help; exit 0 ;;
-        --no-git) DEFAULT_SKIP_GIT=true ;;
-    esac
-done
-
-if [ $# -eq 1 ] && [ "$1" = "--no-git" ]; then
-    if run_default_installation "$DEFAULT_SKIP_GIT"; then
-        exit 0
-    fi
-    exit 1
-fi
-
-run_setup setup_dotfiles
-
-while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        --no-git) ;;
-        --zsh) run_setup setup_zsh ;;
-        --nvim) run_setup setup_nvim ;;
-        --lazygit) run_setup setup_lazygit ;;
-        --git) run_setup setup_git ;;
-        --fnm) run_setup setup_fnm ;;
-        --uv) run_setup setup_uv ;;
-        --all)
-            run_setup setup_zsh
-            run_setup setup_nvim
-            run_setup setup_lazygit
-            run_setup setup_git
-            run_setup setup_fnm
-            run_setup setup_uv
-            ;;
-        -h|--help) show_help; exit 0 ;;
-        *) log_error "未知参数：$1"; show_help; exit 1 ;;
-    esac
-    shift
-done
-
-if finish_installation "按需安装流程结束！"; then
-    exit 0
-fi
-
-exit 1
+chmod 0755 "$candidate"
+exec "$candidate" __candidate-self-install "$@"

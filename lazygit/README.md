@@ -1,20 +1,8 @@
-# lazygit
+# Lazygit Reference Configuration
 
-## Install
+This directory is retained for manual reference only. Lazygit installation is a
+Managed Tool responsibility of the `plasticine` Workstation CLI and is driven by
+the reviewed Tool Lock for each Artifact Target.
 
-### Linux
-
-```shell
-LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | grep '"tag_name":' |  sed -E 's/.*"v*([^"]+)".*/\1/')
-curl -Lo lazygit.tar.gz "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz"
-sudo tar xf lazygit.tar.gz -C /usr/local/bin lazygit
-sudo ln -s /usr/local/bin/lazygit /usr/local/bin/lg
-rm -f lazygit.tar.gz
-```
-
-### Mac
-
-```shell
-brew install lazygit
-ln -s /opt/homebrew/bin/lazygit /usr/local/bin/lg
-```
+Do not install Lazygit from this checkout, resolve `latest` at runtime, or write
+to system locations from these reference files.

@@ -1,0 +1,67 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  release-gates:
+    name: release gates
+    runs-on: ubuntu-latest
+    env:
+      HOME: ${{ runner.temp }}/plasticine-home
+      REQUIRE_SHELLCHECK: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare isolated HOME
+        run: mkdir -p "$HOME"
+
+      - name: Run full release validation gate
+        run: scripts/validate-release.sh
+
+  native-smoke:
+    name: native smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    env:
+      HOME: ${{ runner.temp }}/plasticine-home
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare isolated HOME
+        run: mkdir -p "$HOME"
+
+      - name: Build release artifacts
+        run: scripts/build-release.sh dist
+
+      - name: Run native smoke
+        run: PLASTICINE_BINARY="dist/plasticine_$(go env GOOS)_$(go env GOARCH)" scripts/smoke.sh
