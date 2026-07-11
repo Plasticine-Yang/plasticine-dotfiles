@@ -1,0 +1,636 @@
+.scratch/plasticine-cli/issues/21-retire-removed-managed-resources.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/22-perform-bounded-release-rollback.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/05-persist-workstation-scope.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/11-debian-ubuntu-system-dependencies.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/17-configure-local-github-ssh.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/23-remove-legacy-flows-and-complete-cutover.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/25-publish-immutable-semver-releases.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/01-converge-personal-git-config.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/20-bounded-read-only-doctor-network-diagnostics.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/07-adopt-conflicts-with-backups.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/04-recover-interrupted-component-apply.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/15-install-uv-uvx.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/12-macos-system-dependencies-and-support-floor.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/18-integrate-macos-keychain.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/19-share-linux-ssh-agent.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/10-shell-component-and-component-graph.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/03-coordinate-reconciliation-locks.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/13-tool-lock-lazygit.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/06-migrate-reconciliation-state.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/16-install-fnm.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/14-install-neovim.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/08-candidate-atomic-self-install.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/02-authorize-immutable-plan.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+.scratch/plasticine-cli/issues/09-minimal-posix-bootstrap.md
+  s_f273542acbeca2::t_f6648988142b0b 7 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a52d76163a01e2af910a2c8","tool_type":"agent","tool_id":"RunCommand","line_ranges":[{"Single":7}]}]}
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "fcbcbc092c6ddb88cb6048ad29a7cd83c13691a8",
+  "prompts": {},
+  "sessions": {
+    "s_f273542acbeca2": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a525a9263a01e2af910431d",
+        "model": "gpt-5.5__max",
+        "display_model_name": "GPT-5.5"
+      },
+      "human_author": "yangwenfeng.0719 <yangwenfeng.0719@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {
+    ".scratch/plasticine-cli/issues/01-converge-personal-git-config.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/02-authorize-immutable-plan.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/03-coordinate-reconciliation-locks.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/04-recover-interrupted-component-apply.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/05-persist-workstation-scope.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/06-migrate-reconciliation-state.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/07-adopt-conflicts-with-backups.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/08-candidate-atomic-self-install.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/09-minimal-posix-bootstrap.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/10-shell-component-and-component-graph.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/11-debian-ubuntu-system-dependencies.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/12-macos-system-dependencies-and-support-floor.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/13-tool-lock-lazygit.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/14-install-neovim.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/15-install-uv-uvx.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/16-install-fnm.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/17-configure-local-github-ssh.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/18-integrate-macos-keychain.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/19-share-linux-ssh-agent.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/20-bounded-read-only-doctor-network-diagnostics.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/21-retire-removed-managed-resources.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/22-perform-bounded-release-rollback.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/23-remove-legacy-flows-and-complete-cutover.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli/issues/25-publish-immutable-semver-releases.md": [
+      {
+        "hash": "s_f273542acbeca2::t_f6648988142b0b",
+        "line_ranges": [
+          {
+            "Single": 7
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a52d76163a01e2af910a2c8",
+            "tool_type": "agent",
+            "tool_id": "RunCommand",
+            "line_ranges": [
+              {
+                "Single": 7
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "remote_transcripts": {
+    "s_f273542acbeca2": {
+      "tool": "trae",
+      "conversation_id": "6a525a9263a01e2af910431d",
+      "session_id": "6a525a9263a01e2af910431d",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    },
+    "s_f273542acbeca2::t_f6648988142b0b": {
+      "tool": "trae",
+      "conversation_id": "6a525a9263a01e2af910431d",
+      "session_id": "6a525a9263a01e2af910431d",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    }
+  }
+}
