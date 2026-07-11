@@ -336,6 +336,137 @@ func TestGitHubSSHSecretReferenceManagedBlockAndMacKeychain(t *testing.T) {
 	}
 }
 
+func TestGitHubSSHSecretReferenceCanBeSelectedInteractively(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentFNM,
+		reconciler.ComponentUV,
+	}
+	req.LoginShellKnown = true
+	req.LoginShell = "/bin/zsh"
+	req.ZshPath = "/bin/zsh"
+
+	blocked, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("plan without secret: %v", err)
+	}
+	if blocked.Outcome != reconciler.OutcomeBlocked || !hasBlocker(blocked.Blockers, reconciler.BlockerSecretReferenceRequired) {
+		t.Fatalf("plan without secret outcome=%s blockers=%#v", blocked.Outcome, blocked.Blockers)
+	}
+
+	key := filepath.Join(req.Home, "id_ed25519")
+	generateSSHKey(t, key)
+	selected := false
+	req.GitHubKeySelector = func() (string, bool) {
+		selected = true
+		return key, true
+	}
+	plan, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("plan with selected secret: %v", err)
+	}
+	if !selected {
+		t.Fatal("GitHub key selector was not called")
+	}
+	if hasBlocker(plan.Blockers, reconciler.BlockerSecretReferenceRequired) {
+		t.Fatalf("selected key still produced secret blocker: %#v", plan.Blockers)
+	}
+	if !hasChange(plan.Changes, reconciler.ComponentGitHubSSH, reconciler.ResourceSecretReference) {
+		t.Fatalf("plan changes = %#v, want Secret Reference change", plan.Changes)
+	}
+}
+
+func TestGitHubSSHValidSecretReferenceDoesNotPromptAgain(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentFNM,
+		reconciler.ComponentUV,
+	}
+	req.LoginShellKnown = true
+	req.LoginShell = "/bin/zsh"
+	req.ZshPath = "/bin/zsh"
+	key := filepath.Join(req.Home, "id_ed25519")
+	generateSSHKey(t, key)
+	req.GitHubKeyPath = key
+	req.Yes = true
+	applied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply selected secret: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply outcome=%s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+
+	req.GitHubKeyPath = ""
+	req.Yes = false
+	req.GitHubKeySelector = func() (string, bool) {
+		t.Fatal("valid persisted Secret Reference should not prompt again")
+		return "", false
+	}
+	plan, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("plan with persisted secret: %v", err)
+	}
+	if hasBlocker(plan.Blockers, reconciler.BlockerSecretReferenceRequired) {
+		t.Fatalf("persisted secret produced blocker: %#v", plan.Blockers)
+	}
+}
+
+func TestGitHubHTTPSRewriteRequiresGitConfigAndGitHubSSHActive(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	withoutSSH := contractRequest(t.TempDir())
+	withoutSSH.Yes = true
+	applied, err := r.Apply(context.Background(), withoutSSH)
+	if err != nil {
+		t.Fatalf("apply without github ssh: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply without github ssh outcome=%s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+	gitConfig := readText(t, filepath.Join(withoutSSH.Home, "config", "git", "config"))
+	if strings.Contains(gitConfig, "insteadOf = https://github.com/") {
+		t.Fatalf("git config included GitHub rewrite while github-ssh was excluded:\n%s", gitConfig)
+	}
+
+	withSSH := contractRequest(t.TempDir())
+	withSSH.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentFNM,
+		reconciler.ComponentUV,
+	}
+	withSSH.LoginShellKnown = true
+	withSSH.LoginShell = "/bin/zsh"
+	withSSH.ZshPath = "/bin/zsh"
+	key := filepath.Join(withSSH.Home, "id_ed25519")
+	generateSSHKey(t, key)
+	withSSH.GitHubKeyPath = key
+	withSSH.Yes = true
+	applied, err = r.Apply(context.Background(), withSSH)
+	if err != nil {
+		t.Fatalf("apply with github ssh: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply with github ssh outcome=%s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+	gitConfig = readText(t, filepath.Join(withSSH.Home, "config", "git", "config"))
+	if !strings.Contains(gitConfig, "[url \"git@github.com:\"]") || !strings.Contains(gitConfig, "insteadOf = https://github.com/") {
+		t.Fatalf("git config did not include GitHub rewrite while git-config and github-ssh were active:\n%s", gitConfig)
+	}
+}
+
 func TestLinuxGitHubSSHUsesSharedAgentSocket(t *testing.T) {
 	t.Parallel()
 

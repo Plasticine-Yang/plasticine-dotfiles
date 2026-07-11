@@ -169,6 +169,9 @@ func runReconcilerCommand(command string, args []string) int {
 		LoginShellKnown:  loginShellKnown,
 		ZshPath:          zshPath,
 	}
+	if *githubKey == "" && !*yes && (command == "plan" || command == "apply") {
+		req.GitHubKeySelector = promptGitHubKeySelection
+	}
 	if command == "apply" && !*yes {
 		req.Authorize = promptApplyAuthorization
 	}
@@ -385,6 +388,31 @@ func promptApplyAuthorization(result reconciler.Result) bool {
 		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(scanner.Text()), "yes")
+}
+
+func promptGitHubKeySelection() (string, bool) {
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "github-ssh requires --github-key when no controlling terminal is available")
+		return "", false
+	}
+	defer tty.Close()
+
+	if _, err := fmt.Fprintln(tty, "GitHub SSH requires an explicit private key path."); err != nil {
+		return "", false
+	}
+	if _, err := fmt.Fprint(tty, "Path to GitHub SSH private key: "); err != nil {
+		return "", false
+	}
+	scanner := bufio.NewScanner(tty)
+	if !scanner.Scan() {
+		return "", false
+	}
+	path := strings.TrimSpace(scanner.Text())
+	if path == "" {
+		return "", false
+	}
+	return path, true
 }
 
 func usage() {

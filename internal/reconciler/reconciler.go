@@ -99,6 +99,7 @@ type Request struct {
 	Adopt                bool
 	IncludeGitHubSSH     bool
 	GitHubKeyPath        string
+	GitHubKeySelector    func() (string, bool)
 	LoginShell           string
 	LoginShellKnown      bool
 	ZshPath              string

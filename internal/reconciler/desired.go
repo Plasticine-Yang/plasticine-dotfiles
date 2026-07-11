@@ -93,17 +93,8 @@ func componentDesiredResources(req Request, component ComponentID, secret *Secre
 				Component:    component,
 				Path:         gitConfigPath(req.Home),
 				ResourceKind: ResourceManagedPath,
-				Content: strings.Join([]string{
-					"[user]",
-					"  email = 975036719@qq.com",
-					"  name = plasticine",
-					"[init]",
-					"  defaultBranch = main",
-					"[pull]",
-					"  rebase = true",
-					"",
-				}, "\n"),
-				Summary: "materialize centralized personal Git configuration",
+				Content:      gitConfigContent(active[ComponentGitHubSSH]),
+				Summary:      "materialize centralized personal Git configuration",
 			},
 			{
 				Component:    component,
@@ -187,6 +178,26 @@ func zshConfigContent(req Request, githubSSHActive bool) string {
 			"if [ -r \"$PLASTICINE_HOME/config/ssh/github-agent.zsh\" ]; then",
 			"  . \"$PLASTICINE_HOME/config/ssh/github-agent.zsh\"",
 			"fi",
+		)
+	}
+	lines = append(lines, "")
+	return strings.Join(lines, "\n")
+}
+
+func gitConfigContent(githubSSHActive bool) string {
+	lines := []string{
+		"[user]",
+		"  email = 975036719@qq.com",
+		"  name = plasticine",
+		"[init]",
+		"  defaultBranch = main",
+		"[pull]",
+		"  rebase = true",
+	}
+	if githubSSHActive {
+		lines = append(lines,
+			"[url \"git@github.com:\"]",
+			"  insteadOf = https://github.com/",
 		)
 	}
 	lines = append(lines, "")

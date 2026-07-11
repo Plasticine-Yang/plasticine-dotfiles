@@ -733,14 +733,28 @@ func resolveGitHubSecret(req Request, state State, active bool) (*SecretReferenc
 		return &ref, nil
 	}
 	existing, ok := state.SecretReferences[ComponentGitHubSSH]
-	if !ok || existing.Path == "" {
-		return nil, &Blocker{Code: BlockerSecretReferenceRequired, Message: "github-ssh requires an explicit --github-key or a valid persisted Secret Reference"}
+	var existingErr error
+	if ok && existing.Path != "" {
+		ref, err := validateSecretReference(existing.Path, existing.Fingerprint)
+		if err == nil {
+			return &ref, nil
+		}
+		existingErr = err
 	}
-	ref, err := validateSecretReference(existing.Path, existing.Fingerprint)
-	if err != nil {
-		return nil, &Blocker{Code: BlockerSecretReferenceRequired, Message: err.Error()}
+	if req.GitHubKeySelector != nil {
+		selectedPath, selected := req.GitHubKeySelector()
+		if selected && strings.TrimSpace(selectedPath) != "" {
+			ref, err := validateSecretReference(selectedPath, "")
+			if err != nil {
+				return nil, &Blocker{Code: BlockerSecretReferenceRequired, Message: err.Error()}
+			}
+			return &ref, nil
+		}
 	}
-	return &ref, nil
+	if ok && existing.Path != "" {
+		return nil, &Blocker{Code: BlockerSecretReferenceRequired, Message: existingErr.Error() + "; choose it explicitly again"}
+	}
+	return nil, &Blocker{Code: BlockerSecretReferenceRequired, Message: "github-ssh requires an explicit --github-key, an interactive key selection, or a valid persisted Secret Reference"}
 }
 
 func validateSecretReference(path string, expectedFingerprint string) (SecretReference, error) {
