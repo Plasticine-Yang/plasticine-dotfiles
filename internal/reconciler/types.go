@@ -49,6 +49,7 @@ const (
 	ChangeSecretReference    ChangeKind = "secret-reference"
 	ChangeStateMigration     ChangeKind = "state-migration"
 	ChangeScopeReplacement   ChangeKind = "scope-replacement"
+	ChangeLoginShell         ChangeKind = "login-shell"
 )
 
 type ResourceKind string
@@ -59,6 +60,7 @@ const (
 	ResourceManagedTool      ResourceKind = "managed-tool"
 	ResourceSystemDependency ResourceKind = "system-dependency"
 	ResourceSecretReference  ResourceKind = "secret-reference"
+	ResourceLoginShell       ResourceKind = "login-shell"
 	ResourceUserService      ResourceKind = "user-service"
 	ResourceIntegrationShim  ResourceKind = "integration-shim"
 	ResourceSymlink          ResourceKind = "symlink"

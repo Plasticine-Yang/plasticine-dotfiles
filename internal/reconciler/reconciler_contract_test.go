@@ -653,6 +653,324 @@ func TestSystemDependenciesRequireIndependentAuthorization(t *testing.T) {
 	}
 }
 
+func TestShellLoginShellChangeRequiresSystemAuthorizationAndDoesNotRepeat(t *testing.T) {
+	t.Parallel()
+
+	var shellChanges []string
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.LoginShell = "/bin/bash"
+	req.LoginShellKnown = true
+	req.ZshPath = "/bin/zsh"
+	req.ShellChangeExecutor = func(_ context.Context, desiredShell string) ([]string, error) {
+		shellChanges = append(shellChanges, desiredShell)
+		return []string{"chsh -s " + desiredShell}, nil
+	}
+
+	plan, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("plan login shell: %v", err)
+	}
+	if plan.Outcome != reconciler.OutcomeChangesPlanned || !hasChange(plan.Changes, reconciler.ComponentShell, reconciler.ResourceLoginShell) {
+		t.Fatalf("plan outcome=%s changes=%#v, want login-shell system change", plan.Outcome, plan.Changes)
+	}
+
+	req.Yes = true
+	denied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply without allow-system: %v", err)
+	}
+	if denied.Outcome != reconciler.OutcomeBlocked || !hasBlocker(denied.Blockers, reconciler.BlockerSystemChangeAuthorization) {
+		t.Fatalf("denied outcome=%s blockers=%#v", denied.Outcome, denied.Blockers)
+	}
+	if pathExists(reconciler.StatePath(req.Home)) {
+		t.Fatalf("login-shell authorization denial wrote state")
+	}
+
+	req.AllowSystem = true
+	applied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply login shell: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply outcome=%s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+	if len(shellChanges) != 1 || shellChanges[0] != "/bin/zsh" {
+		t.Fatalf("shell changes=%#v, want one chsh to /bin/zsh", shellChanges)
+	}
+	if !hasDurableEffect(applied.DurableEffects, "chsh -s /bin/zsh") {
+		t.Fatalf("durable effects=%#v, want chsh effect", applied.DurableEffects)
+	}
+
+	req.LoginShell = "/bin/zsh"
+	req.LoginShellKnown = true
+	second, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("second apply login shell: %v", err)
+	}
+	if second.Outcome != reconciler.OutcomeNoChange {
+		t.Fatalf("second outcome=%s blockers=%#v", second.Outcome, second.Blockers)
+	}
+	if len(shellChanges) != 1 {
+		t.Fatalf("login shell change repeated: %#v", shellChanges)
+	}
+}
+
+func TestShellPlanIncludesLoginShellChangeWhenZshCapabilityIsMissing(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Target = platform.TargetLinuxAMD64
+	req.Host = platform.Host{
+		OS:      platform.OSLinux,
+		Arch:    platform.ArchAMD64,
+		Family:  platform.FamilyDebian,
+		Version: "12",
+	}
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentGitHubSSH,
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentFNM,
+		reconciler.ComponentUV,
+	}
+	req.Capabilities = map[reconciler.Capability]bool{
+		reconciler.CapabilityGit: true,
+		reconciler.CapabilityZsh: false,
+		reconciler.CapabilityCA:  true,
+	}
+	req.LoginShell = "/bin/bash"
+	req.LoginShellKnown = true
+	req.ZshPath = "/usr/bin/zsh"
+
+	plan, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("plan missing zsh login shell: %v", err)
+	}
+	if plan.Outcome != reconciler.OutcomeChangesPlanned || !hasSystemChange(plan.Changes) {
+		t.Fatalf("plan outcome=%s changes=%#v, want system changes", plan.Outcome, plan.Changes)
+	}
+	if !hasChange(plan.Changes, reconciler.ComponentShell, reconciler.ResourceLoginShell) {
+		t.Fatalf("plan changes=%#v, want login-shell change in same immutable plan", plan.Changes)
+	}
+}
+
+func TestLoginShellChangeWaitsForSuccessfulZshCapability(t *testing.T) {
+	t.Parallel()
+
+	system := &recordingSystemAdapter{
+		err:     errors.New("apt failed"),
+		missing: []reconciler.Capability{reconciler.CapabilityZsh},
+	}
+	var shellChanges []string
+	r := reconciler.New(reconciler.Options{
+		DesiredStateID: "desired-state-contract",
+		ToolLockSHA256: strings.Repeat("c", 64),
+		System:         system,
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
+	req := contractRequest(t.TempDir())
+	req.Target = platform.TargetLinuxAMD64
+	req.Host = platform.Host{
+		OS:      platform.OSLinux,
+		Arch:    platform.ArchAMD64,
+		Family:  platform.FamilyDebian,
+		Version: "12",
+	}
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentGitHubSSH,
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentFNM,
+		reconciler.ComponentUV,
+	}
+	req.Capabilities = map[reconciler.Capability]bool{
+		reconciler.CapabilityGit: true,
+		reconciler.CapabilityZsh: false,
+		reconciler.CapabilityCA:  true,
+	}
+	req.LoginShell = "/bin/bash"
+	req.LoginShellKnown = true
+	req.ZshPath = "/usr/bin/zsh"
+	req.ShellChangeExecutor = func(_ context.Context, desiredShell string) ([]string, error) {
+		shellChanges = append(shellChanges, desiredShell)
+		return []string{"chsh -s " + desiredShell}, nil
+	}
+	req.Yes = true
+	req.AllowSystem = true
+
+	result, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply failed zsh install: %v", err)
+	}
+	if result.Outcome != reconciler.OutcomePartial || !hasBlocker(result.Blockers, reconciler.BlockerOperationalFailure) {
+		t.Fatalf("outcome=%s blockers=%#v, want partial operational failure", result.Outcome, result.Blockers)
+	}
+	if len(shellChanges) != 0 {
+		t.Fatalf("login shell changed before zsh capability succeeded: %#v", shellChanges)
+	}
+	if !hasComponentStatus(result.Components, reconciler.ComponentShell, reconciler.ComponentBlocked) {
+		t.Fatalf("shell was not blocked by failed zsh capability: %#v", result.Components)
+	}
+}
+
+func TestShellLoginShellDiscoveryFailureBlocksPlanning(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.ZshPath = "/bin/zsh"
+
+	plan, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("plan login shell discovery failure: %v", err)
+	}
+	if plan.Outcome != reconciler.OutcomeBlocked || !hasBlocker(plan.Blockers, reconciler.BlockerOperationalFailure) {
+		t.Fatalf("plan outcome=%s blockers=%#v, want operational blocker", plan.Outcome, plan.Blockers)
+	}
+}
+
+func TestShellLoginShellTreatsZshPathsAsSatisfied(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.LoginShell = "/bin/zsh"
+	req.LoginShellKnown = true
+	req.ZshPath = "/usr/bin/zsh"
+
+	plan, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("plan satisfied login shell: %v", err)
+	}
+	if hasChange(plan.Changes, reconciler.ComponentShell, reconciler.ResourceLoginShell) {
+		t.Fatalf("plan repeated login-shell change for equivalent zsh paths: %#v", plan.Changes)
+	}
+}
+
+func TestLoginShellFailureSkipsDependentsAndContinuesIndependentWork(t *testing.T) {
+	t.Parallel()
+
+	r := reconciler.New(reconciler.Options{
+		DesiredStateID: "desired-state-contract",
+		ToolLockSHA256: strings.Repeat("c", 64),
+		ToolLock:       fnmLinuxToolLock(),
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
+	req := contractRequest(t.TempDir())
+	req.Target = platform.TargetLinuxAMD64
+	req.Host = platform.Host{
+		OS:      platform.OSLinux,
+		Arch:    platform.ArchAMD64,
+		Family:  platform.FamilyDebian,
+		Version: "12",
+	}
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentGitHubSSH,
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentUV,
+	}
+	req.Capabilities = map[reconciler.Capability]bool{
+		reconciler.CapabilityGit: true,
+		reconciler.CapabilityZsh: true,
+		reconciler.CapabilityCA:  true,
+	}
+	req.LoginShell = "/bin/bash"
+	req.LoginShellKnown = true
+	req.ZshPath = "/bin/zsh"
+	req.ShellChangeExecutor = func(context.Context, string) ([]string, error) {
+		return nil, errors.New("chsh failed")
+	}
+	req.Yes = true
+	req.AllowSystem = true
+
+	result, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply login shell failure: %v", err)
+	}
+	if result.Outcome != reconciler.OutcomePartial || !hasBlocker(result.Blockers, reconciler.BlockerOperationalFailure) {
+		t.Fatalf("outcome=%s blockers=%#v, want partial operational failure", result.Outcome, result.Blockers)
+	}
+	if !hasComponentStatus(result.Components, reconciler.ComponentShell, reconciler.ComponentBlocked) {
+		t.Fatalf("shell was not reported blocked: %#v", result.Components)
+	}
+	if !hasComponentStatus(result.Components, reconciler.ComponentFNM, reconciler.ComponentSkipped) {
+		t.Fatalf("fnm was not skipped as shell dependent: %#v", result.Components)
+	}
+	if !hasComponentStatus(result.Components, reconciler.ComponentGitConfig, reconciler.ComponentSucceeded) {
+		t.Fatalf("git-config did not continue independently: %#v", result.Components)
+	}
+	if !pathExists(filepath.Join(req.Home, "config", "git", "config")) {
+		t.Fatalf("git-config was not materialized after shell chsh failure")
+	}
+	if pathExists(filepath.Join(req.Home, "bin", "fnm")) {
+		t.Fatalf("fnm was materialized despite shell chsh failure")
+	}
+}
+
+func TestShellResourceFailureSkipsDependentsAndContinuesIndependentWork(t *testing.T) {
+	t.Parallel()
+
+	r := reconciler.New(reconciler.Options{
+		DesiredStateID: "desired-state-contract",
+		ToolLockSHA256: strings.Repeat("c", 64),
+		ToolLock:       fnmLinuxToolLock(),
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
+	req := contractRequest(t.TempDir())
+	req.Target = platform.TargetLinuxAMD64
+	req.Host = platform.Host{
+		OS:      platform.OSLinux,
+		Arch:    platform.ArchAMD64,
+		Family:  platform.FamilyDebian,
+		Version: "12",
+	}
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentGitHubSSH,
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentUV,
+	}
+	req.Capabilities = map[reconciler.Capability]bool{
+		reconciler.CapabilityGit: true,
+		reconciler.CapabilityZsh: true,
+		reconciler.CapabilityCA:  true,
+	}
+	req.LoginShell = "/bin/zsh"
+	req.LoginShellKnown = true
+	req.ZshPath = "/bin/zsh"
+	req.FailBeforeEffectPath = filepath.Join(req.Home, "config", "zsh", ".zshrc")
+	req.Yes = true
+
+	result, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply shell resource failure: %v", err)
+	}
+	if result.Outcome != reconciler.OutcomePartial || !hasBlocker(result.Blockers, reconciler.BlockerOperationalFailure) {
+		t.Fatalf("outcome=%s blockers=%#v, want partial operational failure", result.Outcome, result.Blockers)
+	}
+	if !hasComponentStatus(result.Components, reconciler.ComponentShell, reconciler.ComponentBlocked) {
+		t.Fatalf("shell was not reported blocked: %#v", result.Components)
+	}
+	if !hasComponentStatus(result.Components, reconciler.ComponentFNM, reconciler.ComponentSkipped) {
+		t.Fatalf("fnm was not skipped after shell resource failure: %#v", result.Components)
+	}
+	if !hasComponentStatus(result.Components, reconciler.ComponentGitConfig, reconciler.ComponentSucceeded) {
+		t.Fatalf("git-config did not continue independently: %#v", result.Components)
+	}
+	if pathExists(filepath.Join(req.Home, "bin", "fnm")) {
+		t.Fatalf("fnm was materialized despite shell resource failure")
+	}
+}
+
 func TestApplyAuthorizesTheImmutablePlanBeforeMutation(t *testing.T) {
 	t.Parallel()
 

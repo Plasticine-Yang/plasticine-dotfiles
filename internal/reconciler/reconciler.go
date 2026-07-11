@@ -99,11 +99,15 @@ type Request struct {
 	Adopt                bool
 	IncludeGitHubSSH     bool
 	GitHubKeyPath        string
+	LoginShell           string
+	LoginShellKnown      bool
+	ZshPath              string
 	ToolLockSHA256       string
 	Capabilities         map[Capability]bool
 	NetworkChecks        []Check
 	Authorize            func(Result) bool
 	UserServiceStarter   func(context.Context, string) ([]string, error)
+	ShellChangeExecutor  func(context.Context, string) ([]string, error)
 	BeforeMutation       func(Change)
 	FailBeforeEffectPath string
 	SkipLock             bool

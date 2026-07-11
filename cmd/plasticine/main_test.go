@@ -35,3 +35,27 @@ func TestPrintResultIncludesComponentStatuses(t *testing.T) {
 		t.Fatalf("output did not include awaiting Owner action component status:\n%s", text)
 	}
 }
+
+func TestPrintResultIncludesChangePath(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	printResultTo(&output, "plan", reconciler.Result{
+		Outcome: reconciler.OutcomeChangesPlanned,
+		Changes: []reconciler.Change{
+			{
+				Component:    reconciler.ComponentShell,
+				Kind:         reconciler.ChangeLoginShell,
+				ResourceKind: reconciler.ResourceLoginShell,
+				Path:         "/usr/bin/zsh",
+				Summary:      "set login shell to Zsh; open a new terminal after Apply",
+				SystemChange: true,
+			},
+		},
+	})
+
+	text := output.String()
+	if !strings.Contains(text, "change: shell login-shell system /usr/bin/zsh set login shell") {
+		t.Fatalf("output did not include change path:\n%s", text)
+	}
+}

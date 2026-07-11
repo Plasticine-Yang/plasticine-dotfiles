@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -141,6 +143,8 @@ func runReconcilerCommand(command string, args []string) int {
 		fmt.Fprintf(os.Stderr, "load embedded tool lock: %v\n", err)
 		return 1
 	}
+	loginShell, loginShellKnown := currentLoginShell()
+	zshPath := desiredZshPath(target)
 	r := reconciler.New(reconciler.Options{
 		DesiredStateID: desiredStateID(),
 		ToolLockSHA256: toolLockSHA256(),
@@ -161,6 +165,9 @@ func runReconcilerCommand(command string, args []string) int {
 		Adopt:            *adopt,
 		IncludeGitHubSSH: *githubKey != "",
 		GitHubKeyPath:    *githubKey,
+		LoginShell:       loginShell,
+		LoginShellKnown:  loginShellKnown,
+		ZshPath:          zshPath,
 	}
 	if command == "apply" && !*yes {
 		req.Authorize = promptApplyAuthorization
@@ -250,6 +257,47 @@ func linuxHostFamilyVersion(versionOverride string) (platform.Family, string) {
 	return family, version
 }
 
+func currentLoginShell() (string, bool) {
+	currentUser, err := user.Current()
+	if err != nil {
+		return "", false
+	}
+	if runtime.GOOS == "darwin" {
+		output, err := exec.Command("dscl", ".", "-read", "/Users/"+currentUser.Username, "UserShell").Output()
+		if err == nil {
+			fields := strings.Fields(string(output))
+			if len(fields) > 0 {
+				return fields[len(fields)-1], true
+			}
+		}
+	}
+	data, err := os.ReadFile("/etc/passwd")
+	if err != nil {
+		return "", false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) < 7 {
+			continue
+		}
+		if fields[0] == currentUser.Username || fields[2] == currentUser.Uid {
+			return fields[6], true
+		}
+	}
+	return "", false
+}
+
+func desiredZshPath(target platform.ArtifactTarget) string {
+	switch target.OS {
+	case platform.OSDarwin:
+		return "/bin/zsh"
+	case platform.OSLinux:
+		return "/usr/bin/zsh"
+	default:
+		return ""
+	}
+}
+
 func desiredStateID() string {
 	sum := sha256.Sum256([]byte("components:shell,git-config,github-ssh,neovim,lazygit,fnm,uv\n"))
 	return hex.EncodeToString(sum[:])
@@ -289,7 +337,15 @@ func printResultTo(writer io.Writer, command string, result reconciler.Result) {
 		fmt.Fprintf(writer, "state_migration: %d->%d %s\n", result.StateMigration.FromSchema, result.StateMigration.ToSchema, result.StateMigration.Message)
 	}
 	for _, change := range result.Changes {
-		fmt.Fprintf(writer, "change: %s %s %s\n", change.Component, change.Kind, strings.TrimSpace(change.Summary))
+		scope := "user"
+		if change.SystemChange {
+			scope = "system"
+		}
+		if change.Path != "" {
+			fmt.Fprintf(writer, "change: %s %s %s %s %s\n", change.Component, change.Kind, scope, change.Path, strings.TrimSpace(change.Summary))
+			continue
+		}
+		fmt.Fprintf(writer, "change: %s %s %s %s\n", change.Component, change.Kind, scope, strings.TrimSpace(change.Summary))
 	}
 	for _, conflict := range result.Conflicts {
 		fmt.Fprintf(writer, "conflict: %s adoptable=%t %s\n", conflict.Component, conflict.Adoptable, conflict.Path)

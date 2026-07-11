@@ -142,6 +142,7 @@ func (r Reconciler) buildPlan(ctx context.Context, req Request) (planSnapshot, e
 	if err := snapshot.planSystemDependencies(ctx, req, r.system); err != nil {
 		return planSnapshot{}, err
 	}
+	snapshot.planLoginShell(req)
 	if req.RequireSystemChange {
 		snapshot.planRequiredSystemChange(req)
 	}
@@ -247,6 +248,7 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 	}
 
 	var failedCapabilities []Capability
+	failedComponents := map[ComponentID]string{}
 	awaitingOwnerAction := false
 	resourceChanges := map[ComponentID][]Change{}
 	for _, change := range result.Changes {
@@ -288,6 +290,20 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 				continue
 			}
 			continue
+		case ChangeLoginShell:
+			if componentHasFailedCapability(change.Component, req, failedCapabilities) {
+				continue
+			}
+			effects, err := applyLoginShellChange(ctx, req, change.Path)
+			for _, effect := range effects {
+				result.DurableEffects = appendUnique(result.DurableEffects, effect)
+			}
+			if err != nil {
+				result.Outcome = OutcomePartial
+				result.Blockers = append(result.Blockers, Blocker{Code: BlockerOperationalFailure, Message: err.Error()})
+				failedComponents[change.Component] = err.Error()
+			}
+			continue
 		case ChangeSecretReference:
 			if snapshot.Secret != nil {
 				state.SecretReferences[ComponentGitHubSSH] = *snapshot.Secret
@@ -298,6 +314,7 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 	}
 
 	blockedBySystem := systemBlockedComponents(snapshot.Active, req, failedCapabilities)
+	systemBlockedSet := systemBlockSet(blockedBySystem)
 	for _, component := range sortedComponentsFromSet(systemBlockSet(blockedBySystem)) {
 		block := blockedBySystem[component]
 		status := ComponentBlocked
@@ -315,8 +332,45 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 			Message:   message,
 		})
 	}
+	blockedByComponent := componentBlockedComponents(snapshot.Active, failedComponents)
+	reportedComponentBlocks := map[ComponentID]bool{}
+	for _, component := range sortedComponentsFromSet(systemBlockSet(blockedByComponent)) {
+		if systemBlockedSet[component] {
+			continue
+		}
+		block := blockedByComponent[component]
+		status := ComponentBlocked
+		message := failedComponents[component]
+		if !block.Direct {
+			status = ComponentSkipped
+			message = "skipped because dependency " + string(block.Dependency) + " is blocked"
+		}
+		result.Components = append(result.Components, ComponentResult{
+			Component: component,
+			Status:    status,
+			Message:   message,
+		})
+		reportedComponentBlocks[component] = true
+	}
 	for _, component := range orderedComponentsFromSet(componentChangeSet(resourceChanges)) {
 		if _, blocked := blockedBySystem[component]; blocked {
+			continue
+		}
+		if block, blocked := componentBlockedComponents(snapshot.Active, failedComponents)[component]; blocked {
+			if !reportedComponentBlocks[component] {
+				status := ComponentBlocked
+				message := failedComponents[component]
+				if !block.Direct {
+					status = ComponentSkipped
+					message = "skipped because dependency " + string(block.Dependency) + " is blocked"
+				}
+				result.Components = append(result.Components, ComponentResult{
+					Component: component,
+					Status:    status,
+					Message:   message,
+				})
+				reportedComponentBlocks[component] = true
+			}
 			continue
 		}
 		changes := resourceChanges[component]
@@ -333,6 +387,8 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 			result.Outcome = OutcomePartial
 			result.Blockers = append(result.Blockers, Blocker{Code: code, Message: message})
 			result.Components = append(result.Components, ComponentResult{Component: component, Status: ComponentBlocked, Message: message})
+			failedComponents[component] = message
+			reportedComponentBlocks[component] = true
 			componentFailed = true
 		}
 		for _, change := range changes {
@@ -461,6 +517,43 @@ func (s *planSnapshot) planSystemDependencies(ctx context.Context, req Request, 
 		s.block(BlockerUnsupportedSystemChange, fmt.Sprintf("%s requires an unsupported system change on this host", capabilitiesSummary(missing)))
 	}
 	return nil
+}
+
+func (s *planSnapshot) planLoginShell(req Request) {
+	if !s.Active[ComponentShell] {
+		return
+	}
+	currentShell := strings.TrimSpace(req.LoginShell)
+	desiredShell := strings.TrimSpace(req.ZshPath)
+	if desiredShell == "" {
+		return
+	}
+	if !req.LoginShellKnown || currentShell == "" {
+		s.block(BlockerOperationalFailure, "current login shell could not be discovered")
+		return
+	}
+	if loginShellSatisfied(currentShell, desiredShell) {
+		return
+	}
+	s.SystemChange = true
+	s.Result.Changes = append(s.Result.Changes, Change{
+		Component:    ComponentShell,
+		Kind:         ChangeLoginShell,
+		ResourceKind: ResourceLoginShell,
+		Path:         desiredShell,
+		Summary:      "set login shell to Zsh; open a new terminal after Apply",
+		SystemChange: true,
+	})
+	if s.Result.Support.Level != platform.SupportFull {
+		s.block(BlockerUnsupportedSystemChange, "login-shell change requires a fully supported host")
+	}
+}
+
+func loginShellSatisfied(currentShell string, desiredShell string) bool {
+	if currentShell == desiredShell {
+		return true
+	}
+	return filepath.Base(currentShell) == "zsh" && filepath.Base(desiredShell) == "zsh"
 }
 
 func (s *planSnapshot) planResource(state State, resource desiredResource, adopt bool) {
@@ -733,6 +826,25 @@ func startUserService(ctx context.Context, req Request, servicePath string) ([]s
 		return nil, err
 	}
 	return []string{"systemctl --user link " + servicePath, "systemctl --user daemon-reload", "systemctl --user enable --now " + serviceName}, nil
+}
+
+func applyLoginShellChange(ctx context.Context, req Request, desiredShell string) ([]string, error) {
+	if req.ShellChangeExecutor != nil {
+		return req.ShellChangeExecutor(ctx, desiredShell)
+	}
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return nil, fmt.Errorf("login shell change requires a controlling terminal: %w", err)
+	}
+	defer tty.Close()
+	command := exec.CommandContext(ctx, "chsh", "-s", desiredShell)
+	command.Stdin = tty
+	command.Stdout = tty
+	command.Stderr = tty
+	if err := command.Run(); err != nil {
+		return nil, err
+	}
+	return []string{"chsh -s " + desiredShell}, nil
 }
 
 func materializeManagedTool(ctx context.Context, home string, resource desiredResource, client *http.Client) error {
@@ -1022,6 +1134,22 @@ func intersectCapabilities(left []Capability, right []Capability) []Capability {
 	return intersection
 }
 
+func componentHasFailedCapability(component ComponentID, req Request, failed []Capability) bool {
+	if len(failed) == 0 {
+		return false
+	}
+	failedSet := map[Capability]bool{}
+	for _, capability := range failed {
+		failedSet[capability] = true
+	}
+	for _, required := range requiredCapabilities([]ComponentID{component}, req) {
+		if failedSet[required] {
+			return true
+		}
+	}
+	return false
+}
+
 func removeCapability(values []Capability, remove Capability) []Capability {
 	filtered := values[:0]
 	for _, capability := range values {
@@ -1051,6 +1179,31 @@ func systemBlockedComponents(active map[ComponentID]bool, req Request, failed []
 			if failedSet[required] {
 				blocked[component] = systemBlock{Direct: true}
 			}
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for component := range active {
+			if _, ok := blocked[component]; ok {
+				continue
+			}
+			for _, dependency := range componentDependencies(component) {
+				if _, ok := blocked[dependency]; ok {
+					blocked[component] = systemBlock{Dependency: dependency}
+					changed = true
+					break
+				}
+			}
+		}
+	}
+	return blocked
+}
+
+func componentBlockedComponents(active map[ComponentID]bool, failed map[ComponentID]string) map[ComponentID]systemBlock {
+	blocked := map[ComponentID]systemBlock{}
+	for component := range failed {
+		if active[component] {
+			blocked[component] = systemBlock{Direct: true}
 		}
 	}
 	for changed := true; changed; {
