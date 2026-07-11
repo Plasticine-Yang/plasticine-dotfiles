@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/platform"
 )
+
+var ErrOwnerActionRequired = errors.New("owner action required")
 
 type SystemAdapter interface {
 	MissingCapabilities(context.Context, Request, []ComponentID) ([]Capability, error)
@@ -56,7 +59,7 @@ func (LocalSystemAdapter) ApplySystemDependencies(ctx context.Context, req Reque
 			if err := exec.CommandContext(ctx, "xcode-select", "--install").Run(); err != nil {
 				return nil, err
 			}
-			return []string{"xcode-select --install"}, nil
+			return []string{"xcode-select --install"}, fmt.Errorf("%w: complete Apple Command Line Tools installer and rerun apply", ErrOwnerActionRequired)
 		}
 		return nil, fmt.Errorf("missing macOS capabilities require Owner action: %v", missing)
 	default:

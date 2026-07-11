@@ -64,7 +64,11 @@ func githubKnownHostsPath(home string) string {
 	return filepath.Join(home, "config", "ssh", "github_known_hosts")
 }
 
-func componentDesiredResources(req Request, component ComponentID, secret *SecretReference, toolLock release.ToolLock) []desiredResource {
+func githubAgentShellPath(home string) string {
+	return filepath.Join(home, "config", "ssh", "github-agent.zsh")
+}
+
+func componentDesiredResources(req Request, component ComponentID, secret *SecretReference, toolLock release.ToolLock, active map[ComponentID]bool) []desiredResource {
 	switch component {
 	case ComponentShell:
 		return []desiredResource{
@@ -72,14 +76,8 @@ func componentDesiredResources(req Request, component ComponentID, secret *Secre
 				Component:    component,
 				Path:         zshConfigPath(req.Home),
 				ResourceKind: ResourceManagedPath,
-				Content: strings.Join([]string{
-					"# Managed by Plasticine.",
-					"export PLASTICINE_HOME=\"${PLASTICINE_HOME:-$HOME/.plasticine}\"",
-					"export PATH=\"$PLASTICINE_HOME/bin:$PATH\"",
-					"export ANTIDOTE_HOME=\"$PLASTICINE_HOME/runtime/antidote\"",
-					"",
-				}, "\n"),
-				Summary: "materialize centralized Zsh configuration",
+				Content:      zshConfigContent(req, active[ComponentGitHubSSH]),
+				Summary:      "materialize centralized Zsh configuration",
 			},
 			{
 				Component:    component,
@@ -129,7 +127,7 @@ func componentDesiredResources(req Request, component ComponentID, secret *Secre
 				Component:    component,
 				Path:         githubSSHFragmentPath(req.Home),
 				ResourceKind: ResourceManagedPath,
-				Content:      githubSSHFragmentContent(secret),
+				Content:      githubSSHFragmentContent(req, secret),
 				Summary:      "materialize GitHub SSH host fragment",
 			},
 			{
@@ -160,15 +158,39 @@ func componentDesiredResources(req Request, component ComponentID, secret *Secre
 			resources = append(resources, desiredResource{
 				Component:    component,
 				Path:         filepath.Join(req.Home, "config", "systemd", "user", "ssh-agent.service"),
-				ResourceKind: ResourceIntegrationShim,
+				ResourceKind: ResourceUserService,
 				Content:      "[Service]\nExecStart=/usr/bin/ssh-agent -D -a %h/.plasticine/runtime/ssh-agent.sock\n",
 				Summary:      "configure shared user-level Linux SSH agent",
+			}, desiredResource{
+				Component:    component,
+				Path:         githubAgentShellPath(req.Home),
+				ResourceKind: ResourceIntegrationShim,
+				Content:      githubLinuxAgentShellContent(secret),
+				Summary:      "configure Shell to use the shared Linux SSH agent",
 			})
 		}
 		return resources
 	default:
 		return nil
 	}
+}
+
+func zshConfigContent(req Request, githubSSHActive bool) string {
+	lines := []string{
+		"# Managed by Plasticine.",
+		"export PLASTICINE_HOME=\"${PLASTICINE_HOME:-$HOME/.plasticine}\"",
+		"export PATH=\"$PLASTICINE_HOME/bin:$PATH\"",
+		"export ANTIDOTE_HOME=\"$PLASTICINE_HOME/runtime/antidote\"",
+	}
+	if req.Target.OS == platform.OSLinux && githubSSHActive {
+		lines = append(lines,
+			"if [ -r \"$PLASTICINE_HOME/config/ssh/github-agent.zsh\" ]; then",
+			"  . \"$PLASTICINE_HOME/config/ssh/github-agent.zsh\"",
+			"fi",
+		)
+	}
+	lines = append(lines, "")
+	return strings.Join(lines, "\n")
 }
 
 func managedToolResources(req Request, component ComponentID, tool release.ManagedTool, entries []string, toolLock release.ToolLock) []desiredResource {
@@ -294,12 +316,12 @@ func toolLauncher(versionedRoot string, tool string, entry string) string {
 	return strings.Join(lines, "\n")
 }
 
-func githubSSHFragmentContent(secret *SecretReference) string {
+func githubSSHFragmentContent(req Request, secret *SecretReference) string {
 	keyPath := ""
 	if secret != nil {
 		keyPath = secret.Path
 	}
-	return strings.Join([]string{
+	lines := []string{
 		"Host github.com",
 		"  HostName github.com",
 		"  User git",
@@ -307,8 +329,15 @@ func githubSSHFragmentContent(secret *SecretReference) string {
 		"  IdentityFile " + keyPath,
 		"  UserKnownHostsFile ~/.plasticine/config/ssh/github_known_hosts",
 		"  StrictHostKeyChecking yes",
-		"",
-	}, "\n")
+	}
+	switch req.Target.OS {
+	case platform.OSDarwin:
+		lines = append(lines, "  AddKeysToAgent yes", "  UseKeychain yes")
+	case platform.OSLinux:
+		lines = append(lines, "  IdentityAgent ~/.plasticine/runtime/ssh-agent.sock")
+	}
+	lines = append(lines, "")
+	return strings.Join(lines, "\n")
 }
 
 func githubKnownHostsContent() string {
@@ -318,6 +347,30 @@ func githubKnownHostsContent() string {
 		"github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=",
 		"",
 	}, "\n")
+}
+
+func githubLinuxAgentShellContent(secret *SecretReference) string {
+	keyPath := ""
+	fingerprint := ""
+	if secret != nil {
+		keyPath = secret.Path
+		fingerprint = secret.Fingerprint
+	}
+	quotedKeyPath := shellSingleQuote(keyPath)
+	quotedFingerprint := shellSingleQuote(fingerprint)
+	return strings.Join([]string{
+		"export SSH_AUTH_SOCK=\"${PLASTICINE_HOME:-$HOME/.plasticine}/runtime/ssh-agent.sock\"",
+		"if [ -n " + quotedFingerprint + " ] && [ -r " + quotedKeyPath + " ] && command -v ssh-add >/dev/null 2>&1; then",
+		"  if ! ssh-add -l 2>/dev/null | grep -Fq " + quotedFingerprint + "; then",
+		"    ssh-add " + quotedKeyPath + " >/dev/null",
+		"  fi",
+		"fi",
+		"",
+	}, "\n")
+}
+
+func shellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func githubSSHManagedBlock() string {

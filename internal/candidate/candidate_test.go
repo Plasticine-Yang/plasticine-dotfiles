@@ -30,6 +30,10 @@ func TestSelfInstallFailsFastWhenPlasticineLockIsHeld(t *testing.T) {
 		CandidateExecutable: next,
 		InstallPath:         install,
 		StateCompatible:     true,
+		StateCompatibility: func() candidate.StateCompatibilityResult {
+			t.Fatal("state compatibility should not run before the exclusive lock is acquired")
+			return candidate.StateCompatibilityResult{}
+		},
 	})
 	if err != nil {
 		t.Fatalf("self install returned error: %v", err)
@@ -94,6 +98,40 @@ func TestSelfInstallPreservesCurrentCLIWhenStateIsIncompatible(t *testing.T) {
 	}
 	if got := readFile(t, install); got != "old" {
 		t.Fatalf("installed bytes = %q, want old", got)
+	}
+}
+
+func TestReadOnlyStateCompatibilityClassifiesMigrationPendingAndUnreadableState(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	result := candidate.ReadOnlyStateCompatibility(home)
+	if result.Status != candidate.StateCompatibilityCompatible || !candidate.ReadOnlyStateCompatible(home) {
+		t.Fatalf("missing state compatibility = %#v", result)
+	}
+
+	writeCandidateState(t, home, `{"schema_version":1,"desired_state_id":"old"}`)
+	result = candidate.ReadOnlyStateCompatibility(home)
+	if result.Status != candidate.StateCompatibilityMigrationRequired || !candidate.ReadOnlyStateCompatible(home) {
+		t.Fatalf("old state compatibility = %#v", result)
+	}
+
+	writeCandidateState(t, home, `{"schema_version":2,"desired_state_id":"current","pending_work":[{"component":"git-config","path":"config","resource_kind":"managed-path","intent":"write"}]}`)
+	result = candidate.ReadOnlyStateCompatibility(home)
+	if result.Status != candidate.StateCompatibilityIncompatible || candidate.ReadOnlyStateCompatible(home) {
+		t.Fatalf("pending state compatibility = %#v", result)
+	}
+
+	writeCandidateState(t, home, `{"schema_version":999,"desired_state_id":"future"}`)
+	result = candidate.ReadOnlyStateCompatibility(home)
+	if result.Status != candidate.StateCompatibilityIncompatible || candidate.ReadOnlyStateCompatible(home) {
+		t.Fatalf("newer state compatibility = %#v", result)
+	}
+
+	writeCandidateState(t, home, `{`)
+	result = candidate.ReadOnlyStateCompatibility(home)
+	if result.Status != candidate.StateCompatibilityIncompatible || candidate.ReadOnlyStateCompatible(home) {
+		t.Fatalf("malformed state compatibility = %#v", result)
 	}
 }
 
@@ -201,6 +239,17 @@ func copyFile(t *testing.T, source string, target string) {
 	}
 	if err := os.WriteFile(target, data, 0o755); err != nil {
 		t.Fatalf("write %s: %v", target, err)
+	}
+}
+
+func writeCandidateState(t *testing.T, home string, body string) {
+	t.Helper()
+	path := filepath.Join(home, "state", "reconciliation.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("mkdir state: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write state: %v", err)
 	}
 }
 

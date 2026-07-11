@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -137,6 +138,7 @@ func (r Reconciler) buildPlan(ctx context.Context, req Request) (planSnapshot, e
 	}
 
 	snapshot.validateComponentGraph()
+	snapshot.validatePlatformComponentSupport(req)
 	if err := snapshot.planSystemDependencies(ctx, req, r.system); err != nil {
 		return planSnapshot{}, err
 	}
@@ -168,7 +170,7 @@ func (r Reconciler) buildPlan(ctx context.Context, req Request) (planSnapshot, e
 				continue
 			}
 		}
-		for _, resource := range componentDesiredResources(resourceReq, component, snapshot.Secret, r.toolLock) {
+		for _, resource := range componentDesiredResources(resourceReq, component, snapshot.Secret, r.toolLock, snapshot.Active) {
 			snapshot.Desired = append(snapshot.Desired, resource)
 			snapshot.DesiredByPath[resource.Path] = resource
 			snapshot.planResource(state, resource, req.Adopt)
@@ -184,7 +186,11 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 	if result.Outcome == OutcomeBlocked || result.Outcome == OutcomeNoChange {
 		return result, nil
 	}
-	if !req.Yes {
+	if !req.Yes && req.Authorize == nil {
+		result.Outcome = OutcomeDenied
+		return result, nil
+	}
+	if !req.Yes && !req.Authorize(result) {
 		result.Outcome = OutcomeDenied
 		return result, nil
 	}
@@ -240,6 +246,8 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 		result.DurableEffects = appendUnique(result.DurableEffects, retirement.Path)
 	}
 
+	var failedCapabilities []Capability
+	awaitingOwnerAction := false
 	resourceChanges := map[ComponentID][]Change{}
 	for _, change := range result.Changes {
 		switch change.Kind {
@@ -247,13 +255,37 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 			continue
 		case ChangeSystemDependency:
 			effects, err := r.applySystemDependency(ctx, req, change)
-			if err != nil {
-				result.Outcome = OutcomePartial
-				result.Blockers = append(result.Blockers, Blocker{Code: BlockerOperationalFailure, Message: err.Error()})
-				return result, nil
-			}
 			for _, effect := range effects {
 				result.DurableEffects = appendUnique(result.DurableEffects, effect)
+			}
+			remainingCapabilities := change.Capabilities
+			if r.system != nil && len(change.Capabilities) > 0 {
+				observed, observeErr := r.system.MissingCapabilities(ctx, req, sortedComponentsFromSet(snapshot.Active))
+				if observeErr == nil {
+					remainingCapabilities = intersectCapabilities(change.Capabilities, observed)
+				} else if err == nil {
+					err = observeErr
+				}
+			}
+			if err != nil {
+				result.Outcome = OutcomePartial
+				code := BlockerOperationalFailure
+				if errors.Is(err, ErrOwnerActionRequired) {
+					code = BlockerOwnerActionRequired
+					awaitingOwnerAction = true
+				}
+				result.Blockers = append(result.Blockers, Blocker{Code: code, Message: err.Error()})
+				failedCapabilities = append(failedCapabilities, remainingCapabilities...)
+				continue
+			}
+			if len(remainingCapabilities) > 0 {
+				result.Outcome = OutcomePartial
+				result.Blockers = append(result.Blockers, Blocker{
+					Code:    BlockerOperationalFailure,
+					Message: "system capabilities still missing after system change: " + capabilitiesSummary(remainingCapabilities),
+				})
+				failedCapabilities = append(failedCapabilities, remainingCapabilities...)
+				continue
 			}
 			continue
 		case ChangeSecretReference:
@@ -265,15 +297,44 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 		resourceChanges[change.Component] = append(resourceChanges[change.Component], change)
 	}
 
-	for _, component := range sortedComponentsFromSet(componentChangeSet(resourceChanges)) {
+	blockedBySystem := systemBlockedComponents(snapshot.Active, req, failedCapabilities)
+	for _, component := range sortedComponentsFromSet(systemBlockSet(blockedBySystem)) {
+		block := blockedBySystem[component]
+		status := ComponentBlocked
+		message := "required system capability failed: " + capabilitiesSummary(failedCapabilities)
+		if !block.Direct {
+			status = ComponentSkipped
+			message = "skipped because dependency " + string(block.Dependency) + " is blocked"
+		} else if awaitingOwnerAction {
+			status = ComponentAwaitingOwnerAction
+			message = "awaiting Owner action for system capability: " + capabilitiesSummary(failedCapabilities)
+		}
+		result.Components = append(result.Components, ComponentResult{
+			Component: component,
+			Status:    status,
+			Message:   message,
+		})
+	}
+	for _, component := range orderedComponentsFromSet(componentChangeSet(resourceChanges)) {
+		if _, blocked := blockedBySystem[component]; blocked {
+			continue
+		}
 		changes := resourceChanges[component]
-		state.PendingWork = journalEntriesFor(changes)
+		componentPending := journalEntriesFor(changes)
+		state.PendingWork = append(state.PendingWork, componentPending...)
 		if err := writeState(req.Home, state); err != nil {
 			return Result{}, err
 		}
 		result.DurableEffects = appendUnique(result.DurableEffects, StatePath(req.Home))
 
 		componentOwnership := map[string]Ownership{}
+		componentFailed := false
+		blockComponent := func(code BlockerCode, message string) {
+			result.Outcome = OutcomePartial
+			result.Blockers = append(result.Blockers, Blocker{Code: code, Message: message})
+			result.Components = append(result.Components, ComponentResult{Component: component, Status: ComponentBlocked, Message: message})
+			componentFailed = true
+		}
 		for _, change := range changes {
 			resource, ok := snapshot.DesiredByPath[change.Path]
 			if !ok {
@@ -283,8 +344,8 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 				req.BeforeMutation(change)
 			}
 			if req.FailBeforeEffectPath == change.Path {
-				result.Outcome = OutcomePartial
-				return result, nil
+				blockComponent(BlockerOperationalFailure, "failure injected before materializing "+change.Path)
+				break
 			}
 			if err := verifyPrecondition(change.Path, change.Precondition); err != nil {
 				result.Outcome = OutcomeBlocked
@@ -292,10 +353,18 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 				return result, nil
 			}
 			if err := writeResource(ctx, req.Home, resource, r.httpClient); err != nil {
-				result.Outcome = OutcomePartial
-				result.Blockers = append(result.Blockers, Blocker{Code: BlockerOperationalFailure, Message: err.Error()})
-				result.Components = append(result.Components, ComponentResult{Component: component, Status: ComponentBlocked, Message: err.Error()})
-				return result, nil
+				blockComponent(BlockerOperationalFailure, err.Error())
+				break
+			}
+			if resource.ResourceKind == ResourceUserService {
+				effects, err := startUserService(ctx, req, resource.Path)
+				if err != nil {
+					blockComponent(BlockerOperationalFailure, err.Error())
+					break
+				}
+				for _, effect := range effects {
+					result.DurableEffects = appendUnique(result.DurableEffects, effect)
+				}
 			}
 			componentOwnership[resource.Path] = Ownership{
 				Component:    resource.Component,
@@ -306,16 +375,22 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 			}
 			result.DurableEffects = appendUnique(result.DurableEffects, resource.Path)
 		}
+		if componentFailed {
+			continue
+		}
 		for path, ownership := range componentOwnership {
 			state.Ownership[path] = ownership
 		}
-		state.PendingWork = nil
+		state.PendingWork = removeJournalEntries(state.PendingWork, componentPending)
 		if err := writeState(req.Home, state); err != nil {
 			return Result{}, err
 		}
+		result.Components = append(result.Components, ComponentResult{Component: component, Status: ComponentSucceeded})
 	}
 
-	state.PendingWork = nil
+	if result.Outcome != OutcomePartial {
+		state.PendingWork = nil
+	}
 	if err := writeState(req.Home, state); err != nil {
 		return Result{}, err
 	}
@@ -328,11 +403,21 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 
 func (s *planSnapshot) validateComponentGraph() {
 	if !s.Active[ComponentShell] {
-		for _, dependent := range []ComponentID{ComponentFNM, ComponentGitHubSSH} {
+		for _, dependent := range componentDependents(ComponentShell) {
 			if s.Active[dependent] {
 				s.block(BlockerMissingComponentDependency, fmt.Sprintf("%s requires active shell component", dependent))
 			}
 		}
+	}
+}
+
+func (s *planSnapshot) validatePlatformComponentSupport(req Request) {
+	if !s.Active[ComponentGitHubSSH] || req.Target.OS != platform.OSLinux {
+		return
+	}
+	supportedFamily := req.Host.Family == platform.FamilyDebian || req.Host.Family == platform.FamilyUbuntu
+	if !supportedFamily || s.Result.Support.Level != platform.SupportFull {
+		s.block(BlockerUnsupportedSystemChange, "github-ssh Linux shared agent requires the Debian/Ubuntu support floor and a systemd user session")
 	}
 }
 
@@ -355,6 +440,10 @@ func (s *planSnapshot) planSystemDependencies(ctx context.Context, req Request, 
 	missing, err := plannedMissingCapabilities(ctx, req, sortedComponentsFromSet(s.Active), system)
 	if err != nil {
 		return err
+	}
+	if containsCapability(missing, CapabilitySystemdUserSession) && s.Active[ComponentGitHubSSH] && req.Target.OS == platform.OSLinux {
+		s.block(BlockerUnsupportedSystemChange, "github-ssh Linux shared agent requires an existing systemd user session")
+		missing = removeCapability(missing, CapabilitySystemdUserSession)
 	}
 	if len(missing) == 0 {
 		return nil
@@ -627,6 +716,23 @@ func writeResource(ctx context.Context, home string, resource desiredResource, c
 		return err
 	}
 	return os.Rename(tempPath, resource.Path)
+}
+
+func startUserService(ctx context.Context, req Request, servicePath string) ([]string, error) {
+	if req.UserServiceStarter != nil {
+		return req.UserServiceStarter(ctx, servicePath)
+	}
+	serviceName := filepath.Base(servicePath)
+	if err := exec.CommandContext(ctx, "systemctl", "--user", "link", servicePath).Run(); err != nil {
+		return nil, err
+	}
+	if err := exec.CommandContext(ctx, "systemctl", "--user", "daemon-reload").Run(); err != nil {
+		return nil, err
+	}
+	if err := exec.CommandContext(ctx, "systemctl", "--user", "enable", "--now", serviceName).Run(); err != nil {
+		return nil, err
+	}
+	return []string{"systemctl --user link " + servicePath, "systemctl --user daemon-reload", "systemctl --user enable --now " + serviceName}, nil
 }
 
 func materializeManagedTool(ctx context.Context, home string, resource desiredResource, client *http.Client) error {
@@ -902,6 +1008,126 @@ func capabilitiesSummary(capabilities []Capability) string {
 	return strings.Join(parts, ", ")
 }
 
+func intersectCapabilities(left []Capability, right []Capability) []Capability {
+	rightSet := map[Capability]bool{}
+	for _, capability := range right {
+		rightSet[capability] = true
+	}
+	var intersection []Capability
+	for _, capability := range left {
+		if rightSet[capability] {
+			intersection = append(intersection, capability)
+		}
+	}
+	return intersection
+}
+
+func removeCapability(values []Capability, remove Capability) []Capability {
+	filtered := values[:0]
+	for _, capability := range values {
+		if capability != remove {
+			filtered = append(filtered, capability)
+		}
+	}
+	return filtered
+}
+
+type systemBlock struct {
+	Direct     bool
+	Dependency ComponentID
+}
+
+func systemBlockedComponents(active map[ComponentID]bool, req Request, failed []Capability) map[ComponentID]systemBlock {
+	blocked := map[ComponentID]systemBlock{}
+	if len(failed) == 0 {
+		return blocked
+	}
+	failedSet := map[Capability]bool{}
+	for _, capability := range failed {
+		failedSet[capability] = true
+	}
+	for component := range active {
+		for _, required := range requiredCapabilities([]ComponentID{component}, req) {
+			if failedSet[required] {
+				blocked[component] = systemBlock{Direct: true}
+			}
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for component := range active {
+			if _, ok := blocked[component]; ok {
+				continue
+			}
+			for _, dependency := range componentDependencies(component) {
+				if _, ok := blocked[dependency]; ok {
+					blocked[component] = systemBlock{Dependency: dependency}
+					changed = true
+					break
+				}
+			}
+		}
+	}
+	return blocked
+}
+
+func systemBlockSet(blocked map[ComponentID]systemBlock) map[ComponentID]bool {
+	values := map[ComponentID]bool{}
+	for component := range blocked {
+		values[component] = true
+	}
+	return values
+}
+
+func componentDependencies(component ComponentID) []ComponentID {
+	switch component {
+	case ComponentFNM, ComponentGitHubSSH:
+		return []ComponentID{ComponentShell}
+	default:
+		return nil
+	}
+}
+
+func componentDependents(dependency ComponentID) []ComponentID {
+	var dependents []ComponentID
+	for _, component := range defaultComponents() {
+		for _, candidateDependency := range componentDependencies(component) {
+			if candidateDependency == dependency {
+				dependents = append(dependents, component)
+				break
+			}
+		}
+	}
+	return dependents
+}
+
+func orderedComponentsFromSet(components map[ComponentID]bool) []ComponentID {
+	visited := map[ComponentID]bool{}
+	var ordered []ComponentID
+	var visit func(ComponentID)
+	visit = func(component ComponentID) {
+		if visited[component] {
+			return
+		}
+		visited[component] = true
+		for _, dependency := range componentDependencies(component) {
+			if components[dependency] {
+				visit(dependency)
+			}
+		}
+		if components[component] {
+			ordered = append(ordered, component)
+		}
+	}
+	for _, component := range defaultComponents() {
+		visit(component)
+	}
+	for _, component := range sortedComponentsFromSet(components) {
+		visit(component)
+	}
+	return ordered
+}
+
 func verifyPrecondition(path string, precondition string) error {
 	current, exists := maybeFileDigest(path)
 	if precondition == preconditionAbsent {
@@ -1058,6 +1284,20 @@ func journalEntriesFor(changes []Change) []JournalEntry {
 		})
 	}
 	return entries
+}
+
+func removeJournalEntries(entries []JournalEntry, remove []JournalEntry) []JournalEntry {
+	removeSet := map[string]bool{}
+	for _, entry := range remove {
+		removeSet[entry.Path+"|"+entry.Intent] = true
+	}
+	kept := entries[:0]
+	for _, entry := range entries {
+		if !removeSet[entry.Path+"|"+entry.Intent] {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
 }
 
 func sanitizeName(value string) string {

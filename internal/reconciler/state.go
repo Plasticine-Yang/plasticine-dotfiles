@@ -13,6 +13,19 @@ type loadedState struct {
 	Migration *StateMigration
 }
 
+type StateCompatibilityStatus string
+
+const (
+	StateCompatibilityCompatible        StateCompatibilityStatus = "compatible"
+	StateCompatibilityMigrationRequired StateCompatibilityStatus = "migration-required"
+	StateCompatibilityIncompatible      StateCompatibilityStatus = "incompatible"
+)
+
+type StateCompatibilityResult struct {
+	Status  StateCompatibilityStatus
+	Message string
+}
+
 func StatePath(home string) string {
 	return filepath.Join(home, "state", "reconciliation.json")
 }
@@ -37,6 +50,23 @@ func ReadState(home string) (State, error) {
 		return State{}, os.ErrNotExist
 	}
 	return loaded.State, nil
+}
+
+func ReadOnlyStateCompatibility(home string) StateCompatibilityResult {
+	loaded, err := loadState(home)
+	if err != nil {
+		return StateCompatibilityResult{Status: StateCompatibilityIncompatible, Message: err.Error()}
+	}
+	if !loaded.Exists {
+		return StateCompatibilityResult{Status: StateCompatibilityCompatible, Message: "state has not been created"}
+	}
+	if len(loaded.State.PendingWork) > 0 {
+		return StateCompatibilityResult{Status: StateCompatibilityIncompatible, Message: "pending work must be resolved before candidate handoff"}
+	}
+	if loaded.Migration != nil {
+		return StateCompatibilityResult{Status: StateCompatibilityMigrationRequired, Message: loaded.Migration.Message}
+	}
+	return StateCompatibilityResult{Status: StateCompatibilityCompatible, Message: "state schema is compatible"}
 }
 
 func loadState(home string) (loadedState, error) {

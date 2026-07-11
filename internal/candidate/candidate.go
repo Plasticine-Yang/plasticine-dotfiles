@@ -2,7 +2,6 @@ package candidate
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/reconciler"
 )
 
 type Outcome string
@@ -29,6 +30,7 @@ type Request struct {
 	CandidateExecutable string
 	InstallPath         string
 	StateCompatible     bool
+	StateCompatibility  func() StateCompatibilityResult
 	FirstApply          func(context.Context) error
 }
 
@@ -36,6 +38,16 @@ type Result struct {
 	Outcome Outcome
 	Message string
 }
+
+type StateCompatibilityStatus = reconciler.StateCompatibilityStatus
+
+const (
+	StateCompatibilityCompatible        StateCompatibilityStatus = reconciler.StateCompatibilityCompatible
+	StateCompatibilityMigrationRequired StateCompatibilityStatus = reconciler.StateCompatibilityMigrationRequired
+	StateCompatibilityIncompatible      StateCompatibilityStatus = reconciler.StateCompatibilityIncompatible
+)
+
+type StateCompatibilityResult = reconciler.StateCompatibilityResult
 
 func SelfInstall(ctx context.Context, req Request) (Result, error) {
 	if err := ctx.Err(); err != nil {
@@ -47,8 +59,15 @@ func SelfInstall(ctx context.Context, req Request) (Result, error) {
 	}
 	defer release()
 
-	if !req.StateCompatible {
-		return Result{Outcome: OutcomeIncompatible, Message: "state compatibility check failed"}, nil
+	stateCompatible := req.StateCompatible
+	incompatibleMessage := "state compatibility check failed"
+	if req.StateCompatibility != nil {
+		compatibility := req.StateCompatibility()
+		stateCompatible = compatibility.Status != StateCompatibilityIncompatible
+		incompatibleMessage = compatibility.Message
+	}
+	if !stateCompatible {
+		return Result{Outcome: OutcomeIncompatible, Message: incompatibleMessage}, nil
 	}
 	current := req.CurrentExecutable
 	if current == "" {
@@ -77,20 +96,12 @@ func LockPath(home string) string {
 }
 
 func ReadOnlyStateCompatible(home string) bool {
-	data, err := os.ReadFile(filepath.Join(home, "state", "reconciliation.json"))
-	if os.IsNotExist(err) {
-		return true
-	}
-	if err != nil {
-		return false
-	}
-	var state struct {
-		DesiredStateID string `json:"desired_state_id"`
-	}
-	if err := json.Unmarshal(data, &state); err != nil {
-		return false
-	}
-	return state.DesiredStateID != ""
+	compatibility := ReadOnlyStateCompatibility(home)
+	return compatibility.Status != StateCompatibilityIncompatible
+}
+
+func ReadOnlyStateCompatibility(home string) StateCompatibilityResult {
+	return reconciler.ReadOnlyStateCompatibility(home)
 }
 
 func acquireLock(home string) (func(), error) {

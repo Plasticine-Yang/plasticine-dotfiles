@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -312,6 +313,10 @@ func TestGitHubSSHSecretReferenceManagedBlockAndMacKeychain(t *testing.T) {
 	if !pathExists(filepath.Join(req.Home, "config", "ssh", "macos-keychain")) {
 		t.Fatalf("macOS Keychain integration marker was not materialized")
 	}
+	fragment := readText(t, filepath.Join(req.Home, "config", "ssh", "github.conf"))
+	if !strings.Contains(fragment, "AddKeysToAgent yes") || !strings.Contains(fragment, "UseKeychain yes") {
+		t.Fatalf("GitHub SSH fragment did not enable macOS Keychain integration:\n%s", fragment)
+	}
 	stateBytes := readText(t, reconciler.StatePath(req.Home))
 	if strings.Contains(stateBytes, readText(t, key)) {
 		t.Fatalf("state leaked private key material:\n%s", stateBytes)
@@ -331,6 +336,244 @@ func TestGitHubSSHSecretReferenceManagedBlockAndMacKeychain(t *testing.T) {
 	}
 }
 
+func TestLinuxGitHubSSHUsesSharedAgentSocket(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Target = platform.TargetLinuxAMD64
+	req.Host = platform.Host{
+		OS:      platform.OSLinux,
+		Arch:    platform.ArchAMD64,
+		Family:  platform.FamilyDebian,
+		Version: "12",
+	}
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentFNM,
+		reconciler.ComponentUV,
+	}
+	req.Capabilities = map[reconciler.Capability]bool{
+		reconciler.CapabilityGit:                true,
+		reconciler.CapabilityZsh:                true,
+		reconciler.CapabilityOpenSSH:            true,
+		reconciler.CapabilityCA:                 true,
+		reconciler.CapabilitySystemdUserSession: true,
+	}
+	key := filepath.Join(req.Home, "id_ed25519")
+	generateSSHKey(t, key)
+	req.GitHubKeyPath = key
+	req.Yes = true
+	var startedServices []string
+	req.UserServiceStarter = func(_ context.Context, servicePath string) ([]string, error) {
+		startedServices = append(startedServices, servicePath)
+		return []string{"systemctl --user link " + servicePath, "systemctl --user enable --now " + filepath.Base(servicePath)}, nil
+	}
+
+	applied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply linux github ssh: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply outcome=%s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+	fragment := readText(t, filepath.Join(req.Home, "config", "ssh", "github.conf"))
+	if !strings.Contains(fragment, "IdentityAgent ~/.plasticine/runtime/ssh-agent.sock") {
+		t.Fatalf("GitHub SSH fragment did not use shared Linux agent socket:\n%s", fragment)
+	}
+	shellConfig := readText(t, filepath.Join(req.Home, "config", "zsh", ".zshrc"))
+	if !strings.Contains(shellConfig, "github-agent.zsh") {
+		t.Fatalf("shell config did not source the shared agent fragment:\n%s", shellConfig)
+	}
+	agentShell := readText(t, filepath.Join(req.Home, "config", "ssh", "github-agent.zsh"))
+	if !strings.Contains(agentShell, "export SSH_AUTH_SOCK") ||
+		!strings.Contains(agentShell, "ssh-add -l") ||
+		!strings.Contains(agentShell, "ssh-add '") {
+		t.Fatalf("shared agent shell fragment did not conditionally load the key:\n%s", agentShell)
+	}
+	service := filepath.Join(req.Home, "config", "systemd", "user", "ssh-agent.service")
+	if !pathExists(service) {
+		t.Fatalf("shared user-level ssh-agent service was not materialized")
+	}
+	if len(startedServices) != 1 || startedServices[0] != service {
+		t.Fatalf("started services=%#v, want %s", startedServices, service)
+	}
+	if !hasDurableEffect(applied.DurableEffects, "systemctl --user link "+service) {
+		t.Fatalf("durable effects=%#v, want user service link", applied.DurableEffects)
+	}
+	if !hasDurableEffect(applied.DurableEffects, "systemctl --user enable --now ssh-agent.service") {
+		t.Fatalf("durable effects=%#v, want user service start", applied.DurableEffects)
+	}
+}
+
+func TestShellDoesNotSourceSuspendedGitHubAgent(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Target = platform.TargetLinuxAMD64
+	req.Host = platform.Host{
+		OS:      platform.OSLinux,
+		Arch:    platform.ArchAMD64,
+		Family:  platform.FamilyDebian,
+		Version: "12",
+	}
+	req.Capabilities = map[reconciler.Capability]bool{
+		reconciler.CapabilityGit: true,
+		reconciler.CapabilityZsh: true,
+		reconciler.CapabilityCA:  true,
+	}
+	req.Yes = true
+
+	applied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply shell without github ssh: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply outcome=%s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+	shellConfig := readText(t, filepath.Join(req.Home, "config", "zsh", ".zshrc"))
+	if strings.Contains(shellConfig, "github-agent.zsh") {
+		t.Fatalf("shell config sourced suspended github-ssh artifact:\n%s", shellConfig)
+	}
+}
+
+func TestLinuxGitHubSSHBlocksUnsupportedSharedAgentPlatform(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Target = platform.TargetLinuxAMD64
+	req.Host = platform.Host{
+		OS:      platform.OSLinux,
+		Arch:    platform.ArchAMD64,
+		Family:  platform.FamilyOtherLinux,
+		Version: "39",
+	}
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentFNM,
+		reconciler.ComponentUV,
+	}
+	req.Capabilities = map[reconciler.Capability]bool{
+		reconciler.CapabilityGit:                true,
+		reconciler.CapabilityZsh:                true,
+		reconciler.CapabilityOpenSSH:            true,
+		reconciler.CapabilityCA:                 true,
+		reconciler.CapabilitySystemdUserSession: true,
+	}
+	key := filepath.Join(req.Home, "id_ed25519")
+	generateSSHKey(t, key)
+	req.GitHubKeyPath = key
+
+	plan, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("plan unsupported linux github ssh: %v", err)
+	}
+	if plan.Outcome != reconciler.OutcomeBlocked || !hasBlocker(plan.Blockers, reconciler.BlockerUnsupportedSystemChange) {
+		t.Fatalf("plan outcome=%s blockers=%#v", plan.Outcome, plan.Blockers)
+	}
+}
+
+func TestLinuxGitHubSSHBlocksMissingSystemdUserSessionAsUnsupported(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Target = platform.TargetLinuxAMD64
+	req.Host = platform.Host{
+		OS:      platform.OSLinux,
+		Arch:    platform.ArchAMD64,
+		Family:  platform.FamilyDebian,
+		Version: "12",
+	}
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentFNM,
+		reconciler.ComponentUV,
+	}
+	req.Capabilities = map[reconciler.Capability]bool{
+		reconciler.CapabilityGit:                true,
+		reconciler.CapabilityZsh:                true,
+		reconciler.CapabilityOpenSSH:            true,
+		reconciler.CapabilityCA:                 true,
+		reconciler.CapabilitySystemdUserSession: false,
+	}
+	key := filepath.Join(req.Home, "id_ed25519")
+	generateSSHKey(t, key)
+	req.GitHubKeyPath = key
+
+	plan, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("plan missing systemd user session: %v", err)
+	}
+	if plan.Outcome != reconciler.OutcomeBlocked || !hasBlocker(plan.Blockers, reconciler.BlockerUnsupportedSystemChange) {
+		t.Fatalf("plan outcome=%s blockers=%#v", plan.Outcome, plan.Blockers)
+	}
+	if hasSystemChange(plan.Changes) {
+		t.Fatalf("missing systemd user session was planned as a system change: %#v", plan.Changes)
+	}
+}
+
+func TestComponentOperationalFailureContinuesIndependentBranches(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Target = platform.TargetLinuxAMD64
+	req.Host = platform.Host{
+		OS:      platform.OSLinux,
+		Arch:    platform.ArchAMD64,
+		Family:  platform.FamilyDebian,
+		Version: "12",
+	}
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentFNM,
+		reconciler.ComponentUV,
+	}
+	req.Capabilities = map[reconciler.Capability]bool{
+		reconciler.CapabilityGit:                true,
+		reconciler.CapabilityZsh:                true,
+		reconciler.CapabilityOpenSSH:            true,
+		reconciler.CapabilityCA:                 true,
+		reconciler.CapabilitySystemdUserSession: true,
+	}
+	key := filepath.Join(req.Home, "id_ed25519")
+	generateSSHKey(t, key)
+	req.GitHubKeyPath = key
+	req.Yes = true
+	req.UserServiceStarter = func(context.Context, string) ([]string, error) {
+		return nil, errors.New("systemctl failed")
+	}
+
+	result, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply with service failure: %v", err)
+	}
+	if result.Outcome != reconciler.OutcomePartial || !hasBlocker(result.Blockers, reconciler.BlockerOperationalFailure) {
+		t.Fatalf("outcome=%s blockers=%#v, want partial operational failure", result.Outcome, result.Blockers)
+	}
+	if !hasComponentStatus(result.Components, reconciler.ComponentShell, reconciler.ComponentSucceeded) ||
+		!hasComponentStatus(result.Components, reconciler.ComponentGitConfig, reconciler.ComponentSucceeded) {
+		t.Fatalf("independent components did not continue: %#v", result.Components)
+	}
+	if !hasComponentStatus(result.Components, reconciler.ComponentGitHubSSH, reconciler.ComponentBlocked) {
+		t.Fatalf("github-ssh failure was not reported: %#v", result.Components)
+	}
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if len(state.PendingWork) == 0 {
+		t.Fatalf("github-ssh pending work was not preserved after component failure")
+	}
+}
+
 func TestSystemDependenciesRequireIndependentAuthorization(t *testing.T) {
 	t.Parallel()
 
@@ -339,11 +582,19 @@ func TestSystemDependenciesRequireIndependentAuthorization(t *testing.T) {
 		DesiredStateID: "desired-state-contract",
 		ToolLockSHA256: strings.Repeat("c", 64),
 		System:         system,
+		ToolLock:       fnmLinuxToolLock(),
 		Clock: func() time.Time {
 			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
 		},
 	})
 	req := contractRequest(t.TempDir())
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentGitHubSSH,
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentFNM,
+		reconciler.ComponentUV,
+	}
 	req.Target = platform.TargetLinuxAMD64
 	req.Host = platform.Host{
 		OS:      platform.OSLinux,
@@ -399,6 +650,182 @@ func TestSystemDependenciesRequireIndependentAuthorization(t *testing.T) {
 	}
 	if blocked.Outcome != reconciler.OutcomeBlocked || !hasBlocker(blocked.Blockers, reconciler.BlockerUnsupportedSystemChange) {
 		t.Fatalf("unsupported outcome=%s blockers=%#v", blocked.Outcome, blocked.Blockers)
+	}
+}
+
+func TestApplyAuthorizesTheImmutablePlanBeforeMutation(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	authorized := false
+	req.Authorize = func(plan reconciler.Result) bool {
+		authorized = true
+		if plan.Outcome != reconciler.OutcomeChangesPlanned {
+			t.Fatalf("authorized plan outcome = %s, want changes planned", plan.Outcome)
+		}
+		if !hasChange(plan.Changes, reconciler.ComponentGitConfig, reconciler.ResourceManagedPath) {
+			t.Fatalf("authorized plan did not include git-config change: %#v", plan.Changes)
+		}
+		return true
+	}
+
+	applied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("authorized apply: %v", err)
+	}
+	if !authorized {
+		t.Fatalf("authorizer was not called")
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("authorized apply outcome=%s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+
+	deniedHome := t.TempDir()
+	deniedReq := contractRequest(deniedHome)
+	deniedReq.Authorize = func(reconciler.Result) bool { return false }
+	denied, err := r.Apply(context.Background(), deniedReq)
+	if err != nil {
+		t.Fatalf("denied apply: %v", err)
+	}
+	if denied.Outcome != reconciler.OutcomeDenied {
+		t.Fatalf("denied outcome=%s", denied.Outcome)
+	}
+	if pathExists(reconciler.StatePath(deniedHome)) {
+		t.Fatalf("denied authorization wrote state")
+	}
+}
+
+func TestSystemDependencyFailureSkipsDependentComponentAndContinuesIndependentWork(t *testing.T) {
+	t.Parallel()
+
+	system := &recordingSystemAdapter{
+		err:     errors.New("apt failed"),
+		missing: []reconciler.Capability{reconciler.CapabilityZsh},
+	}
+	r := reconciler.New(reconciler.Options{
+		DesiredStateID: "desired-state-contract",
+		ToolLockSHA256: strings.Repeat("c", 64),
+		System:         system,
+		ToolLock:       fnmLinuxToolLock(),
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
+	req := contractRequest(t.TempDir())
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentGitHubSSH,
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentUV,
+	}
+	req.Target = platform.TargetLinuxAMD64
+	req.Host = platform.Host{
+		OS:      platform.OSLinux,
+		Arch:    platform.ArchAMD64,
+		Family:  platform.FamilyDebian,
+		Version: "12",
+	}
+	req.Capabilities = map[reconciler.Capability]bool{
+		reconciler.CapabilityGit: false,
+		reconciler.CapabilityZsh: false,
+		reconciler.CapabilityCA:  true,
+	}
+	req.Yes = true
+	req.AllowSystem = true
+
+	result, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply returned error: %v", err)
+	}
+	if result.Outcome != reconciler.OutcomePartial || !hasBlocker(result.Blockers, reconciler.BlockerOperationalFailure) {
+		t.Fatalf("outcome=%s blockers=%#v, want partial operational failure", result.Outcome, result.Blockers)
+	}
+	gitConfig := filepath.Join(req.Home, "config", "git", "config")
+	if !pathExists(gitConfig) {
+		t.Fatalf("independent git-config did not continue after system failure")
+	}
+	if pathExists(filepath.Join(req.Home, "config", "zsh", ".zshrc")) {
+		t.Fatalf("shell config was materialized despite missing zsh capability")
+	}
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if _, ok := state.Ownership[gitConfig]; !ok {
+		t.Fatalf("git-config ownership missing after independent continuation")
+	}
+	if _, ok := state.Ownership[filepath.Join(req.Home, "config", "zsh", ".zshrc")]; ok {
+		t.Fatalf("shell ownership was accepted despite system failure")
+	}
+	if !hasComponentStatus(result.Components, reconciler.ComponentGitConfig, reconciler.ComponentSucceeded) {
+		t.Fatalf("git-config was not reported as succeeded after independent continuation: %#v", result.Components)
+	}
+	if !hasComponentStatus(result.Components, reconciler.ComponentFNM, reconciler.ComponentSkipped) {
+		t.Fatalf("fnm was not skipped as downstream of shell failure: %#v", result.Components)
+	}
+	if pathExists(filepath.Join(req.Home, "bin", "fnm")) {
+		t.Fatalf("fnm launcher was materialized despite shell dependency failure")
+	}
+}
+
+func TestMacOSCommandLineToolsLaunchLeavesDependentsAwaitingOwnerAction(t *testing.T) {
+	t.Parallel()
+
+	system := &recordingSystemAdapter{
+		err:     reconciler.ErrOwnerActionRequired,
+		effects: []string{"xcode-select --install"},
+		missing: []reconciler.Capability{reconciler.CapabilityAppleDevelopmentTools},
+	}
+	r := reconciler.New(reconciler.Options{
+		DesiredStateID: "desired-state-contract",
+		ToolLockSHA256: strings.Repeat("c", 64),
+		System:         system,
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
+	req := contractRequest(t.TempDir())
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentFNM,
+		reconciler.ComponentUV,
+	}
+	key := filepath.Join(req.Home, "id_ed25519")
+	generateSSHKey(t, key)
+	req.GitHubKeyPath = key
+	req.Capabilities = map[reconciler.Capability]bool{
+		reconciler.CapabilityGit:                   true,
+		reconciler.CapabilityZsh:                   true,
+		reconciler.CapabilityOpenSSH:               true,
+		reconciler.CapabilityCA:                    true,
+		reconciler.CapabilityAppleDevelopmentTools: false,
+	}
+	req.Yes = true
+	req.AllowSystem = true
+
+	result, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply returned error: %v", err)
+	}
+	if result.Outcome != reconciler.OutcomePartial || !hasBlocker(result.Blockers, reconciler.BlockerOwnerActionRequired) {
+		t.Fatalf("outcome=%s blockers=%#v, want partial owner action", result.Outcome, result.Blockers)
+	}
+	if !hasDurableEffect(result.DurableEffects, "xcode-select --install") {
+		t.Fatalf("durable effects=%#v, want launched Apple installer", result.DurableEffects)
+	}
+	if !hasComponentStatus(result.Components, reconciler.ComponentGitHubSSH, reconciler.ComponentAwaitingOwnerAction) {
+		t.Fatalf("github-ssh was not awaiting Owner action: %#v", result.Components)
+	}
+	if !hasComponentStatus(result.Components, reconciler.ComponentGitConfig, reconciler.ComponentSucceeded) {
+		t.Fatalf("git-config was not reported as succeeded after Apple owner action: %#v", result.Components)
+	}
+	if !pathExists(filepath.Join(req.Home, "config", "git", "config")) {
+		t.Fatalf("independent git-config did not continue after Apple owner action")
+	}
+	if pathExists(filepath.Join(req.Home, "config", "ssh", "github.conf")) {
+		t.Fatalf("github-ssh fragment materialized before Apple owner action completed")
 	}
 }
 
@@ -754,6 +1181,21 @@ func contractRequest(home string) reconciler.Request {
 	}
 }
 
+func fnmLinuxToolLock() release.ToolLock {
+	return release.ToolLock{Tools: map[release.ManagedTool]release.ToolVersion{
+		release.ManagedToolFNM: {
+			Version: "v-test",
+			Targets: map[platform.ArtifactTarget]release.ToolArtifact{
+				platform.TargetLinuxAMD64: {
+					URL:          "https://example.invalid/fnm",
+					ArtifactType: release.ArtifactTypeZip,
+					SHA256:       strings.Repeat("f", 64),
+				},
+			},
+		},
+	}}
+}
+
 func hasChange(changes []reconciler.Change, component reconciler.ComponentID, kind reconciler.ResourceKind) bool {
 	for _, change := range changes {
 		if change.Component == component && change.ResourceKind == kind {
@@ -775,6 +1217,24 @@ func hasSystemChange(changes []reconciler.Change) bool {
 func hasHealthyCheck(checks []reconciler.Check, name string) bool {
 	for _, check := range checks {
 		if check.Name == name && check.Healthy {
+			return true
+		}
+	}
+	return false
+}
+
+func hasComponentStatus(results []reconciler.ComponentResult, component reconciler.ComponentID, status reconciler.ComponentStatus) bool {
+	for _, result := range results {
+		if result.Component == component && result.Status == status {
+			return true
+		}
+	}
+	return false
+}
+
+func hasDurableEffect(effects []string, want string) bool {
+	for _, effect := range effects {
+		if effect == want {
 			return true
 		}
 	}
@@ -842,13 +1302,22 @@ func generateSSHKey(t *testing.T, path string) {
 
 type recordingSystemAdapter struct {
 	applied [][]reconciler.Capability
+	err     error
+	effects []string
+	missing []reconciler.Capability
 }
 
 func (adapter *recordingSystemAdapter) MissingCapabilities(context.Context, reconciler.Request, []reconciler.ComponentID) ([]reconciler.Capability, error) {
-	return nil, nil
+	return append([]reconciler.Capability(nil), adapter.missing...), nil
 }
 
 func (adapter *recordingSystemAdapter) ApplySystemDependencies(_ context.Context, _ reconciler.Request, missing []reconciler.Capability) ([]string, error) {
 	adapter.applied = append(adapter.applied, append([]reconciler.Capability(nil), missing...))
+	if adapter.err != nil {
+		return adapter.effects, adapter.err
+	}
+	if len(adapter.effects) > 0 {
+		return adapter.effects, nil
+	}
 	return []string{"system-adapter"}, nil
 }

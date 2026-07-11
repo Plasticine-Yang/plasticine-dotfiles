@@ -42,6 +42,7 @@ const (
 	BlockerStalePlan                  BlockerCode = "stale-plan"
 	BlockerLockHeld                   BlockerCode = "lock-held"
 	BlockerOperationalFailure         BlockerCode = "operational-failure"
+	BlockerOwnerActionRequired        BlockerCode = "owner-action-required"
 )
 
 type Options struct {
@@ -101,6 +102,8 @@ type Request struct {
 	ToolLockSHA256       string
 	Capabilities         map[Capability]bool
 	NetworkChecks        []Check
+	Authorize            func(Result) bool
+	UserServiceStarter   func(context.Context, string) ([]string, error)
 	BeforeMutation       func(Change)
 	FailBeforeEffectPath string
 	SkipLock             bool

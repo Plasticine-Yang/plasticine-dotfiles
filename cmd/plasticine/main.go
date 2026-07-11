@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -67,7 +69,9 @@ func runCandidateSelfInstall(args []string) int {
 		CurrentExecutable:   installPath,
 		CandidateExecutable: executable,
 		InstallPath:         installPath,
-		StateCompatible:     candidate.ReadOnlyStateCompatible(plasticineHome),
+		StateCompatibility: func() candidate.StateCompatibilityResult {
+			return candidate.ReadOnlyStateCompatibility(plasticineHome)
+		},
 		FirstApply: func(context.Context) error {
 			previousLockEnv, hadLockEnv := os.LookupEnv("PLASTICINE_LOCK_HELD")
 			if err := os.Setenv("PLASTICINE_LOCK_HELD", "1"); err != nil {
@@ -157,6 +161,9 @@ func runReconcilerCommand(command string, args []string) int {
 		Adopt:            *adopt,
 		IncludeGitHubSSH: *githubKey != "",
 		GitHubKeyPath:    *githubKey,
+	}
+	if command == "apply" && !*yes {
+		req.Authorize = promptApplyAuthorization
 	}
 	var (
 		result reconciler.Result
@@ -254,43 +261,74 @@ func toolLockSHA256() string {
 }
 
 func printResult(command string, result reconciler.Result) {
-	fmt.Printf("%s: %s\n", command, result.Outcome)
-	fmt.Printf("target: %s\n", result.Target)
-	fmt.Printf("support: %s\n", result.Support.Level)
+	printResultTo(os.Stdout, command, result)
+}
+
+func printResultTo(writer io.Writer, command string, result reconciler.Result) {
+	fmt.Fprintf(writer, "%s: %s\n", command, result.Outcome)
+	fmt.Fprintf(writer, "target: %s\n", result.Target)
+	fmt.Fprintf(writer, "support: %s\n", result.Support.Level)
 	if result.DesiredStateID != "" {
-		fmt.Printf("desired_state: %s\n", result.DesiredStateID)
+		fmt.Fprintf(writer, "desired_state: %s\n", result.DesiredStateID)
 	}
 	for _, component := range result.Scope.Active {
-		fmt.Printf("active_component: %s\n", component)
+		fmt.Fprintf(writer, "active_component: %s\n", component)
 	}
 	for _, component := range result.Scope.Excluded {
-		fmt.Printf("excluded_component: %s\n", component)
+		fmt.Fprintf(writer, "excluded_component: %s\n", component)
+	}
+	for _, component := range result.Components {
+		message := strings.TrimSpace(component.Message)
+		if message == "" {
+			fmt.Fprintf(writer, "component: %s %s\n", component.Component, component.Status)
+			continue
+		}
+		fmt.Fprintf(writer, "component: %s %s %s\n", component.Component, component.Status, message)
 	}
 	if result.StateMigration != nil {
-		fmt.Printf("state_migration: %d->%d %s\n", result.StateMigration.FromSchema, result.StateMigration.ToSchema, result.StateMigration.Message)
+		fmt.Fprintf(writer, "state_migration: %d->%d %s\n", result.StateMigration.FromSchema, result.StateMigration.ToSchema, result.StateMigration.Message)
 	}
 	for _, change := range result.Changes {
-		fmt.Printf("change: %s %s %s\n", change.Component, change.Kind, strings.TrimSpace(change.Summary))
+		fmt.Fprintf(writer, "change: %s %s %s\n", change.Component, change.Kind, strings.TrimSpace(change.Summary))
 	}
 	for _, conflict := range result.Conflicts {
-		fmt.Printf("conflict: %s adoptable=%t %s\n", conflict.Component, conflict.Adoptable, conflict.Path)
+		fmt.Fprintf(writer, "conflict: %s adoptable=%t %s\n", conflict.Component, conflict.Adoptable, conflict.Path)
 	}
 	for _, retirement := range result.Retirements {
-		fmt.Printf("retirement: %s %s\n", retirement.Component, retirement.Path)
+		fmt.Fprintf(writer, "retirement: %s %s\n", retirement.Component, retirement.Path)
 	}
 	for _, blocker := range result.Blockers {
-		fmt.Printf("blocker: %s %s\n", blocker.Code, blocker.Message)
+		fmt.Fprintf(writer, "blocker: %s %s\n", blocker.Code, blocker.Message)
 	}
 	for _, effect := range result.DurableEffects {
-		fmt.Printf("durable_effect: %s\n", effect)
+		fmt.Fprintf(writer, "durable_effect: %s\n", effect)
 	}
 	for _, check := range result.Checks {
 		status := "ok"
 		if !check.Healthy {
 			status = "failed"
 		}
-		fmt.Printf("check: %s %s %s\n", check.Name, status, strings.TrimSpace(check.Message))
+		fmt.Fprintf(writer, "check: %s %s %s\n", check.Name, status, strings.TrimSpace(check.Message))
 	}
+}
+
+func promptApplyAuthorization(result reconciler.Result) bool {
+	printResultTo(os.Stdout, "apply-plan", result)
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "apply requires --yes when no controlling terminal is available")
+		return false
+	}
+	defer tty.Close()
+
+	if _, err := fmt.Fprint(tty, "Apply this plan? Type yes to continue: "); err != nil {
+		return false
+	}
+	scanner := bufio.NewScanner(tty)
+	if !scanner.Scan() {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(scanner.Text()), "yes")
 }
 
 func usage() {

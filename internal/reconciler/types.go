@@ -19,11 +19,12 @@ const (
 type ComponentStatus string
 
 const (
-	ComponentActive    ComponentStatus = "active"
-	ComponentSuspended ComponentStatus = "suspended"
-	ComponentSkipped   ComponentStatus = "skipped"
-	ComponentBlocked   ComponentStatus = "blocked"
-	ComponentSucceeded ComponentStatus = "succeeded"
+	ComponentActive              ComponentStatus = "active"
+	ComponentSuspended           ComponentStatus = "suspended"
+	ComponentSkipped             ComponentStatus = "skipped"
+	ComponentBlocked             ComponentStatus = "blocked"
+	ComponentAwaitingOwnerAction ComponentStatus = "awaiting-owner-action"
+	ComponentSucceeded           ComponentStatus = "succeeded"
 )
 
 type Capability string
@@ -58,6 +59,7 @@ const (
 	ResourceManagedTool      ResourceKind = "managed-tool"
 	ResourceSystemDependency ResourceKind = "system-dependency"
 	ResourceSecretReference  ResourceKind = "secret-reference"
+	ResourceUserService      ResourceKind = "user-service"
 	ResourceIntegrationShim  ResourceKind = "integration-shim"
 	ResourceSymlink          ResourceKind = "symlink"
 	ResourceToolManagedState ResourceKind = "tool-managed-state"
