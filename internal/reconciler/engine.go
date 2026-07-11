@@ -35,6 +35,7 @@ type planSnapshot struct {
 	ScopeChanged   bool
 	SystemChange   bool
 	Loaded         loadedState
+	Enabled        map[ComponentID]bool
 	Active         map[ComponentID]bool
 	Filtered       map[ComponentID]bool
 	Secret         *SecretReference
@@ -59,6 +60,7 @@ func (r Reconciler) buildPlan(ctx context.Context, req Request) (planSnapshot, e
 		ToolLockSHA256: r.toolLockSHA256,
 		DesiredByPath:  map[string]desiredResource{},
 		Loaded:         loaded,
+		Enabled:        map[ComponentID]bool{},
 		Active:         map[ComponentID]bool{},
 		Filtered:       map[ComponentID]bool{},
 		Adopt:          req.Adopt,
@@ -95,6 +97,7 @@ func (r Reconciler) buildPlan(ctx context.Context, req Request) (planSnapshot, e
 	activeCatalog := componentSet(catalog)
 	for _, component := range catalog {
 		if !scopeExcluded[component] {
+			snapshot.Enabled[component] = true
 			snapshot.Active[component] = true
 		}
 	}
@@ -171,7 +174,7 @@ func (r Reconciler) buildPlan(ctx context.Context, req Request) (planSnapshot, e
 				continue
 			}
 		}
-		for _, resource := range componentDesiredResources(resourceReq, component, snapshot.Secret, r.toolLock, snapshot.Active) {
+		for _, resource := range componentDesiredResources(resourceReq, component, snapshot.Secret, r.toolLock, snapshot.Enabled) {
 			snapshot.Desired = append(snapshot.Desired, resource)
 			snapshot.DesiredByPath[resource.Path] = resource
 			snapshot.planResource(state, resource, req.Adopt)

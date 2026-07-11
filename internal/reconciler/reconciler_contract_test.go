@@ -1420,6 +1420,96 @@ func TestNeovimComponentMaterializesCentralizedConfig(t *testing.T) {
 	}
 }
 
+func TestFNMComponentIntegratesManagedShellEnvironment(t *testing.T) {
+	t.Parallel()
+
+	artifact := []byte("#!/bin/sh\nprintf 'fnm fixture\\n'\n")
+	artifactSHA := testDigestBytes(artifact)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(artifact)
+	}))
+	t.Cleanup(server.Close)
+
+	r := reconciler.New(reconciler.Options{
+		DesiredStateID: "fnm-shell-contract",
+		ToolLockSHA256: artifactSHA,
+		ToolLock: release.ToolLock{Tools: map[release.ManagedTool]release.ToolVersion{
+			release.ManagedToolFNM: {
+				Version: "v-test",
+				Targets: map[platform.ArtifactTarget]release.ToolArtifact{
+					platform.TargetDarwinARM64: {
+						URL:          server.URL + "/fnm",
+						ArtifactType: release.ArtifactTypeRawExecutable,
+						SHA256:       artifactSHA,
+					},
+				},
+			},
+		}},
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
+	req := contractRequest(t.TempDir())
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentGitHubSSH,
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentUV,
+	}
+	req.Yes = true
+
+	applied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply fnm: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply outcome = %s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+	zshrc := readText(t, filepath.Join(req.Home, "config", "zsh", ".zshrc"))
+	if !strings.Contains(zshrc, "export FNM_DIR=") || !strings.Contains(zshrc, "\"$PLASTICINE_HOME/bin/fnm\" env --use-on-cd --shell zsh") {
+		t.Fatalf("zshrc does not integrate fnm shell environment: %q", zshrc)
+	}
+	launcher := readText(t, filepath.Join(req.Home, "bin", "fnm"))
+	if !strings.Contains(launcher, "export FNM_DIR=") || !strings.Contains(launcher, "/runtime/fnm") {
+		t.Fatalf("fnm launcher does not relocate fnm runtime: %q", launcher)
+	}
+
+	filteredReq := req
+	filteredReq.Components = []reconciler.ComponentID{reconciler.ComponentShell}
+	filtered, err := r.Apply(context.Background(), filteredReq)
+	if err != nil {
+		t.Fatalf("filtered shell apply: %v", err)
+	}
+	if filtered.Outcome != reconciler.OutcomeNoChange {
+		t.Fatalf("filtered shell apply outcome = %s blockers=%#v", filtered.Outcome, filtered.Blockers)
+	}
+	zshrc = readText(t, filepath.Join(req.Home, "config", "zsh", ".zshrc"))
+	if !strings.Contains(zshrc, "\"$PLASTICINE_HOME/bin/fnm\" env --use-on-cd --shell zsh") {
+		t.Fatalf("one-shot shell filtering removed fnm integration: %q", zshrc)
+	}
+}
+
+func TestFNMExcludedFromScopeOmitsShellIntegration(t *testing.T) {
+	t.Parallel()
+
+	r := contractReconciler()
+	req := contractRequest(t.TempDir())
+	req.Components = []reconciler.ComponentID{reconciler.ComponentShell}
+	req.Yes = true
+
+	applied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply shell: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply outcome = %s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+	zshrc := readText(t, filepath.Join(req.Home, "config", "zsh", ".zshrc"))
+	if strings.Contains(zshrc, "FNM_DIR") || strings.Contains(zshrc, "fnm env") {
+		t.Fatalf("zshrc integrated excluded fnm component: %q", zshrc)
+	}
+}
+
 func TestManagedToolChecksumMismatchDoesNotPromoteArtifact(t *testing.T) {
 	t.Parallel()
 

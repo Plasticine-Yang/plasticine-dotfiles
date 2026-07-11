@@ -77,7 +77,7 @@ func componentDesiredResources(req Request, component ComponentID, secret *Secre
 				Component:    component,
 				Path:         zshConfigPath(req.Home),
 				ResourceKind: ResourceManagedPath,
-				Content:      zshConfigContent(req, active[ComponentGitHubSSH]),
+				Content:      zshConfigContent(req, active[ComponentGitHubSSH], active[ComponentFNM]),
 				Summary:      "materialize centralized Zsh configuration",
 			},
 			{
@@ -183,12 +183,20 @@ func neovimConfigResources(home string) []desiredResource {
 	return resources
 }
 
-func zshConfigContent(req Request, githubSSHActive bool) string {
+func zshConfigContent(req Request, githubSSHActive bool, fnmActive bool) string {
 	lines := []string{
 		"# Managed by Plasticine.",
 		"export PLASTICINE_HOME=\"${PLASTICINE_HOME:-$HOME/.plasticine}\"",
 		"export PATH=\"$PLASTICINE_HOME/bin:$PATH\"",
 		"export ANTIDOTE_HOME=\"$PLASTICINE_HOME/runtime/antidote\"",
+	}
+	if fnmActive {
+		lines = append(lines,
+			"export FNM_DIR=\"$PLASTICINE_HOME/runtime/fnm\"",
+			"if [ -x \"$PLASTICINE_HOME/bin/fnm\" ]; then",
+			"  eval \"$(\"$PLASTICINE_HOME/bin/fnm\" env --use-on-cd --shell zsh)\"",
+			"fi",
+		)
 	}
 	if req.Target.OS == platform.OSLinux && githubSSHActive {
 		lines = append(lines,
