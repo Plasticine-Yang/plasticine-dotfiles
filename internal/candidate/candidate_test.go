@@ -61,7 +61,7 @@ func TestSelfInstallAtomicallyReplacesCompatibleCurrentCLI(t *testing.T) {
 		t.Fatalf("self install returned error: %v", err)
 	}
 	if result.Outcome != candidate.OutcomeInstalled {
-		t.Fatalf("outcome = %s, want %s", result.Outcome, candidate.OutcomeInstalled)
+		t.Fatalf("outcome = %s, want %s (%s)", result.Outcome, candidate.OutcomeInstalled, result.Message)
 	}
 	if got := readFile(t, install); got != "new" {
 		t.Fatalf("installed bytes = %q, want new", got)
@@ -113,7 +113,7 @@ func TestSelfInstallPreservesCurrentCLIWhenInstallationFails(t *testing.T) {
 		StateCompatible:     true,
 	})
 	if err == nil {
-		t.Fatal("self install succeeded with missing candidate")
+		t.Fatalf("self install succeeded with missing candidate: %#v", result)
 	}
 	if result.Outcome != candidate.OutcomeInstallFailed {
 		t.Fatalf("outcome = %s, want %s", result.Outcome, candidate.OutcomeInstallFailed)
@@ -140,7 +140,7 @@ func TestSelfInstallRetainsNewCLIWhenFirstApplyFails(t *testing.T) {
 		FirstApply:          func(context.Context) error { return errors.New("denied") },
 	})
 	if err == nil {
-		t.Fatal("self install succeeded despite first apply failure")
+		t.Fatalf("self install succeeded despite first apply failure: %#v", result)
 	}
 	if result.Outcome != candidate.OutcomeFirstApplyFailed {
 		t.Fatalf("outcome = %s, want %s", result.Outcome, candidate.OutcomeFirstApplyFailed)
