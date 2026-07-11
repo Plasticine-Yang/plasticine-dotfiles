@@ -49,6 +49,12 @@ GitHub SSH setup requires an explicit private-key path from the Owner. Public-ke
 registration on GitHub remains manual. macOS uses native Keychain behavior, and
 supported Linux Workstations use one shared user-level SSH agent.
 
+## Reference Configuration
+
+VS Code material under `reference/vscode` is retained only for manual copying.
+It is not a Release input, is never planned or applied, and does not enter
+ownership or drift checks.
+
 ## Platform Boundary
 
 Release artifacts are four raw executables plus `checksums.txt` and

@@ -1353,6 +1353,73 @@ func TestManagedToolInstallDownloadsVerifiesCachesAndReusesArtifact(t *testing.T
 	}
 }
 
+func TestNeovimComponentMaterializesCentralizedConfig(t *testing.T) {
+	t.Parallel()
+
+	artifact := []byte("#!/bin/sh\nprintf 'nvim fixture\\n'\n")
+	artifactSHA := testDigestBytes(artifact)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(artifact)
+	}))
+	t.Cleanup(server.Close)
+
+	r := reconciler.New(reconciler.Options{
+		DesiredStateID: "neovim-config-contract",
+		ToolLockSHA256: artifactSHA,
+		ToolLock: release.ToolLock{Tools: map[release.ManagedTool]release.ToolVersion{
+			release.ManagedToolNeovim: {
+				Version: "v-test",
+				Targets: map[platform.ArtifactTarget]release.ToolArtifact{
+					platform.TargetDarwinARM64: {
+						URL:          server.URL + "/nvim",
+						ArtifactType: release.ArtifactTypeRawExecutable,
+						SHA256:       artifactSHA,
+					},
+				},
+			},
+		}},
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
+	req := contractRequest(t.TempDir())
+	req.Exclude = []reconciler.ComponentID{reconciler.ComponentGitHubSSH}
+	req.Components = []reconciler.ComponentID{reconciler.ComponentNeovim}
+	req.Yes = true
+
+	applied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply neovim: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply outcome = %s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+	initPath := filepath.Join(req.Home, "config", "nvim", "init.lua")
+	if got := readText(t, initPath); !strings.Contains(got, "require('basic')") {
+		t.Fatalf("init.lua = %q, want centralized config", got)
+	}
+	if got := readText(t, filepath.Join(req.Home, "config", "nvim", "lua", "basic.lua")); !strings.Contains(got, "vim.o.termguicolors = true") {
+		t.Fatalf("basic.lua = %q, want handwritten options", got)
+	}
+	if got := readText(t, filepath.Join(req.Home, "config", "nvim", "lua", "colorschema.lua")); !strings.Contains(got, "tokyonight") {
+		t.Fatalf("colorschema.lua = %q, want handwritten colorscheme", got)
+	}
+	if got := readText(t, filepath.Join(req.Home, "config", "nvim", "lua", "plugins-config", "toggleterm.lua")); !strings.Contains(got, "_FLOAT_TERM") {
+		t.Fatalf("toggleterm.lua = %q, want handwritten plugin config", got)
+	}
+	launcher := readText(t, filepath.Join(req.Home, "bin", "nvim"))
+	if !strings.Contains(launcher, "XDG_CONFIG_HOME") || !strings.Contains(launcher, "/config") {
+		t.Fatalf("launcher does not point at centralized config: %q", launcher)
+	}
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if _, ok := state.Ownership[initPath]; !ok {
+		t.Fatalf("neovim config ownership was not recorded")
+	}
+}
+
 func TestManagedToolChecksumMismatchDoesNotPromoteArtifact(t *testing.T) {
 	t.Parallel()
 

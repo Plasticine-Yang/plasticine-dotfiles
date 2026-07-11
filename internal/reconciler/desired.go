@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	desiredstate "github.com/Plasticine-Yang/plasticine-dotfiles/internal/desired"
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/platform"
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/release"
 )
@@ -105,7 +106,7 @@ func componentDesiredResources(req Request, component ComponentID, secret *Secre
 			},
 		}
 	case ComponentNeovim:
-		return managedToolResources(req, component, release.ManagedToolNeovim, []string{"nvim"}, toolLock)
+		return append(neovimConfigResources(req.Home), managedToolResources(req, component, release.ManagedToolNeovim, []string{"nvim"}, toolLock)...)
 	case ComponentLazygit:
 		return managedToolResources(req, component, release.ManagedToolLazygit, []string{"lazygit"}, toolLock)
 	case ComponentFNM:
@@ -164,6 +165,22 @@ func componentDesiredResources(req Request, component ComponentID, secret *Secre
 	default:
 		return nil
 	}
+}
+
+func neovimConfigResources(home string) []desiredResource {
+	configRoot := filepath.Join(home, "config", "nvim")
+	files := desiredstate.NeovimConfigFiles()
+	resources := make([]desiredResource, 0, len(files))
+	for _, file := range files {
+		resources = append(resources, desiredResource{
+			Component:    ComponentNeovim,
+			Path:         filepath.Join(configRoot, file.Path),
+			ResourceKind: ResourceManagedPath,
+			Content:      file.Content,
+			Summary:      "materialize centralized Neovim configuration",
+		})
+	}
+	return resources
 }
 
 func zshConfigContent(req Request, githubSSHActive bool) string {
@@ -310,6 +327,7 @@ func toolLauncher(versionedRoot string, tool string, entry string) string {
 	switch tool {
 	case "neovim":
 		lines = append(lines,
+			"export XDG_CONFIG_HOME=\"${PLASTICINE_HOME:-$HOME/.plasticine}/config\"",
 			"export XDG_STATE_HOME=\"${PLASTICINE_HOME:-$HOME/.plasticine}/runtime/nvim/state\"",
 			"export XDG_DATA_HOME=\"${PLASTICINE_HOME:-$HOME/.plasticine}/runtime/nvim/data\"",
 			"export XDG_CACHE_HOME=\"${PLASTICINE_HOME:-$HOME/.plasticine}/runtime/nvim/cache\"",
