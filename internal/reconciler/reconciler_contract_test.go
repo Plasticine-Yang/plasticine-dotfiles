@@ -3,15 +3,19 @@ package reconciler_test
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1535,6 +1539,94 @@ func TestDoctorRunsConfiguredHTTPSDiagnosticTarget(t *testing.T) {
 	}
 }
 
+func TestDoctorClassifiesHTTPSDiagnosticFailures(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "dns",
+			err: &url.Error{
+				Op:  "Get",
+				URL: "https://user:pass@example.invalid",
+				Err: &net.DNSError{Name: "example.invalid", Err: "no such host"},
+			},
+			want: "dns: lookup example.invalid failed",
+		},
+		{
+			name: "timeout",
+			err:  context.DeadlineExceeded,
+			want: "timeout: HTTPS diagnostic timed out",
+		},
+		{
+			name: "canceled",
+			err:  context.Canceled,
+			want: "interrupted: HTTPS diagnostic canceled",
+		},
+		{
+			name: "network unreachable",
+			err: &url.Error{
+				Op:  "Get",
+				URL: "https://example.invalid",
+				Err: &net.OpError{Err: syscall.ENETUNREACH},
+			},
+			want: "network-unreachable: HTTPS endpoint is unreachable",
+		},
+		{
+			name: "tls",
+			err: &url.Error{
+				Op:  "Get",
+				URL: "https://example.invalid",
+				Err: x509.UnknownAuthorityError{},
+			},
+			want: "tls: HTTPS TLS verification failed",
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := reconciler.New(reconciler.Options{
+				DesiredStateID: "doctor-classification-contract",
+				ToolLockSHA256: strings.Repeat("d", 64),
+				DiagnosticURLs: []string{"https://user:pass@example.invalid"},
+				HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+					return nil, tc.err
+				})},
+				Clock: func() time.Time {
+					return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+				},
+			})
+			req := contractRequest(t.TempDir())
+			req.Yes = true
+			if _, err := r.Apply(context.Background(), req); err != nil {
+				t.Fatalf("apply: %v", err)
+			}
+
+			doctor, err := r.Doctor(context.Background(), req)
+			if err != nil {
+				t.Fatalf("doctor: %v", err)
+			}
+			if doctor.Outcome != reconciler.OutcomeUnhealthy {
+				t.Fatalf("doctor outcome = %s checks=%#v", doctor.Outcome, doctor.Checks)
+			}
+			check := checkByName(doctor.Checks, "https-diagnostic")
+			if check == nil {
+				t.Fatalf("doctor checks = %#v, want https diagnostic", doctor.Checks)
+			}
+			if check.Message != tc.want {
+				t.Fatalf("message = %q, want %q", check.Message, tc.want)
+			}
+			if strings.Contains(check.Message, "user:pass") {
+				t.Fatalf("diagnostic leaked credentials: %#v", check)
+			}
+		})
+	}
+}
+
 func TestComponentGraphBlocksMissingDependenciesAndScopeExpansion(t *testing.T) {
 	t.Parallel()
 
@@ -1754,6 +1846,21 @@ type recordingSystemAdapter struct {
 	err     error
 	effects []string
 	missing []reconciler.Capability
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
+func checkByName(checks []reconciler.Check, name string) *reconciler.Check {
+	for index := range checks {
+		if checks[index].Name == name {
+			return &checks[index]
+		}
+	}
+	return nil
 }
 
 func (adapter *recordingSystemAdapter) MissingCapabilities(context.Context, reconciler.Request, []reconciler.ComponentID) ([]reconciler.Capability, error) {

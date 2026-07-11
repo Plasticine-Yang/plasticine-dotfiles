@@ -2,10 +2,15 @@ package reconciler
 
 import (
 	"context"
+	"crypto/x509"
+	"errors"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/platform"
@@ -264,13 +269,48 @@ func (r Reconciler) runHTTPSDiagnostic(ctx context.Context, target string) Check
 	}
 	response, err := r.httpClient.Do(request)
 	if err != nil {
-		return Check{Name: "https-diagnostic", Healthy: false, Message: redactCredentialURL(err.Error())}
+		return Check{Name: "https-diagnostic", Healthy: false, Message: classifyHTTPSDiagnosticError(err)}
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 400 {
-		return Check{Name: "https-diagnostic", Healthy: false, Message: redactCredentialURL(response.Status)}
+		return Check{Name: "https-diagnostic", Healthy: false, Message: "http-status: " + response.Status}
 	}
 	return Check{Name: "https-diagnostic", Healthy: true, Message: redactCredentialURL(target)}
+}
+
+func classifyHTTPSDiagnosticError(err error) string {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) && urlErr.Err != nil {
+		err = urlErr.Err
+	}
+	if errors.Is(err, context.Canceled) {
+		return "interrupted: HTTPS diagnostic canceled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout: HTTPS diagnostic timed out"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "timeout: HTTPS diagnostic timed out"
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return "dns: lookup " + dnsErr.Name + " failed"
+	}
+	if errors.Is(err, syscall.ENETUNREACH) || errors.Is(err, syscall.EHOSTUNREACH) || errors.Is(err, syscall.ECONNREFUSED) {
+		return "network-unreachable: HTTPS endpoint is unreachable"
+	}
+	var unknownAuthority x509.UnknownAuthorityError
+	var hostnameError x509.HostnameError
+	var certificateInvalid x509.CertificateInvalidError
+	if errors.As(err, &unknownAuthority) || errors.As(err, &hostnameError) || errors.As(err, &certificateInvalid) {
+		return "tls: HTTPS TLS verification failed"
+	}
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "tls") || strings.Contains(lower, "x509") || strings.Contains(lower, "certificate") {
+		return "tls: HTTPS TLS verification failed"
+	}
+	return "network: " + redactCredentialURL(err.Error())
 }
 
 func runGitHubSSHDiagnostic(ctx context.Context, home string, secret SecretReference) Check {
@@ -291,17 +331,38 @@ func runGitHubSSHDiagnostic(ctx context.Context, home string, secret SecretRefer
 		"git@github.com",
 	)
 	output, err := command.CombinedOutput()
+	return githubSSHDiagnosticCheck(checkCtx, output, err)
+}
+
+func githubSSHDiagnosticCheck(ctx context.Context, output []byte, err error) Check {
 	message := strings.TrimSpace(string(output))
 	if strings.Contains(message, "successfully authenticated") {
 		return Check{Name: "github-ssh", Healthy: true, Message: "GitHub accepted the configured key"}
 	}
-	if err != nil {
-		if message == "" {
-			message = err.Error()
-		}
-		return Check{Name: "github-ssh", Healthy: false, Message: redactCredentialURL(message)}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return Check{Name: "github-ssh", Healthy: false, Message: "interrupted: GitHub SSH diagnostic canceled"}
 	}
-	return Check{Name: "github-ssh", Healthy: false, Message: "GitHub SSH authentication did not report success"}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return Check{Name: "github-ssh", Healthy: false, Message: "timeout: GitHub SSH diagnostic timed out"}
+	}
+	diagnosticText := message
+	if diagnosticText == "" && err != nil {
+		diagnosticText = err.Error()
+	}
+	lower := strings.ToLower(diagnosticText)
+	if strings.Contains(lower, "host key verification failed") || strings.Contains(lower, "remote host identification has changed") {
+		return Check{Name: "github-ssh", Healthy: false, Message: "host-key: GitHub host key verification failed"}
+	}
+	if strings.Contains(lower, "permission denied") || strings.Contains(lower, "publickey") {
+		return Check{Name: "github-ssh", Healthy: false, Message: "authentication: GitHub rejected the configured key"}
+	}
+	if strings.Contains(lower, "network is unreachable") || strings.Contains(lower, "no route to host") || strings.Contains(lower, "connection refused") {
+		return Check{Name: "github-ssh", Healthy: false, Message: "network-unreachable: GitHub SSH endpoint is unreachable"}
+	}
+	if err != nil {
+		return Check{Name: "github-ssh", Healthy: false, Message: "connection: " + redactCredentialURL(diagnosticText)}
+	}
+	return Check{Name: "github-ssh", Healthy: false, Message: "authentication: GitHub SSH authentication did not report success"}
 }
 
 func lockResult(r Reconciler, req Request, blocker *Blocker) Result {
