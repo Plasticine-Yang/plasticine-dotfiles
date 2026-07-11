@@ -1,0 +1,85 @@
+.scratch/plasticine-cli/issues/01-converge-personal-git-config.md
+  s_bd367d4d362b9a::t_89e31e00aeb59c 1-18
+.scratch/plasticine-cli/issues/02-authorize-immutable-plan.md
+  s_bd367d4d362b9a::t_42d6133488e0a0 1-16
+.scratch/plasticine-cli/issues/03-coordinate-reconciliation-locks.md
+  s_bd367d4d362b9a::t_25ea01741e61b4 1-16
+.scratch/plasticine-cli/issues/04-recover-interrupted-component-apply.md
+  s_bd367d4d362b9a::t_581a07aba8867b 1-16
+.scratch/plasticine-cli/issues/05-persist-workstation-scope.md
+  s_bd367d4d362b9a::t_f68ddee09d3eb1 1-17
+.scratch/plasticine-cli/issues/06-migrate-reconciliation-state.md
+  s_bd367d4d362b9a::t_9839b8474a5698 1-16
+.scratch/plasticine-cli/issues/07-adopt-conflicts-with-backups.md
+  s_bd367d4d362b9a::t_9743cdb0edc244 1-18
+.scratch/plasticine-cli/issues/08-candidate-atomic-self-install.md
+  s_bd367d4d362b9a::t_de668e24d9504b 1-16
+.scratch/plasticine-cli/issues/09-minimal-posix-bootstrap.md
+  s_bd367d4d362b9a::t_f9e44f345d59b3 1-16
+.scratch/plasticine-cli/issues/10-shell-component-and-component-graph.md
+  s_a1232935372885::t_57c3515b63bfce 1-16
+.scratch/plasticine-cli/issues/11-debian-ubuntu-system-dependencies.md
+  s_a1232935372885::t_b1e778eb885c89 1-16
+.scratch/plasticine-cli/issues/12-macos-system-dependencies-and-support-floor.md
+  s_a1232935372885::t_e8733dbe90280c 1-16
+.scratch/plasticine-cli/issues/13-tool-lock-lazygit.md
+  s_a1232935372885::t_fb8d2863ee03ad 1-16
+.scratch/plasticine-cli/issues/14-install-neovim.md
+  s_a1232935372885::t_070702dc91a1d9 1-16
+.scratch/plasticine-cli/issues/15-install-uv-uvx.md
+  s_a1232935372885::t_5846a840b56ac4 1-16
+.scratch/plasticine-cli/issues/16-install-fnm.md
+  s_a1232935372885::t_be686b69d40031 1-16
+.scratch/plasticine-cli/issues/17-configure-local-github-ssh.md
+  s_a1232935372885::t_d97a7532ddc456 1-18
+.scratch/plasticine-cli/issues/18-integrate-macos-keychain.md
+  s_a1232935372885::t_84c34f4d940dce 1-15
+.scratch/plasticine-cli/issues/19-share-linux-ssh-agent.md
+  s_a1232935372885::t_5f64d020479e40 1-16
+.scratch/plasticine-cli/issues/20-bounded-read-only-doctor-network-diagnostics.md
+  s_a1232935372885::t_d766f3ee935082 1-17
+.scratch/plasticine-cli/issues/21-retire-removed-managed-resources.md
+  s_0decb739df563d::t_042737f0d25c07 1-22
+.scratch/plasticine-cli/issues/22-perform-bounded-release-rollback.md
+  s_0decb739df563d::t_06e9daeaa1bd72 1-21
+.scratch/plasticine-cli/issues/23-remove-legacy-flows-and-complete-cutover.md
+  s_0decb739df563d::t_3524aee7610465 1-24
+.scratch/plasticine-cli/issues/24-establish-ci-build-and-smoke-gates.md
+  s_0decb739df563d::t_caea30bb779e1d 1-24
+.scratch/plasticine-cli/issues/25-publish-immutable-semver-releases.md
+  s_0decb739df563d::t_7344603bca5bdb 1-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "24f5035d58a168e58e766e7344fc6d6d18b54667",
+  "prompts": {},
+  "sessions": {
+    "s_0decb739df563d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f50bf-b4cc-7901-adbb-54a30b36f6d6",
+        "model": "unknown"
+      },
+      "human_author": "yangwenfeng.0719 <yangwenfeng.0719@bytedance.com>"
+    },
+    "s_a1232935372885": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f50b3-d514-75b1-8463-b6243fb1fe59",
+        "model": "unknown"
+      },
+      "human_author": "yangwenfeng.0719 <yangwenfeng.0719@bytedance.com>"
+    },
+    "s_bd367d4d362b9a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f4c29-a32a-7512-b033-4d62160fb0a9",
+        "model": "unknown"
+      },
+      "human_author": "yangwenfeng.0719 <yangwenfeng.0719@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
