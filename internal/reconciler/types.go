@@ -71,6 +71,7 @@ type Change struct {
 	Summary      string       `json:"summary"`
 	SystemChange bool         `json:"system_change,omitempty"`
 	Precondition string       `json:"precondition,omitempty"`
+	Capabilities []Capability `json:"capabilities,omitempty"`
 }
 
 type Conflict struct {

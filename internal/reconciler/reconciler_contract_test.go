@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/platform"
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/reconciler"
+	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/release"
 )
 
 func TestApplyMaterializesDesiredStateAndDoctorChecksOwnership(t *testing.T) {
@@ -54,10 +57,6 @@ func TestApplyMaterializesDesiredStateAndDoctorChecksOwnership(t *testing.T) {
 	for _, path := range []string{
 		gitConfig,
 		filepath.Join(req.Home, "workstation", ".gitconfig"),
-		filepath.Join(req.Home, "bin", "nvim"),
-		filepath.Join(req.Home, "bin", "lazygit"),
-		filepath.Join(req.Home, "bin", "uvx"),
-		filepath.Join(req.Home, "bin", "fnm"),
 	} {
 		if !pathExists(path) {
 			t.Fatalf("expected materialized path %s", path)
@@ -104,7 +103,14 @@ func TestScopeSuspendsGitConfigWithoutObservingCompanyGit(t *testing.T) {
 	gitShim := filepath.Join(req.Home, "workstation", ".gitconfig")
 
 	req.ReplaceScope = true
-	req.Exclude = []reconciler.ComponentID{reconciler.ComponentGitConfig, reconciler.ComponentGitHubSSH}
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentGitConfig,
+		reconciler.ComponentGitHubSSH,
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentFNM,
+		reconciler.ComponentUV,
+	}
 	scoped, err := r.Apply(context.Background(), req)
 	if err != nil {
 		t.Fatalf("scope apply: %v", err)
@@ -128,7 +134,13 @@ func TestScopeSuspendsGitConfigWithoutObservingCompanyGit(t *testing.T) {
 	}
 
 	req.ReplaceScope = true
-	req.Exclude = []reconciler.ComponentID{reconciler.ComponentGitHubSSH}
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentGitHubSSH,
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentFNM,
+		reconciler.ComponentUV,
+	}
 	reenable, err := r.Plan(context.Background(), req)
 	if err != nil {
 		t.Fatalf("reenable plan: %v", err)
@@ -268,7 +280,12 @@ func TestGitHubSSHSecretReferenceManagedBlockAndMacKeychain(t *testing.T) {
 	writeText(t, sshConfig, "Host internal\n  HostName git.internal\n")
 
 	req.ReplaceScope = true
-	req.Exclude = nil
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentFNM,
+		reconciler.ComponentUV,
+	}
 	req.IncludeGitHubSSH = true
 	req.GitHubKeyPath = key
 	blocked, err := r.Plan(context.Background(), req)
@@ -317,7 +334,15 @@ func TestGitHubSSHSecretReferenceManagedBlockAndMacKeychain(t *testing.T) {
 func TestSystemDependenciesRequireIndependentAuthorization(t *testing.T) {
 	t.Parallel()
 
-	r := contractReconciler()
+	system := &recordingSystemAdapter{}
+	r := reconciler.New(reconciler.Options{
+		DesiredStateID: "desired-state-contract",
+		ToolLockSHA256: strings.Repeat("c", 64),
+		System:         system,
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
 	req := contractRequest(t.TempDir())
 	req.Target = platform.TargetLinuxAMD64
 	req.Host = platform.Host{
@@ -360,6 +385,9 @@ func TestSystemDependenciesRequireIndependentAuthorization(t *testing.T) {
 	if applied.Outcome != reconciler.OutcomeApplied {
 		t.Fatalf("authorized apply outcome = %s", applied.Outcome)
 	}
+	if len(system.applied) != 1 {
+		t.Fatalf("system apply count = %d, want 1", len(system.applied))
+	}
 
 	unsupported := req
 	unsupported.Home = t.TempDir()
@@ -371,6 +399,122 @@ func TestSystemDependenciesRequireIndependentAuthorization(t *testing.T) {
 	}
 	if blocked.Outcome != reconciler.OutcomeBlocked || !hasBlocker(blocked.Blockers, reconciler.BlockerUnsupportedSystemChange) {
 		t.Fatalf("unsupported outcome=%s blockers=%#v", blocked.Outcome, blocked.Blockers)
+	}
+}
+
+func TestManagedToolInstallDownloadsVerifiesCachesAndReusesArtifact(t *testing.T) {
+	t.Parallel()
+
+	artifact := []byte("#!/bin/sh\nprintf 'lazygit fixture\\n'\n")
+	artifactSHA := testDigestBytes(artifact)
+	hits := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		_, _ = w.Write(artifact)
+	}))
+	t.Cleanup(server.Close)
+
+	r := reconciler.New(reconciler.Options{
+		DesiredStateID: "managed-tool-contract",
+		ToolLockSHA256: artifactSHA,
+		ToolLock: release.ToolLock{Tools: map[release.ManagedTool]release.ToolVersion{
+			release.ManagedToolLazygit: {
+				Version: "v-test",
+				Targets: map[platform.ArtifactTarget]release.ToolArtifact{
+					platform.TargetDarwinARM64: {
+						URL:          server.URL + "/lazygit",
+						ArtifactType: release.ArtifactTypeRawExecutable,
+						SHA256:       artifactSHA,
+					},
+				},
+			},
+		}},
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
+	req := contractRequest(t.TempDir())
+	req.Exclude = []reconciler.ComponentID{reconciler.ComponentGitHubSSH}
+	req.Components = []reconciler.ComponentID{reconciler.ComponentLazygit}
+	req.Yes = true
+
+	applied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply managed tool: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply outcome = %s", applied.Outcome)
+	}
+	cachePath := filepath.Join(req.Home, "cache", "artifacts", artifactSHA)
+	if got := readText(t, cachePath); got != string(artifact) {
+		t.Fatalf("cache content = %q, want artifact", got)
+	}
+	payloadPath := filepath.Join(req.Home, "tools", "lazygit", "v-test", "lazygit")
+	if got := readText(t, payloadPath); got != string(artifact) {
+		t.Fatalf("payload content = %q, want artifact", got)
+	}
+	linkTarget, err := os.Readlink(filepath.Join(req.Home, "bin", "lg"))
+	if err != nil {
+		t.Fatalf("read lg symlink: %v", err)
+	}
+	if linkTarget != payloadPath {
+		t.Fatalf("lg symlink = %q, want %q", linkTarget, payloadPath)
+	}
+
+	second, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	if second.Outcome != reconciler.OutcomeNoChange {
+		t.Fatalf("second apply outcome = %s", second.Outcome)
+	}
+	if hits != 1 {
+		t.Fatalf("artifact downloads = %d, want 1", hits)
+	}
+}
+
+func TestManagedToolChecksumMismatchDoesNotPromoteArtifact(t *testing.T) {
+	t.Parallel()
+
+	artifact := []byte("tampered artifact")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(artifact)
+	}))
+	t.Cleanup(server.Close)
+	wantSHA := strings.Repeat("0", 64)
+	r := reconciler.New(reconciler.Options{
+		DesiredStateID: "managed-tool-contract",
+		ToolLockSHA256: wantSHA,
+		ToolLock: release.ToolLock{Tools: map[release.ManagedTool]release.ToolVersion{
+			release.ManagedToolLazygit: {
+				Version: "v-test",
+				Targets: map[platform.ArtifactTarget]release.ToolArtifact{
+					platform.TargetDarwinARM64: {
+						URL:          server.URL + "/lazygit",
+						ArtifactType: release.ArtifactTypeRawExecutable,
+						SHA256:       wantSHA,
+					},
+				},
+			},
+		}},
+	})
+	req := contractRequest(t.TempDir())
+	req.Exclude = []reconciler.ComponentID{reconciler.ComponentGitHubSSH}
+	req.Components = []reconciler.ComponentID{reconciler.ComponentLazygit}
+	req.Yes = true
+
+	result, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply returned error instead of structured partial: %v", err)
+	}
+	if result.Outcome != reconciler.OutcomePartial || !hasBlocker(result.Blockers, reconciler.BlockerOperationalFailure) {
+		t.Fatalf("apply outcome=%s blockers=%#v, want partial operational failure", result.Outcome, result.Blockers)
+	}
+	if pathExists(filepath.Join(req.Home, "cache", "artifacts", wantSHA)) {
+		t.Fatalf("checksum-mismatched artifact was promoted to cache")
+	}
+	if pathExists(filepath.Join(req.Home, "bin", "lazygit")) {
+		t.Fatalf("launcher was materialized after checksum mismatch")
 	}
 }
 
@@ -482,13 +626,52 @@ func TestDoctorAggregatesReadOnlyNetworkDiagnostics(t *testing.T) {
 	}
 }
 
+func TestDoctorRunsConfiguredHTTPSDiagnosticTarget(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+	r := reconciler.New(reconciler.Options{
+		DesiredStateID: "doctor-online-contract",
+		ToolLockSHA256: strings.Repeat("d", 64),
+		DiagnosticURLs: []string{server.URL},
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
+	req := contractRequest(t.TempDir())
+	req.Yes = true
+	if _, err := r.Apply(context.Background(), req); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	doctor, err := r.Doctor(context.Background(), req)
+	if err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	if doctor.Outcome != reconciler.OutcomeHealthy {
+		t.Fatalf("doctor outcome = %s checks=%#v", doctor.Outcome, doctor.Checks)
+	}
+	if !hasHealthyCheck(doctor.Checks, "https-diagnostic") {
+		t.Fatalf("doctor checks = %#v, want healthy https diagnostic", doctor.Checks)
+	}
+}
+
 func TestComponentGraphBlocksMissingDependenciesAndScopeExpansion(t *testing.T) {
 	t.Parallel()
 
 	r := contractReconciler()
 	req := contractRequest(t.TempDir())
 	req.ReplaceScope = true
-	req.Exclude = []reconciler.ComponentID{reconciler.ComponentShell}
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentShell,
+		reconciler.ComponentGitHubSSH,
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentUV,
+	}
 
 	plan, err := r.Plan(context.Background(), req)
 	if err != nil {
@@ -555,7 +738,13 @@ func contractRequest(home string) reconciler.Request {
 		WorkstationRoot: filepath.Join(home, "workstation"),
 		Target:          platform.TargetDarwinARM64,
 		ReplaceScope:    true,
-		Exclude:         []reconciler.ComponentID{reconciler.ComponentGitHubSSH},
+		Exclude: []reconciler.ComponentID{
+			reconciler.ComponentGitHubSSH,
+			reconciler.ComponentNeovim,
+			reconciler.ComponentLazygit,
+			reconciler.ComponentFNM,
+			reconciler.ComponentUV,
+		},
 		Host: platform.Host{
 			OS:      platform.OSDarwin,
 			Arch:    platform.ArchARM64,
@@ -583,8 +772,21 @@ func hasSystemChange(changes []reconciler.Change) bool {
 	return false
 }
 
+func hasHealthyCheck(checks []reconciler.Check, name string) bool {
+	for _, check := range checks {
+		if check.Name == name && check.Healthy {
+			return true
+		}
+	}
+	return false
+}
+
 func testDigest(value string) string {
-	sum := sha256.Sum256([]byte(value))
+	return testDigestBytes([]byte(value))
+}
+
+func testDigestBytes(value []byte) string {
+	sum := sha256.Sum256(value)
 	return hex.EncodeToString(sum[:])
 }
 
@@ -636,4 +838,17 @@ func generateSSHKey(t *testing.T, path string) {
 	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatalf("chmod generated key: %v", err)
 	}
+}
+
+type recordingSystemAdapter struct {
+	applied [][]reconciler.Capability
+}
+
+func (adapter *recordingSystemAdapter) MissingCapabilities(context.Context, reconciler.Request, []reconciler.ComponentID) ([]reconciler.Capability, error) {
+	return nil, nil
+}
+
+func (adapter *recordingSystemAdapter) ApplySystemDependencies(_ context.Context, _ reconciler.Request, missing []reconciler.Capability) ([]string, error) {
+	adapter.applied = append(adapter.applied, append([]reconciler.Capability(nil), missing...))
+	return []string{"system-adapter"}, nil
 }

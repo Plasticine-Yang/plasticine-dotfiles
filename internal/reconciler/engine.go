@@ -1,11 +1,16 @@
 package reconciler
 
 import (
+	"archive/tar"
+	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +20,7 @@ import (
 	"time"
 
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/platform"
+	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/release"
 )
 
 const preconditionAbsent = "absent"
@@ -131,7 +137,9 @@ func (r Reconciler) buildPlan(ctx context.Context, req Request) (planSnapshot, e
 	}
 
 	snapshot.validateComponentGraph()
-	snapshot.planSystemDependencies(req)
+	if err := snapshot.planSystemDependencies(ctx, req, r.system); err != nil {
+		return planSnapshot{}, err
+	}
 	if req.RequireSystemChange {
 		snapshot.planRequiredSystemChange(req)
 	}
@@ -154,7 +162,13 @@ func (r Reconciler) buildPlan(ctx context.Context, req Request) (planSnapshot, e
 	resourceReq := req
 	resourceReq.ToolLockSHA256 = r.toolLockSHA256
 	for _, component := range sortedComponentsFromSet(snapshot.Active) {
-		for _, resource := range componentDesiredResources(resourceReq, component, snapshot.Secret) {
+		if tool, ok := managedToolForComponent(component); ok {
+			if _, hasArtifact := managedToolArtifact(r.toolLock, tool, req.Target); !hasArtifact {
+				snapshot.block(BlockerUnsupportedTarget, fmt.Sprintf("Tool Lock is missing %s artifact for %s", tool, req.Target))
+				continue
+			}
+		}
+		for _, resource := range componentDesiredResources(resourceReq, component, snapshot.Secret, r.toolLock) {
 			snapshot.Desired = append(snapshot.Desired, resource)
 			snapshot.DesiredByPath[resource.Path] = resource
 			snapshot.planResource(state, resource, req.Adopt)
@@ -232,10 +246,15 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 		case ChangeScopeReplacement, ChangeStateMigration:
 			continue
 		case ChangeSystemDependency:
-			if err := materializeSystemDependency(req.Home, change); err != nil {
-				return Result{}, err
+			effects, err := r.applySystemDependency(ctx, req, change)
+			if err != nil {
+				result.Outcome = OutcomePartial
+				result.Blockers = append(result.Blockers, Blocker{Code: BlockerOperationalFailure, Message: err.Error()})
+				return result, nil
 			}
-			result.DurableEffects = appendUnique(result.DurableEffects, filepath.Join(req.Home, "system"))
+			for _, effect := range effects {
+				result.DurableEffects = appendUnique(result.DurableEffects, effect)
+			}
 			continue
 		case ChangeSecretReference:
 			if snapshot.Secret != nil {
@@ -272,8 +291,11 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 				result.Blockers = append(result.Blockers, Blocker{Code: BlockerStalePlan, Message: err.Error()})
 				return result, nil
 			}
-			if err := writeResource(resource); err != nil {
-				return Result{}, err
+			if err := writeResource(ctx, req.Home, resource, r.httpClient); err != nil {
+				result.Outcome = OutcomePartial
+				result.Blockers = append(result.Blockers, Blocker{Code: BlockerOperationalFailure, Message: err.Error()})
+				result.Components = append(result.Components, ComponentResult{Component: component, Status: ComponentBlocked, Message: err.Error()})
+				return result, nil
 			}
 			componentOwnership[resource.Path] = Ownership{
 				Component:    resource.Component,
@@ -298,7 +320,9 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 		return Result{}, err
 	}
 	result.DurableEffects = appendUnique(result.DurableEffects, StatePath(req.Home))
-	result.Outcome = OutcomeApplied
+	if result.Outcome != OutcomePartial {
+		result.Outcome = OutcomeApplied
+	}
 	return result, nil
 }
 
@@ -327,24 +351,27 @@ func (s *planSnapshot) planRequiredSystemChange(req Request) {
 	}
 }
 
-func (s *planSnapshot) planSystemDependencies(req Request) {
-	if req.Capabilities == nil {
-		return
+func (s *planSnapshot) planSystemDependencies(ctx context.Context, req Request, system SystemAdapter) error {
+	missing, err := plannedMissingCapabilities(ctx, req, sortedComponentsFromSet(s.Active), system)
+	if err != nil {
+		return err
 	}
-	missing := missingCapabilities(s.Active, req)
-	for _, capability := range missing {
-		change := Change{
-			Kind:         ChangeSystemDependency,
-			ResourceKind: ResourceSystemDependency,
-			Summary:      fmt.Sprintf("satisfy missing %s capability", capability),
-			SystemChange: true,
-		}
-		s.SystemChange = true
-		s.Result.Changes = append(s.Result.Changes, change)
-		if s.Result.Support.Level != platform.SupportFull {
-			s.block(BlockerUnsupportedSystemChange, fmt.Sprintf("%s requires an unsupported system change on this host", capability))
-		}
+	if len(missing) == 0 {
+		return nil
 	}
+	change := Change{
+		Kind:         ChangeSystemDependency,
+		ResourceKind: ResourceSystemDependency,
+		Summary:      "satisfy missing system capabilities: " + capabilitiesSummary(missing),
+		SystemChange: true,
+		Capabilities: missing,
+	}
+	s.SystemChange = true
+	s.Result.Changes = append(s.Result.Changes, change)
+	if s.Result.Support.Level != platform.SupportFull {
+		s.block(BlockerUnsupportedSystemChange, fmt.Sprintf("%s requires an unsupported system change on this host", capabilitiesSummary(missing)))
+	}
+	return nil
 }
 
 func (s *planSnapshot) planResource(state State, resource desiredResource, adopt bool) {
@@ -358,6 +385,26 @@ func (s *planSnapshot) planResource(state State, resource desiredResource, adopt
 	precondition := preconditionAbsent
 	if exists {
 		precondition = currentDigest
+	}
+	if resource.ResourceKind == ResourceManagedTool {
+		if exists && !owned {
+			s.conflict(resource.Component, resource.Path, true, "unmanaged content exists at a managed tool path")
+			if adopt {
+				s.change(resource, ChangeInstallManagedTool, precondition)
+			}
+			return
+		}
+		if owned && exists && currentDigest != ownership.Digest {
+			s.conflict(resource.Component, resource.Path, true, "managed tool payload has Owner drift")
+			if adopt {
+				s.change(resource, ChangeInstallManagedTool, precondition)
+			}
+			return
+		}
+		if !exists || state.ToolLockSHA256 != s.ToolLockSHA256 {
+			s.change(resource, ChangeInstallManagedTool, precondition)
+		}
+		return
 	}
 	if exists && !owned {
 		s.conflict(resource.Component, resource.Path, true, "unmanaged content exists at a managed path")
@@ -553,9 +600,12 @@ func validateSecretReference(path string, expectedFingerprint string) (SecretRef
 	return SecretReference{Component: ComponentGitHubSSH, Path: abs, Fingerprint: fingerprint}, nil
 }
 
-func writeResource(resource desiredResource) error {
+func writeResource(ctx context.Context, home string, resource desiredResource, client *http.Client) error {
 	if err := os.MkdirAll(filepath.Dir(resource.Path), 0o700); err != nil {
 		return err
+	}
+	if resource.ResourceKind == ResourceManagedTool && resource.ManagedTool != nil {
+		return materializeManagedTool(ctx, home, resource, client)
 	}
 	if resource.ResourceKind == ResourceSymlink {
 		tempPath := resource.Path + ".tmp"
@@ -577,6 +627,173 @@ func writeResource(resource desiredResource) error {
 		return err
 	}
 	return os.Rename(tempPath, resource.Path)
+}
+
+func materializeManagedTool(ctx context.Context, home string, resource desiredResource, client *http.Client) error {
+	install := resource.ManagedTool
+	cachePath, err := ensureArtifactCache(ctx, home, install.Artifact, client)
+	if err != nil {
+		return err
+	}
+	tempPath := resource.Path + ".tmp"
+	_ = os.Remove(tempPath)
+	switch install.Artifact.ArtifactType {
+	case release.ArtifactTypeRawExecutable:
+		if err := copyFile(cachePath, tempPath, 0o755); err != nil {
+			return err
+		}
+	case release.ArtifactTypeTarGz:
+		if err := extractTarGzExecutable(cachePath, install.Entry, tempPath); err != nil {
+			return err
+		}
+	case release.ArtifactTypeZip:
+		if err := extractZipExecutable(cachePath, install.Entry, tempPath); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unsupported managed tool artifact type %q", install.Artifact.ArtifactType)
+	}
+	return os.Rename(tempPath, resource.Path)
+}
+
+func ensureArtifactCache(ctx context.Context, home string, artifact release.ToolArtifact, client *http.Client) (string, error) {
+	cachePath := filepath.Join(home, "cache", "artifacts", artifact.SHA256)
+	if got, ok := maybeFileDigest(cachePath); ok && got == artifact.SHA256 {
+		return cachePath, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0o700); err != nil {
+		return "", err
+	}
+	partialPath := cachePath + ".partial"
+	_ = os.Remove(partialPath)
+	downloadCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(downloadCtx, http.MethodGet, artifact.URL, nil)
+	if err != nil {
+		return "", fmt.Errorf("%s", redactCredentialURL(err.Error()))
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("%s", redactCredentialURL(err.Error()))
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", fmt.Errorf("download %s: %s", redactCredentialURL(artifact.URL), response.Status)
+	}
+	partial, err := os.OpenFile(partialPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.New()
+	_, copyErr := io.Copy(io.MultiWriter(partial, hash), response.Body)
+	closeErr := partial.Close()
+	if copyErr != nil {
+		_ = os.Remove(partialPath)
+		return "", copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(partialPath)
+		return "", closeErr
+	}
+	got := hex.EncodeToString(hash.Sum(nil))
+	if got != artifact.SHA256 {
+		_ = os.Remove(partialPath)
+		return "", fmt.Errorf("checksum mismatch for %s", redactCredentialURL(artifact.URL))
+	}
+	if err := os.Rename(partialPath, cachePath); err != nil {
+		_ = os.Remove(partialPath)
+		return "", err
+	}
+	return cachePath, nil
+}
+
+func copyFile(sourcePath string, targetPath string, mode os.FileMode) error {
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	target, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(target, source)
+	closeErr := target.Close()
+	if copyErr != nil {
+		_ = os.Remove(targetPath)
+		return copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(targetPath)
+		return closeErr
+	}
+	return nil
+}
+
+func extractTarGzExecutable(archivePath string, entryName string, targetPath string) error {
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return err
+	}
+	defer gzipReader.Close()
+	reader := tar.NewReader(gzipReader)
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if header.FileInfo().IsDir() || filepath.Base(header.Name) != entryName {
+			continue
+		}
+		return writeExecutableFromReader(targetPath, reader)
+	}
+	return fmt.Errorf("artifact %s does not contain executable %s", archivePath, entryName)
+}
+
+func extractZipExecutable(archivePath string, entryName string, targetPath string) error {
+	reader, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	for _, file := range reader.File {
+		if file.FileInfo().IsDir() || filepath.Base(file.Name) != entryName {
+			continue
+		}
+		source, err := file.Open()
+		if err != nil {
+			return err
+		}
+		defer source.Close()
+		return writeExecutableFromReader(targetPath, source)
+	}
+	return fmt.Errorf("artifact %s does not contain executable %s", archivePath, entryName)
+}
+
+func writeExecutableFromReader(targetPath string, source io.Reader) error {
+	target, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(target, source)
+	closeErr := target.Close()
+	if copyErr != nil {
+		_ = os.Remove(targetPath)
+		return copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(targetPath)
+		return closeErr
+	}
+	return nil
 }
 
 func writeManagedBlock(path string, block string) error {
@@ -654,12 +871,35 @@ func applyRetirement(retirement Retirement, state *State) error {
 	return nil
 }
 
-func materializeSystemDependency(home string, change Change) error {
-	path := filepath.Join(home, "system", sanitizeName(change.Summary)+".txt")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
+func (r Reconciler) applySystemDependency(ctx context.Context, req Request, change Change) ([]string, error) {
+	if r.system != nil {
+		return r.system.ApplySystemDependencies(ctx, req, change.Capabilities)
 	}
-	return os.WriteFile(path, []byte(change.Summary+"\n"), 0o644)
+	return nil, fmt.Errorf("no system adapter configured for authorized System Change")
+}
+
+func plannedMissingCapabilities(ctx context.Context, req Request, active []ComponentID, system SystemAdapter) ([]Capability, error) {
+	if req.Capabilities != nil {
+		var missing []Capability
+		for _, capability := range requiredCapabilities(active, req) {
+			if present, explicitlySet := req.Capabilities[capability]; explicitlySet && !present {
+				missing = append(missing, capability)
+			}
+		}
+		return missing, nil
+	}
+	if system == nil {
+		return nil, nil
+	}
+	return system.MissingCapabilities(ctx, req, active)
+}
+
+func capabilitiesSummary(capabilities []Capability) string {
+	parts := make([]string, 0, len(capabilities))
+	for _, capability := range capabilities {
+		parts = append(parts, string(capability))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func verifyPrecondition(path string, precondition string) error {
@@ -732,38 +972,6 @@ func blockState(text string) string {
 		return "malformed"
 	}
 	return "healthy"
-}
-
-func missingCapabilities(active map[ComponentID]bool, req Request) []Capability {
-	required := map[Capability]bool{}
-	for component := range active {
-		switch component {
-		case ComponentShell:
-			required[CapabilityZsh] = true
-		case ComponentGitConfig:
-			required[CapabilityGit] = true
-		case ComponentGitHubSSH:
-			required[CapabilityGit] = true
-			required[CapabilityOpenSSH] = true
-			required[CapabilityCA] = true
-			if req.Target.OS == "linux" {
-				required[CapabilitySystemdUserSession] = true
-			}
-			if req.Target.OS == "darwin" {
-				required[CapabilityAppleDevelopmentTools] = true
-			}
-		case ComponentNeovim, ComponentLazygit, ComponentFNM, ComponentUV:
-			required[CapabilityCA] = true
-		}
-	}
-	var missing []Capability
-	for capability := range required {
-		if present, explicitlySet := req.Capabilities[capability]; explicitlySet && !present {
-			missing = append(missing, capability)
-		}
-	}
-	sort.Slice(missing, func(i int, j int) bool { return missing[i] < missing[j] })
-	return missing
 }
 
 func suspendedComponents(state State, excluded map[ComponentID]bool) []ComponentID {

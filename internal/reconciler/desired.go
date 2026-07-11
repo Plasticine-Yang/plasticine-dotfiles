@@ -3,6 +3,9 @@ package reconciler
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/platform"
+	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/release"
 )
 
 const (
@@ -16,6 +19,14 @@ type desiredResource struct {
 	ResourceKind ResourceKind
 	Content      string
 	Summary      string
+	ManagedTool  *managedToolInstall
+}
+
+type managedToolInstall struct {
+	Tool        release.ManagedTool
+	Entry       string
+	Artifact    release.ToolArtifact
+	CacheSHA256 string
 }
 
 func workstationRoot(req Request) string {
@@ -53,7 +64,7 @@ func githubKnownHostsPath(home string) string {
 	return filepath.Join(home, "config", "ssh", "github_known_hosts")
 }
 
-func componentDesiredResources(req Request, component ComponentID, secret *SecretReference) []desiredResource {
+func componentDesiredResources(req Request, component ComponentID, secret *SecretReference, toolLock release.ToolLock) []desiredResource {
 	switch component {
 	case ComponentShell:
 		return []desiredResource{
@@ -105,13 +116,13 @@ func componentDesiredResources(req Request, component ComponentID, secret *Secre
 			},
 		}
 	case ComponentNeovim:
-		return managedToolResources(req, component, "neovim", []string{"nvim"})
+		return managedToolResources(req, component, release.ManagedToolNeovim, []string{"nvim"}, toolLock)
 	case ComponentLazygit:
-		return managedToolResources(req, component, "lazygit", []string{"lazygit", "lg"})
+		return managedToolResources(req, component, release.ManagedToolLazygit, []string{"lazygit"}, toolLock)
 	case ComponentFNM:
-		return managedToolResources(req, component, "fnm", []string{"fnm"})
+		return managedToolResources(req, component, release.ManagedToolFNM, []string{"fnm"}, toolLock)
 	case ComponentUV:
-		return managedToolResources(req, component, "uv", []string{"uv", "uvx"})
+		return managedToolResources(req, component, release.ManagedToolUV, []string{"uv", "uvx"}, toolLock)
 	case ComponentGitHubSSH:
 		resources := []desiredResource{
 			{
@@ -160,15 +171,17 @@ func componentDesiredResources(req Request, component ComponentID, secret *Secre
 	}
 }
 
-func managedToolResources(req Request, component ComponentID, tool string, entries []string) []desiredResource {
+func managedToolResources(req Request, component ComponentID, tool release.ManagedTool, entries []string, toolLock release.ToolLock) []desiredResource {
 	home := req.Home
-	version := toolLockVersionSegment(req.ToolLockSHA256)
-	versionedRoot := filepath.Join(home, "tools", tool, version)
+	toolName := string(tool)
+	version := managedToolVersionSegment(toolLock, tool, req.ToolLockSHA256)
+	versionedRoot := filepath.Join(home, "tools", toolName, version)
+	artifact, hasArtifact := managedToolArtifact(toolLock, tool, req.Target)
 	resources := make([]desiredResource, 0, len(entries)*2)
 	seenPayloads := map[string]bool{}
 	for _, entry := range entries {
 		payloadName := entry
-		if tool == "lazygit" {
+		if tool == release.ManagedToolLazygit {
 			payloadName = "lazygit"
 		}
 		payloadPath := filepath.Join(versionedRoot, payloadName)
@@ -178,13 +191,25 @@ func managedToolResources(req Request, component ComponentID, tool string, entri
 				Component:    component,
 				Path:         payloadPath,
 				ResourceKind: ResourceManagedTool,
-				Content:      "managed tool " + tool + " executable " + payloadName + " selected by Tool Lock\n",
-				Summary:      "install exact " + tool + " payload selected by Tool Lock",
+				Content:      "managed tool " + toolName + " executable " + payloadName + " selected by Tool Lock\n",
+				Summary:      "install exact " + toolName + " payload selected by Tool Lock",
 			})
+			if hasArtifact {
+				resources[len(resources)-1].ManagedTool = &managedToolInstall{
+					Tool:        tool,
+					Entry:       payloadName,
+					Artifact:    artifact,
+					CacheSHA256: artifact.SHA256,
+				}
+			}
 		}
 	}
-	for _, entry := range entries {
-		if tool == "lazygit" {
+	launcherEntries := entries
+	if tool == release.ManagedToolLazygit {
+		launcherEntries = []string{"lazygit", "lg"}
+	}
+	for _, entry := range launcherEntries {
+		if tool == release.ManagedToolLazygit {
 			resources = append(resources, desiredResource{
 				Component:    component,
 				Path:         filepath.Join(home, "bin", entry),
@@ -194,7 +219,7 @@ func managedToolResources(req Request, component ComponentID, tool string, entri
 			})
 			continue
 		}
-		launcher := toolLauncher(versionedRoot, tool, entry)
+		launcher := toolLauncher(versionedRoot, toolName, entry)
 		resources = append(resources, desiredResource{
 			Component:    component,
 			Path:         filepath.Join(home, "bin", entry),
@@ -206,14 +231,45 @@ func managedToolResources(req Request, component ComponentID, tool string, entri
 	return resources
 }
 
-func toolLockVersionSegment(sha256 string) string {
-	if len(sha256) >= 12 {
-		return sha256[:12]
+func managedToolArtifact(toolLock release.ToolLock, tool release.ManagedTool, target platform.ArtifactTarget) (release.ToolArtifact, bool) {
+	version, ok := toolLock.Tools[tool]
+	if !ok {
+		return release.ToolArtifact{}, false
 	}
-	if sha256 != "" {
-		return sha256
+	artifact, ok := version.Targets[target]
+	return artifact, ok
+}
+
+func managedToolForComponent(component ComponentID) (release.ManagedTool, bool) {
+	switch component {
+	case ComponentNeovim:
+		return release.ManagedToolNeovim, true
+	case ComponentLazygit:
+		return release.ManagedToolLazygit, true
+	case ComponentFNM:
+		return release.ManagedToolFNM, true
+	case ComponentUV:
+		return release.ManagedToolUV, true
+	default:
+		return "", false
 	}
-	return "unknown-tool-lock"
+}
+
+func managedToolVersionSegment(toolLock release.ToolLock, tool release.ManagedTool, fallbackSHA string) string {
+	if version, ok := toolLock.Tools[tool]; ok && version.Version != "" {
+		return sanitizePathSegment(version.Version)
+	}
+	if len(fallbackSHA) >= 12 {
+		return fallbackSHA[:12]
+	}
+	if fallbackSHA != "" {
+		return fallbackSHA
+	}
+	return "unknown-tool-version"
+}
+
+func sanitizePathSegment(value string) string {
+	return strings.NewReplacer("/", "_", "\\", "_", ":", "_").Replace(value)
 }
 
 func toolLauncher(versionedRoot string, tool string, entry string) string {

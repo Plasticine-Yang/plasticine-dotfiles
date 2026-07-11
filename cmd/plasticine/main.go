@@ -15,6 +15,7 @@ import (
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/candidate"
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/platform"
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/reconciler"
+	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/release"
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/version"
 )
 
@@ -131,9 +132,17 @@ func runReconcilerCommand(command string, args []string) int {
 	}
 	target := currentTarget()
 	host := currentHost(target)
+	toolLock, err := release.LoadToolLockBytes(plasticine.DefaultToolLockJSON)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load embedded tool lock: %v\n", err)
+		return 1
+	}
 	r := reconciler.New(reconciler.Options{
 		DesiredStateID: desiredStateID(),
 		ToolLockSHA256: toolLockSHA256(),
+		ToolLock:       toolLock,
+		DiagnosticURLs: []string{"https://github.com"},
+		System:         reconciler.LocalSystemAdapter{},
 	})
 	req := reconciler.Request{
 		Home:             plasticineHome,
@@ -151,20 +160,20 @@ func runReconcilerCommand(command string, args []string) int {
 	}
 	var (
 		result reconciler.Result
-		err    error
+		runErr error
 	)
 	switch command {
 	case "plan":
-		result, err = r.Plan(context.Background(), req)
+		result, runErr = r.Plan(context.Background(), req)
 	case "apply":
-		result, err = r.Apply(context.Background(), req)
+		result, runErr = r.Apply(context.Background(), req)
 	case "doctor":
-		result, err = r.Doctor(context.Background(), req)
+		result, runErr = r.Doctor(context.Background(), req)
 	default:
 		return 2
 	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s failed: %v\n", command, err)
+	if runErr != nil {
+		fmt.Fprintf(os.Stderr, "%s failed: %v\n", command, runErr)
 		return 1
 	}
 	printResult(command, result)
@@ -196,7 +205,7 @@ func currentHost(target platform.ArtifactTarget) platform.Host {
 				version = "13.0"
 			}
 		} else {
-			family = platform.FamilyOtherLinux
+			family, version = linuxHostFamilyVersion(version)
 		}
 	}
 	return platform.Host{
@@ -205,6 +214,33 @@ func currentHost(target platform.ArtifactTarget) platform.Host {
 		Family:  family,
 		Version: version,
 	}
+}
+
+func linuxHostFamilyVersion(versionOverride string) (platform.Family, string) {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return platform.FamilyOtherLinux, versionOverride
+	}
+	values := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		values[key] = strings.Trim(value, `"`)
+	}
+	family := platform.FamilyOtherLinux
+	switch strings.ToLower(values["ID"]) {
+	case "debian":
+		family = platform.FamilyDebian
+	case "ubuntu":
+		family = platform.FamilyUbuntu
+	}
+	version := versionOverride
+	if version == "" {
+		version = values["VERSION_ID"]
+	}
+	return family, version
 }
 
 func desiredStateID() string {

@@ -29,7 +29,13 @@ func TestPlanApplyDoctorContractUsesOnlyObservableEffects(t *testing.T) {
 			Version: "13.0",
 		},
 		ReplaceScope: true,
-		Exclude:      []reconciler.ComponentID{reconciler.ComponentGitHubSSH},
+		Exclude: []reconciler.ComponentID{
+			reconciler.ComponentGitHubSSH,
+			reconciler.ComponentNeovim,
+			reconciler.ComponentLazygit,
+			reconciler.ComponentFNM,
+			reconciler.ComponentUV,
+		},
 	}
 
 	plan, err := r.Plan(context.Background(), req)

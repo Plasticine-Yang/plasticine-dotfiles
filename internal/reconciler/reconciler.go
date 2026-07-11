@@ -2,11 +2,14 @@ package reconciler
 
 import (
 	"context"
+	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/platform"
+	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/release"
 )
 
 type Outcome string
@@ -38,17 +41,26 @@ const (
 	BlockerSecretReferenceRequired    BlockerCode = "secret-reference-required"
 	BlockerStalePlan                  BlockerCode = "stale-plan"
 	BlockerLockHeld                   BlockerCode = "lock-held"
+	BlockerOperationalFailure         BlockerCode = "operational-failure"
 )
 
 type Options struct {
 	DesiredStateID string
 	ToolLockSHA256 string
+	ToolLock       release.ToolLock
+	HTTPClient     *http.Client
+	DiagnosticURLs []string
+	System         SystemAdapter
 	Clock          func() time.Time
 }
 
 type Reconciler struct {
 	desiredStateID string
 	toolLockSHA256 string
+	toolLock       release.ToolLock
+	httpClient     *http.Client
+	diagnosticURLs []string
+	system         SystemAdapter
 	clock          func() time.Time
 }
 
@@ -57,9 +69,17 @@ func New(options Options) Reconciler {
 	if clock == nil {
 		clock = time.Now
 	}
+	httpClient := options.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 30 * time.Second}
+	}
 	return Reconciler{
 		desiredStateID: options.DesiredStateID,
 		toolLockSHA256: options.ToolLockSHA256,
+		toolLock:       options.ToolLock,
+		httpClient:     httpClient,
+		diagnosticURLs: append([]string(nil), options.DiagnosticURLs...),
+		system:         options.System,
 		clock:          clock,
 	}
 }
@@ -184,6 +204,8 @@ func (r Reconciler) Doctor(ctx context.Context, req Request) (Result, error) {
 			check.Message = redactCredentialURL(check.Message)
 			result.Checks = append(result.Checks, check)
 		}
+	} else if len(r.diagnosticURLs) > 0 {
+		result.Checks = append(result.Checks, r.runOnlineDoctorChecks(ctx, req, loaded)...)
 	} else {
 		result.Checks = append(result.Checks, Check{Name: "https-diagnostic", Healthy: true, Message: "bounded diagnostic not configured in this run"})
 	}
@@ -194,6 +216,84 @@ func (r Reconciler) Doctor(ctx context.Context, req Request) (Result, error) {
 		}
 	}
 	return result, nil
+}
+
+func (r Reconciler) runOnlineDoctorChecks(ctx context.Context, req Request, loaded loadedState) []Check {
+	checks := make([]Check, 0, len(r.diagnosticURLs)+1)
+	for _, target := range r.diagnosticURLs {
+		checks = append(checks, r.runHTTPSDiagnostic(ctx, target))
+	}
+	if loaded.Exists && githubSSHActiveForDoctor(req, loaded.State) {
+		if secret, ok := loaded.State.SecretReferences[ComponentGitHubSSH]; ok && secret.Path != "" {
+			checks = append(checks, runGitHubSSHDiagnostic(ctx, req.Home, secret))
+		} else {
+			checks = append(checks, Check{Name: "github-ssh", Healthy: false, Message: "github-ssh is active but no Secret Reference is available"})
+		}
+	}
+	return checks
+}
+
+func githubSSHActiveForDoctor(req Request, state State) bool {
+	excluded := state.Scope.Excluded
+	if req.ReplaceScope {
+		excluded = req.Exclude
+	}
+	if componentSet(excluded)[ComponentGitHubSSH] {
+		return false
+	}
+	if len(req.Components) > 0 && !componentSet(req.Components)[ComponentGitHubSSH] {
+		return false
+	}
+	return true
+}
+
+func (r Reconciler) runHTTPSDiagnostic(ctx context.Context, target string) Check {
+	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(checkCtx, http.MethodGet, target, nil)
+	if err != nil {
+		return Check{Name: "https-diagnostic", Healthy: false, Message: redactCredentialURL(err.Error())}
+	}
+	response, err := r.httpClient.Do(request)
+	if err != nil {
+		return Check{Name: "https-diagnostic", Healthy: false, Message: redactCredentialURL(err.Error())}
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 400 {
+		return Check{Name: "https-diagnostic", Healthy: false, Message: redactCredentialURL(response.Status)}
+	}
+	return Check{Name: "https-diagnostic", Healthy: true, Message: redactCredentialURL(target)}
+}
+
+func runGitHubSSHDiagnostic(ctx context.Context, home string, secret SecretReference) Check {
+	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	command := exec.CommandContext(
+		checkCtx,
+		"ssh",
+		"-T",
+		"-o", "BatchMode=yes",
+		"-o", "StrictHostKeyChecking=yes",
+		"-o", "GlobalKnownHostsFile=/dev/null",
+		"-o", "UserKnownHostsFile="+githubKnownHostsPath(home),
+		"-o", "UpdateHostKeys=no",
+		"-o", "CheckHostIP=no",
+		"-o", "IdentitiesOnly=yes",
+		"-i", secret.Path,
+		"git@github.com",
+	)
+	output, err := command.CombinedOutput()
+	message := strings.TrimSpace(string(output))
+	if strings.Contains(message, "successfully authenticated") {
+		return Check{Name: "github-ssh", Healthy: true, Message: "GitHub accepted the configured key"}
+	}
+	if err != nil {
+		if message == "" {
+			message = err.Error()
+		}
+		return Check{Name: "github-ssh", Healthy: false, Message: redactCredentialURL(message)}
+	}
+	return Check{Name: "github-ssh", Healthy: false, Message: "GitHub SSH authentication did not report success"}
 }
 
 func lockResult(r Reconciler, req Request, blocker *Blocker) Result {
