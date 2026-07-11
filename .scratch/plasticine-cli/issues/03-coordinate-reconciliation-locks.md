@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — 授权并执行同一个不可变 Plan
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] Plan 与 Doctor 在完整只读操作期间持有 shared lock，并能彼此并发执行；Apply 从内部 Planning 开始直到结果与 state 落定始终持有 exclusive lock。
 - [x] 独占锁能力可被 candidate replacement 复用，使未来的 CLI replacement 与所有 Plan、Apply、Doctor 互斥，而不引入第二套锁语义。

@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — 协调并发 Reconciliation 并拒绝 stale Plan
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] Reconciliation State 带有明确 schema version；当前 schema 可稳定 round-trip ownership、applied Release 或 Desired State digest、Scope、Backup metadata、pending work 和 Secret References，而不会把 Workstation observation 当成 Desired State。
 - [x] 读取受支持的旧 schema 时只在内存中产生 migration result，Plan 明确展示版本变化及其 durable effect，且 planning、拒绝授权或 planning failure 后原始 state 字节不变。

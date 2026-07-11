@@ -4,7 +4,7 @@
 
 **Blocked by:** 08 — 让 Candidate 原子自安装并执行首次 Apply
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] Bootstrap 只负责 Release 选择、Artifact Target 识别、原始 Candidate 与 Release checksum 获取、SHA-256 校验、可执行权限和 Candidate handoff；它不执行 Workstation 配置、状态迁移或 sudo。
 - [x] 未指定版本时固定入口选择 latest stable Release；PLASTICINE_VERSION 选择精确 Release，prerelease 只能被显式选择，mutable branch 内容不会被执行。

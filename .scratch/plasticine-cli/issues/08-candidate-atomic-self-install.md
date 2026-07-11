@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — 协调并发 Reconciliation 并拒绝 stale Plan；04 — 恢复中断的 Component Apply；06 — 安全迁移并验证 Reconciliation State
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] Release Candidate 提供不出现在公共帮助中的安装入口；开发构建仍可 Plan 和 Apply，但该入口会明确拒绝开发构建自安装。
 - [x] Candidate 从只读兼容性检查开始，到可执行文件切换及首次 Apply 结束为止持续持有 Plasticine 独占锁；锁竞争会快速失败并报告持有者信息。

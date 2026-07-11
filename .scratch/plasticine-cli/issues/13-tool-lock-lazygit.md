@@ -4,7 +4,7 @@
 
 **Blocked by:** 11 — 配置 Debian/Ubuntu System Dependencies；12 — 配置 macOS System Dependencies 与 Support Floor
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] Tool Lock 为 Lazygit 固定一个精确版本，并为 macOS/Linux 的 amd64/arm64 四个 Artifact Target 完整声明不可变官方 artifact、格式和 SHA-256；缺项、重复项或无效摘要在构建验证中失败。
 - [x] Plan 完全离线地从当前 Artifact Target 和 Tool Lock 计算首次安装或版本切换，不查询 latest、stable、branch 或上游 API；不支持的目标成为清晰 blocker。

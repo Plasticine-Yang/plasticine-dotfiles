@@ -4,7 +4,7 @@
 
 **Blocked by:** 14 — 安装 Neovim 并集中配置与 runtime；15 — 安装 uv/uvx 并集中 Python runtime；16 — 安装 fnm 并集中 Node runtime；18 — 集成 macOS Keychain；19 — 在 Linux 终端间共享 SSH Agent
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] Doctor 先后或并行运行所有 active Component 已提供的本地只读健康检查与一项有短超时的 HTTPS 诊断；单项失败或超时不会阻止其余检查产生结果。
 - [x] HTTPS 诊断只访问获准的 Release 诊断目标，使用有界连接与整体超时并遵循标准代理环境；代理地址中的凭据及响应中的敏感内容不出现在输出或日志。

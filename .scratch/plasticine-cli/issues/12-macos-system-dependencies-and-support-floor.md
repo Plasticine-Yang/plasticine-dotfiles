@@ -4,7 +4,7 @@
 
 **Blocked by:** 10 — 收敛 Shell Component 与 Component 图
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] 平台策略把 macOS 13+、Debian 12+ 和 Ubuntu 22.04+ 的 amd64/arm64 定义为完整 Reconciliation Support Floor，并在 Plan 与 Doctor 中明确报告当前 Workstation 的支持级别。
 - [x] 兼容的旧系统和其他 64 位 Linux 可继续执行可证明安全的 binary 与 user-scoped 行为，但需要未知 package manager、service manager 或其他系统机制的 System Change 会明确 unsupported，而不是被猜测执行。

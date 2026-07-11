@@ -4,7 +4,7 @@
 
 **Blocked by:** 10 — 收敛 Shell Component 与 Component 图
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] Plan 离线检查 Git、Zsh、OpenSSH 和 CA 等能力，只为启用 Component 缺失或低于最低能力的依赖显示 System Changes；已满足的能力不会被精确 pin、升级或降级。
 - [x] 同一次 Apply 把所有缺失能力聚合为一次 package index update 和一次不安装推荐包的最小 package install，而不是按 Component 重复调用包管理器。

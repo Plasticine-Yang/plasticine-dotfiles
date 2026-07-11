@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — 首次收敛个人 Git 配置
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] Apply 完成全部只读发现后一次性展示 changes、blockers、Conflicts、Scope changes、state migrations、System Changes、component skips 和 Retirements 中当前存在的项目；任何 planning failure 都在授权前以零 mutation 结束。
 - [x] Apply 授权后执行展示过的同一个 immutable Plan；测试中即使后续观察可能产生不同工作，也不得执行未展示的 mutation 或重新扩充 Plan。

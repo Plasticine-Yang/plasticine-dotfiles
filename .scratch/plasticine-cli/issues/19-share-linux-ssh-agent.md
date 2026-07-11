@@ -4,7 +4,7 @@
 
 **Blocked by:** 11 — 配置 Debian/Ubuntu System Dependencies；17 — 配置本机 GitHub SSH 与 Secret Reference
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] 在受支持 Linux 且 github-ssh active 时，Plan 离线识别 user-level systemd agent、固定共享 socket、Shell 导出和条件式私钥加载的缺失或漂移，完整展示效果且不启动服务或加载密钥。
 - [x] 经授权的 Apply 建立并启动单个 Owner 级 systemd ssh-agent，使其使用 Plasticine Home 下的固定 runtime socket；整个行为不以 root 运行，也不创建每终端独立 agent。

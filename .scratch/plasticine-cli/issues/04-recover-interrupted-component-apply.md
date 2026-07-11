@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — 协调并发 Reconciliation 并拒绝 stale Plan
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] 每个 Component 在第一次 mutation 之前原子写入 pending journal；journal 只记录恢复所需的非敏感 intent、precondition 和进度，不含 Secret、Secret 内容或可能携带凭据的环境值。
 - [x] 每个 effect 完成后先观察并验证 durable outcome，只有全部 Component effects 被证明成功后才原子提交 ownership 并清除对应 journal。

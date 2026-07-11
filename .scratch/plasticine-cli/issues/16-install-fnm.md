@@ -4,7 +4,7 @@
 
 **Blocked by:** 10 — 收敛 Shell Component 与 Component 图；13 — 通过 Tool Lock 安装 Lazygit
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] fnm 的 Tool Lock 数据为四个 Artifact Target 提供精确版本、不可变来源和 SHA-256；目标缺失、摘要不匹配或下载中断时，fnm Component 明确失败且不会替换当前可用版本。
 - [x] fnm 保持对 shell Component 的显式依赖；Workstation Scope 将 shell Suspended 而 fnm 仍 active 时，Plan 在任何 mutation 前阻塞，不会静默启用 shell 或留下半配置状态。

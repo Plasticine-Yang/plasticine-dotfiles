@@ -4,7 +4,7 @@
 
 **Blocked by:** 12 — 配置 macOS System Dependencies 与 Support Floor；17 — 配置本机 GitHub SSH 与 Secret Reference
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] 在受支持 macOS 且 github-ssh active 时，Plan 离线识别 Keychain 与 AddKeysToAgent 集成的缺失或漂移，并将它们作为 github-ssh 的本机受管效果展示；Plan 不读取 Keychain Secret 或触发认证。
 - [x] 经授权的 Apply 通过 macOS 原生 OpenSSH/Keychain 能力配置所选私钥及 agent 集成，使加密私钥可按平台行为提示并在后续终端复用。

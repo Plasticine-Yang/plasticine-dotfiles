@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] 开发构建提供且只公开 `plan`、`apply`、`doctor`、`version` 四个命令；未知命令和无效参数返回 usage error。
 - [x] CLI 直接调用一个 concrete Reconciler，Desired State 使用 typed Go 表达；不暴露 public Action DSL、用户 YAML/template/plugin 配置或 machine-local value override。

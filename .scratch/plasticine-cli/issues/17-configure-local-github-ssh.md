@@ -4,7 +4,7 @@
 
 **Blocked by:** 10 — 收敛 Shell Component 与 Component 图；11 — 配置 Debian/Ubuntu System Dependencies；12 — 配置 macOS System Dependencies 与 Support Floor
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] github-ssh 首次启用或现有 Secret Reference 无效时，只接受控制终端中的显式选择或 `--github-key`；非交互运行缺少选择时明确阻塞，并且从不扫描或猜测常见私钥位置。
 - [x] 所选私钥必须是当前 Owner 拥有的普通文件、具有限制性权限、可由 OpenSSH 工具读取并可导出稳定公钥 fingerprint；任一检查失败都在 mutation 前阻塞，Plasticine 不修改外部 Secret 的权限或内容。

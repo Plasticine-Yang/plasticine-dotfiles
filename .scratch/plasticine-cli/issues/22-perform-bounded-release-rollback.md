@@ -4,7 +4,7 @@
 
 **Blocked by:** 09 — 通过最小 POSIX Bootstrap 安装 Candidate；21 — 显式 Retirement 已移除的受管资源
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] 选择精确的旧 Release 时，在替换已安装 CLI 前执行 read-only compatibility check。
 - [x] Compatibility check 同时覆盖 Reconciliation State schema 与所有未解决的 pending journal representation。

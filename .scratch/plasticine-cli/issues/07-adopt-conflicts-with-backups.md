@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — 恢复中断的 Component Apply；05 — 持久化 Workstation Scope 与 Suspension；06 — 安全迁移并验证 Reconciliation State
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] 未受管路径上的不同内容、continuing Managed Path 上不匹配最后 accepted digest 的 Owner drift，以及 state 丢失后已存在的候选 Managed Path 都成为 Conflict；即使丢失 state 后字节恰好相等也不得猜测 ownership。
 - [x] Plan 一次列出当前 Scope 与 `--component` filter 内的全部 adoptable 和 non-adoptable Conflicts，不修改现场，也不在输出或日志中暴露原始内容。

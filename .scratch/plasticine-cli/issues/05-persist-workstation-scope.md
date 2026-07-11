@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — 协调并发 Reconciliation 并拒绝 stale Plan
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] `--exclude` 接受稳定 Component ID 并表示完整 intended exclusion set；它替换而非追加既有黑名单，且不存在 allowlist、profile 或交互式 Component selector。
 - [x] Plan 预览 Scope replacement、active Components 与 Suspended Components，但不持久化选择，也不因排除项读取或修改对应内容。

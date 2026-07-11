@@ -4,7 +4,7 @@
 
 **Blocked by:** 14 — 安装 Neovim 并集中配置与 runtime；15 — 安装 uv/uvx 并集中 Python runtime；16 — 安装 fnm 并集中 Node runtime；19 — 在 Linux 终端间共享 SSH Agent
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] 当自有资源从选定 Release catalog 中移除而其 Component 仍 active 时，Plan 将其报告为独立的 Retirement。
 - [x] 通过单次 component filter 省略 Component 时，不为该 Component 产生 Retirement、ownership 变化、检查或 mutation。

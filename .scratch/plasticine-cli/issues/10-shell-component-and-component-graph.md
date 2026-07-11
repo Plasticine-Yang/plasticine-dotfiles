@@ -4,7 +4,7 @@
 
 **Blocked by:** 07 — 显式接管 Conflict 并保留 Backup
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] Desired State 使用稳定 Component ID shell、git-config、github-ssh、neovim、lazygit、fnm 和 uv，并表达 github-ssh 与 fnm 对 shell 的依赖。
 - [x] 每个启用 Component 按已接受的图派生 Zsh、Git、OpenSSH 和 CA System Dependencies；这些依赖不能通过 Component blacklist 排除，且个人 git-config 被排除时仍可为其他 Component 派生 Git 能力。

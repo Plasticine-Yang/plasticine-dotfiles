@@ -4,7 +4,7 @@
 
 **Blocked by:** 18 — 集成 macOS Keychain；20 — 完成有界且只读的 Doctor 网络诊断；22 — 执行有边界的旧 Release rollback
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] canonical install entry 是校验 checksum 的最小 Bootstrap，而不是历史上依赖 checkout 的 installer。
 - [x] 删除 legacy installers、uninstallers、过时 component flags、checkout assumptions 和不安全的历史清理行为，而不是用 compatibility code 包装它们。

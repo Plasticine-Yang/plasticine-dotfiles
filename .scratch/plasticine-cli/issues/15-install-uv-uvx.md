@@ -4,7 +4,7 @@
 
 **Blocked by:** 13 — 通过 Tool Lock 安装 Lazygit
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] uv 的 Tool Lock 数据为四个 Artifact Target 提供精确版本、不可变来源和 SHA-256；目标缺失、摘要不匹配或下载中断时，uv Component 明确失败且不会替换当前可用版本。
 - [x] Plan 离线识别缺失、版本不符或漂移的 uv payload 以及 uv、uvx 稳定入口，完整报告所需变化且不下载、不写文件、不改 Reconciliation State。

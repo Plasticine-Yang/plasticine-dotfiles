@@ -4,7 +4,7 @@
 
 **Blocked by:** 24 — 建立完整 CI、构建与 Smoke Gates
 
-**Status:** ready-for-agent
+**Status:** implemented
 
 - [x] 有效 `vX.Y.Z` tag 启动 publication workflow；tag/version mismatch 在创建 Release 前失败。
 - [x] 发布过程复用或重新运行每项必需的 CI、Tool Lock、build、checksum 与 native smoke gate。
