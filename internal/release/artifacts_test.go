@@ -112,6 +112,35 @@ func TestReproducibilityComparesChecksumManifests(t *testing.T) {
 	}
 }
 
+func TestReleaseMetadataValidationRequiresEveryBinaryToContainBuildValues(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	metadata := release.BuildMetadata{
+		Version:    "v1.2.3",
+		Commit:     "abc123",
+		CommitTime: "2026-07-12T00:00:00Z",
+	}
+	for _, target := range platform.SupportedArtifactTargets() {
+		writeExecutable(t, filepath.Join(dir, release.BinaryName(target)), "plasticine v1.2.3 commit=abc123 commit_time=2026-07-12T00:00:00Z")
+	}
+
+	if err := release.ValidateReleaseMetadata(dir, platform.SupportedArtifactTargets(), metadata); err != nil {
+		t.Fatalf("validate metadata: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, release.BinaryName(platform.TargetLinuxAMD64)), []byte("plasticine v1.2.3 commit_time=2026-07-12T00:00:00Z"), 0o755); err != nil {
+		t.Fatalf("tamper metadata: %v", err)
+	}
+
+	err := release.ValidateReleaseMetadata(dir, platform.SupportedArtifactTargets(), metadata)
+	if err == nil {
+		t.Fatal("metadata validation accepted a binary missing commit metadata")
+	}
+	if !strings.Contains(err.Error(), "missing embedded commit metadata") {
+		t.Fatalf("error = %q, want missing commit metadata", err.Error())
+	}
+}
+
 func writeExecutable(t *testing.T, path string, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {

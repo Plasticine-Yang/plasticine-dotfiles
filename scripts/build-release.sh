@@ -15,9 +15,16 @@ if [ "$tag" ] && [ "$version" != "$tag" ]; then
 	exit 1
 fi
 if [ "$version" != "dev" ]; then
-        if ! printf '%s\n' "$version" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'; then
+        if ! printf '%s\n' "$version" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+)(\.[0-9A-Za-z-]+)*)?$'; then
                 printf '%s\n' "version must be dev or SemVer tag vX.Y.Z with optional prerelease: $version" >&2
                 exit 1
+        fi
+        if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+                untracked_sources="$(git ls-files --others --exclude-standard -- '*.go' go.mod go.sum cmd internal scripts .github bootstrap install.sh tool-lock.json tool_lock.go ':(exclude).plasticine-ci-home/**')"
+                if ! git diff --quiet --ignore-submodules -- || ! git diff --cached --quiet --ignore-submodules -- || [ "$untracked_sources" ]; then
+                        printf '%s\n' "release builds require a clean source worktree" >&2
+                        exit 1
+                fi
         fi
 fi
 
@@ -51,4 +58,8 @@ build_target linux arm64
 go run ./cmd/plasticine-gate artifacts "$out_dir" >/dev/null 2>&1 || {
 	go run ./cmd/plasticine-gate artifacts "$out_dir"
 	exit 1
+}
+go run ./cmd/plasticine-gate metadata "$out_dir" "$version" "$commit" "$commit_time" >/dev/null 2>&1 || {
+        go run ./cmd/plasticine-gate metadata "$out_dir" "$version" "$commit" "$commit_time"
+        exit 1
 }

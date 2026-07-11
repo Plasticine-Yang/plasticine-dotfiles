@@ -130,7 +130,7 @@ func currentExecutableIsCompatible(ctx context.Context, path string) (bool, erro
 	} else if err != nil {
 		return false, err
 	}
-	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	output, err := exec.CommandContext(checkCtx, path, "version").CombinedOutput()
 	if err != nil {

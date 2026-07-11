@@ -2,6 +2,7 @@ package release
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -156,6 +157,12 @@ type ArtifactReport struct {
 	Manifest  string
 }
 
+type BuildMetadata struct {
+	Version    string
+	Commit     string
+	CommitTime string
+}
+
 func ValidateReleaseArtifacts(dir string, targets []platform.ArtifactTarget) (ArtifactReport, error) {
 	if err := rejectArchiveWrapping(dir); err != nil {
 		return ArtifactReport{}, err
@@ -207,6 +214,35 @@ func WriteChecksumManifest(dir string, targets []platform.ArtifactTarget) error 
 	}
 	sort.Strings(lines)
 	return os.WriteFile(filepath.Join(dir, ChecksumManifestName), []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+}
+
+func ValidateReleaseMetadata(dir string, targets []platform.ArtifactTarget, expected BuildMetadata) error {
+	values := []struct {
+		name  string
+		value string
+	}{
+		{name: "version", value: expected.Version},
+		{name: "commit", value: expected.Commit},
+		{name: "commit_time", value: expected.CommitTime},
+	}
+	for _, item := range values {
+		if strings.TrimSpace(item.value) == "" {
+			return fmt.Errorf("missing expected %s metadata", item.name)
+		}
+	}
+	for _, target := range targets {
+		name := BinaryName(target)
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return err
+		}
+		for _, item := range values {
+			if !bytes.Contains(data, []byte(item.value)) {
+				return fmt.Errorf("%s missing embedded %s metadata %q", name, item.name, item.value)
+			}
+		}
+	}
+	return nil
 }
 
 func CompareChecksumManifests(leftDir string, rightDir string) error {

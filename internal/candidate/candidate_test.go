@@ -11,8 +11,6 @@ import (
 )
 
 func TestSelfInstallFailsFastWhenPlasticineLockIsHeld(t *testing.T) {
-	t.Parallel()
-
 	home := t.TempDir()
 	next := writeFile(t, home, "candidate", "new")
 	install := filepath.Join(home, "bin", "plasticine")
@@ -47,8 +45,6 @@ func TestSelfInstallFailsFastWhenPlasticineLockIsHeld(t *testing.T) {
 }
 
 func TestSelfInstallAtomicallyReplacesCompatibleCurrentCLI(t *testing.T) {
-	t.Parallel()
-
 	home := t.TempDir()
 	next := writeFile(t, home, "candidate", "new")
 	install := filepath.Join(home, "bin", "plasticine")
@@ -76,8 +72,6 @@ func TestSelfInstallAtomicallyReplacesCompatibleCurrentCLI(t *testing.T) {
 }
 
 func TestSelfInstallPreservesCurrentCLIWhenStateIsIncompatible(t *testing.T) {
-	t.Parallel()
-
 	home := t.TempDir()
 	current := writeFile(t, home, "current", "old")
 	next := writeFile(t, home, "candidate", "new")
@@ -102,8 +96,6 @@ func TestSelfInstallPreservesCurrentCLIWhenStateIsIncompatible(t *testing.T) {
 }
 
 func TestReadOnlyStateCompatibilityClassifiesMigrationPendingAndUnreadableState(t *testing.T) {
-	t.Parallel()
-
 	home := t.TempDir()
 	result := candidate.ReadOnlyStateCompatibility(home)
 	if result.Status != candidate.StateCompatibilityCompatible || !candidate.ReadOnlyStateCompatible(home) {
@@ -136,8 +128,6 @@ func TestReadOnlyStateCompatibilityClassifiesMigrationPendingAndUnreadableState(
 }
 
 func TestSelfInstallPreservesCurrentCLIWhenInstallationFails(t *testing.T) {
-	t.Parallel()
-
 	home := t.TempDir()
 	current := writeCompatibleCLI(t, home, "current")
 	install := filepath.Join(home, "bin", "plasticine")
@@ -162,8 +152,6 @@ func TestSelfInstallPreservesCurrentCLIWhenInstallationFails(t *testing.T) {
 }
 
 func TestSelfInstallRetainsNewCLIWhenFirstApplyFails(t *testing.T) {
-	t.Parallel()
-
 	home := t.TempDir()
 	current := writeCompatibleCLI(t, home, "current")
 	next := writeFile(t, home, "candidate", "new")
@@ -189,8 +177,6 @@ func TestSelfInstallRetainsNewCLIWhenFirstApplyFails(t *testing.T) {
 }
 
 func TestSelfInstallPreservesUnknownCurrentExecutable(t *testing.T) {
-	t.Parallel()
-
 	home := t.TempDir()
 	current := writeFile(t, home, "current", "old")
 	next := writeFile(t, home, "candidate", "new")

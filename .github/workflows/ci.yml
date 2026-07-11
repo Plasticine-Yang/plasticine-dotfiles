@@ -64,4 +64,12 @@ jobs:
         run: scripts/build-release.sh dist
 
       - name: Run native smoke
-        run: PLASTICINE_BINARY="dist/plasticine_$(go env GOOS)_$(go env GOARCH)" scripts/smoke.sh
+        run: |
+          version="${PLASTICINE_VERSION:-$(git describe --tags --exact-match 2>/dev/null || printf '%s' dev)}"
+          commit="$(git rev-parse HEAD)"
+          commit_time="$(git show -s --format=%cI HEAD)"
+          PLASTICINE_BINARY="dist/plasticine_$(go env GOOS)_$(go env GOARCH)" \
+            PLASTICINE_EXPECT_VERSION="$version" \
+            PLASTICINE_EXPECT_COMMIT="$commit" \
+            PLASTICINE_EXPECT_COMMIT_TIME="$commit_time" \
+            scripts/smoke.sh
