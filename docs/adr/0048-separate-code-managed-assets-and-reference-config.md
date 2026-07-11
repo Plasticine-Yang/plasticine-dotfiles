@@ -1,0 +1,3 @@
+# Separate code, managed assets, and reference configuration
+
+The Go composition root will live under `cmd/plasticine`, the concrete Reconciler and its internal seams under `internal`, and typed Desired State plus Tool Lock and embedded assets under `internal/desired`. Only handwritten Git, Neovim, and Zsh configuration moves into embedded assets; generated plugin loaders and other Tool-managed State never enter the Release. Manual VS Code material remains under `reference/vscode`, while the root keeps the POSIX Bootstrap and workflows, preventing duplicate sources of truth after legacy installers disappear.

@@ -1,0 +1,3 @@
+# Require explicit adoption of existing paths
+
+Existing content that cannot be preserved by the Plan and does not match the last content accepted by Reconciliation will be a Conflict rather than an automatic overwrite, merge, or deletion. This covers both an unmanaged path that differs from Desired State and Owner drift on a Managed Path being replaced or retired. Apply requires explicit `--adopt` and first creates a uniquely identified backup with source metadata; continuing resources enter or retain ownership for later atomic updates, while Retirement deletes the backed-up content and releases ownership. This replaces fixed `.bak` files whose contents and provenance become ambiguous across repeated runs.

@@ -46,19 +46,3 @@ if ! ssh-add -l | grep -q "github_pk"; then
   ssh-add ~/.ssh/github_pk 2>/dev/null
 fi
 ```
-
-## 问题
-
-### 1. gnutls_handshake() failed
-
-git clone 的时候遇到下面的报错
-
-```text
-gnutls_handshake() failed: The TLS connection was non-properly terminated.
-```
-
-运行 `proxy-utils` 脚本中的 `setGITProxy` 即可
-
-```shell
-proxy-utils setGITProxy
-```

@@ -66,7 +66,6 @@ run_default_installation() {
     else
         log_info "检测到 --no-git，跳过 Git 配置。"
     fi
-    run_setup setup_env
     run_setup setup_fnm
     run_setup setup_uv
 
@@ -164,24 +163,6 @@ setup_lazygit() {
     fi
 }
 
-setup_proxy() {
-    log_info "配置 Proxy Utils..."
-    if [ ! -f "$DOTFILES_DIR/proxy/proxy-utils.sh" ]; then
-        log_warn "未找到 proxy/proxy-utils.sh，跳过..."
-        return 0
-    fi
-    
-    sudo ln -sf "$DOTFILES_DIR/proxy/proxy-utils.sh" /usr/local/bin/proxy-utils
-    
-    if ! grep -q "source proxy-utils setSystemProxy" ~/.profile 2>/dev/null; then
-        echo -e "\n# proxy-utils\nsource proxy-utils setSystemProxy" >> ~/.profile
-        log_success "已向 ~/.profile 添加 proxy-utils 配置！"
-    else
-        log_info "~/.profile 已包含 proxy-utils 配置，跳过。"
-    fi
-    log_success "Proxy Utils 配置完成！"
-}
-
 setup_git() {
     log_info "配置 Git 软链接..."
     if [ -f "$DOTFILES_DIR/git/.gitconfig" ]; then
@@ -193,40 +174,6 @@ setup_git() {
         log_success "Git 配置链接完成！"
     else
         log_warn "未找到 $DOTFILES_DIR/git/.gitconfig，跳过..."
-    fi
-}
-
-setup_env() {
-    log_info "配置环境变量..."
-    ENV_FILE="$HOME/.env"
-    ENV_TEMPLATE="$DOTFILES_DIR/.env"
-    
-    if [ ! -f "$ENV_TEMPLATE" ]; then
-        log_warn "未找到 $ENV_TEMPLATE，跳过..."
-        return 0
-    fi
-    
-    if [ -f "$ENV_FILE" ]; then
-        log_info "~/.env 已存在，跳过创建。"
-        return 0
-    fi
-    
-    cp "$ENV_TEMPLATE" "$ENV_FILE"
-    log_success "环境变量文件 ~/.env 创建完成！"
-    
-    if [ -f ~/.zshrc ]; then
-        if ! grep -q "\.env" ~/.zshrc 2>/dev/null; then
-            cat <<'EOF' >> ~/.zshrc
-
-# load env
-if [ -f ~/.env ]; then
-    source ~/.env
-fi
-EOF
-            log_success "已向 ~/.zshrc 添加环境变量加载配置！"
-        else
-            log_info "~/.zshrc 已包含 ~/.env 加载配置，跳过。"
-        fi
     fi
 }
 
@@ -268,39 +215,25 @@ setup_uv() {
     fi
 }
 
-setup_clash() {
-    log_info "配置 Clash..."
-    if [ -f "$DOTFILES_DIR/clash-installer/clash_installer.sh" ]; then
-        cd "$DOTFILES_DIR/clash-installer" && sh ./clash_installer.sh
-        log_success "Clash 配置完成！"
-    else
-        log_warn "未找到 Clash 安装脚本，跳过..."
-        return 0
-    fi
-}
-
 show_help() {
     echo -e "${BLUE}=======================================${RESET}"
     echo -e "${GREEN}  Plasticine Dotfiles Installer${RESET}"
     echo -e "${BLUE}=======================================${RESET}"
     echo ""
-    echo "默认行为：自动设置仓库并安装 Zsh, Neovim, Lazygit, Git, Env, FNM, uv"
+    echo "默认行为：自动设置仓库并安装 Zsh, Neovim, Lazygit, Git, FNM, uv"
     echo ""
     echo "按需安装选项:"
     echo "  --no-git    默认安装时跳过 Git 配置"
     echo "  --zsh       仅安装配置 Zsh"
     echo "  --nvim      仅安装配置 Neovim"
     echo "  --lazygit   仅安装配置 Lazygit"
-    echo "  --proxy     仅安装配置 Proxy Utils"
     echo "  --git       仅安装配置 Git 软链接"
-    echo "  --env       仅配置环境变量"
     echo "  --fnm       仅安装配置 FNM"
     echo "  --uv        仅安装配置 uv"
-    echo "  --clash     仅安装配置 Clash"
     echo "  --all       安装所有可用组件"
     echo "  --help, -h  显示此帮助信息"
     echo ""
-    echo "示例：./install.sh --git --env"
+    echo "示例：./install.sh --git --nvim"
 }
 
 # 按需行为：先检查是否为 help 参数
@@ -335,22 +268,16 @@ while [[ "$#" -gt 0 ]]; do
         --zsh) run_setup setup_zsh ;;
         --nvim) run_setup setup_nvim ;;
         --lazygit) run_setup setup_lazygit ;;
-        --proxy) run_setup setup_proxy ;;
         --git) run_setup setup_git ;;
-        --env) run_setup setup_env ;;
         --fnm) run_setup setup_fnm ;;
         --uv) run_setup setup_uv ;;
-        --clash) run_setup setup_clash ;;
         --all)
             run_setup setup_zsh
             run_setup setup_nvim
             run_setup setup_lazygit
-            run_setup setup_proxy
             run_setup setup_git
-            run_setup setup_env
             run_setup setup_fnm
             run_setup setup_uv
-            run_setup setup_clash
             ;;
         -h|--help) show_help; exit 0 ;;
         *) log_error "未知参数：$1"; show_help; exit 1 ;;

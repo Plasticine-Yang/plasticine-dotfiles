@@ -1,0 +1,3 @@
+# Gate Releases with Interface-level tests
+
+Release CI will test Reconciler behavior through its public methods using deterministic platform, process, network, time, and state Adapters; real filesystem integration uses an isolated HOME, and Bootstrap receives POSIX shell validation. CI must build all four Artifact Targets and run a finite matrix of native macOS/Linux smoke tests representing the declared Support Floors and current systems where runners are available, while ordinary jobs never perform real sudo, chsh, apt, or systemd mutations; failed tests, Tool Lock validation, or checksum generation prevent publication.

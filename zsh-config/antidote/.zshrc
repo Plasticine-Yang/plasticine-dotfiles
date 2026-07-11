@@ -6,11 +6,6 @@ source "${PLASTICINE_LINUX_CONFIG_DIR}/zsh-config/antidote/init_antidote.zsh"
 # setup plugin config
 source "${PLASTICINE_LINUX_CONFIG_DIR}/zsh-config/antidote/plugin-configs/setup.zsh"
 
-# load env
-if [ -f ~/.env ]; then
-    source ~/.env
-fi
-
 # uv env
 if [ -f "$HOME/.local/bin/env" ]; then
     source "$HOME/.local/bin/env"

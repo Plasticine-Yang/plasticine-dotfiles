@@ -1,5 +1,5 @@
 plugin
 
-zsh-config/auto_nvm_use.sh
+.env
 
-clash-installer/config.yaml
+zsh-config/auto_nvm_use.sh
