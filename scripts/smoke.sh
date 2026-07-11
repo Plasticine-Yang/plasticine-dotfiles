@@ -18,12 +18,12 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 "$binary" version | grep 'plasticine ' >/dev/null
-plan_output="$("$binary" plan --home "$home")"
+plan_output="$(PLASTICINE_WORKSTATION_ROOT="$home/workstation" "$binary" plan --home "$home" --exclude github-ssh)"
 printf '%s\n' "$plan_output" | grep '^desired_state: [0-9a-f][0-9a-f]*$' >/dev/null
 if [ -e "$home/state/reconciliation.json" ]; then
 	printf '%s\n' "plan wrote state in smoke home" >&2
 	exit 1
 fi
-"$binary" apply --home "$home" --yes >/dev/null
+PLASTICINE_WORKSTATION_ROOT="$home/workstation" "$binary" apply --home "$home" --exclude github-ssh --yes >/dev/null
 test -f "$home/state/reconciliation.json"
-"$binary" doctor --home "$home" >/dev/null
+PLASTICINE_WORKSTATION_ROOT="$home/workstation" "$binary" doctor --home "$home" >/dev/null

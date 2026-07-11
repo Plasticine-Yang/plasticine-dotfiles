@@ -28,6 +28,8 @@ func TestPlanApplyDoctorContractUsesOnlyObservableEffects(t *testing.T) {
 			Family:  platform.FamilyMacOS,
 			Version: "13.0",
 		},
+		ReplaceScope: true,
+		Exclude:      []reconciler.ComponentID{reconciler.ComponentGitHubSSH},
 	}
 
 	plan, err := r.Plan(context.Background(), req)

@@ -14,13 +14,12 @@ if [ "$tag" ] && [ "$version" != "$tag" ]; then
 	printf '%s\n' "tag/version mismatch: tag=$tag version=$version" >&2
 	exit 1
 fi
-case "$version" in
-	dev | v[0-9]*.[0-9]*.[0-9]*) ;;
-	*)
-		printf '%s\n' "version must be dev or SemVer tag vX.Y.Z: $version" >&2
-		exit 1
-		;;
-esac
+if [ "$version" != "dev" ]; then
+        if ! printf '%s\n' "$version" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'; then
+                printf '%s\n' "version must be dev or SemVer tag vX.Y.Z with optional prerelease: $version" >&2
+                exit 1
+        fi
+fi
 
 mkdir -p "$out_dir"
 rm -f "$out_dir"/plasticine_* "$out_dir"/checksums.txt

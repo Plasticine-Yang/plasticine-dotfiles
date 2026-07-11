@@ -2,10 +2,8 @@ package reconciler
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"os"
-	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/platform"
@@ -19,6 +17,7 @@ const (
 	OutcomeNoChange       Outcome = "no-change"
 	OutcomeDenied         Outcome = "denied"
 	OutcomeBlocked        Outcome = "blocked"
+	OutcomePartial        Outcome = "partial"
 	OutcomeHealthy        Outcome = "healthy"
 	OutcomeUnhealthy      Outcome = "unhealthy"
 )
@@ -26,10 +25,19 @@ const (
 type BlockerCode string
 
 const (
-	BlockerSystemChangeAuthorization BlockerCode = "system-change-authorization-required"
-	BlockerUnsupportedSystemChange   BlockerCode = "unsupported-system-change"
-	BlockerUnsupportedTarget         BlockerCode = "unsupported-target"
-	BlockerMissingState              BlockerCode = "missing-state"
+	BlockerSystemChangeAuthorization  BlockerCode = "system-change-authorization-required"
+	BlockerUnsupportedSystemChange    BlockerCode = "unsupported-system-change"
+	BlockerUnsupportedTarget          BlockerCode = "unsupported-target"
+	BlockerMissingState               BlockerCode = "missing-state"
+	BlockerStateUnreadable            BlockerCode = "state-unreadable"
+	BlockerPendingWork                BlockerCode = "pending-work"
+	BlockerComponentExcluded          BlockerCode = "component-excluded"
+	BlockerUnknownComponent           BlockerCode = "unknown-component"
+	BlockerMissingComponentDependency BlockerCode = "missing-component-dependency"
+	BlockerConflict                   BlockerCode = "conflict"
+	BlockerSecretReferenceRequired    BlockerCode = "secret-reference-required"
+	BlockerStalePlan                  BlockerCode = "stale-plan"
+	BlockerLockHeld                   BlockerCode = "lock-held"
 )
 
 type Options struct {
@@ -57,12 +65,25 @@ func New(options Options) Reconciler {
 }
 
 type Request struct {
-	Home                string
-	Target              platform.ArtifactTarget
-	Host                platform.Host
-	Yes                 bool
-	AllowSystem         bool
-	RequireSystemChange bool
+	Home                 string
+	WorkstationRoot      string
+	Target               platform.ArtifactTarget
+	Host                 platform.Host
+	Yes                  bool
+	AllowSystem          bool
+	RequireSystemChange  bool
+	ReplaceScope         bool
+	Exclude              []ComponentID
+	Components           []ComponentID
+	Adopt                bool
+	IncludeGitHubSSH     bool
+	GitHubKeyPath        string
+	ToolLockSHA256       string
+	Capabilities         map[Capability]bool
+	NetworkChecks        []Check
+	BeforeMutation       func(Change)
+	FailBeforeEffectPath string
+	SkipLock             bool
 }
 
 type Result struct {
@@ -72,7 +93,13 @@ type Result struct {
 	Support        platform.SupportClassification
 	DurableEffects []string
 	Blockers       []Blocker
+	Changes        []Change
+	Conflicts      []Conflict
+	Retirements    []Retirement
+	Scope          ScopeSummary
+	Components     []ComponentResult
 	Checks         []Check
+	StateMigration *StateMigration
 }
 
 type Blocker struct {
@@ -86,95 +113,46 @@ type Check struct {
 	Message string
 }
 
-type State struct {
-	DesiredStateID string                  `json:"desired_state_id"`
-	ToolLockSHA256 string                  `json:"tool_lock_sha256"`
-	Target         platform.ArtifactTarget `json:"target"`
-	AppliedAt      string                  `json:"applied_at"`
-}
-
 func (r Reconciler) Plan(ctx context.Context, req Request) (Result, error) {
-	if err := ctx.Err(); err != nil {
-		return Result{}, err
+	release, blocked, err := acquireReconciliationLock(req.Home, sharedLock, req.SkipLock)
+	if err != nil || blocked != nil {
+		return lockResult(r, req, blocked), err
 	}
-	result := Result{
-		DesiredStateID: r.desiredStateID,
-		Target:         req.Target,
-		Support:        platform.ClassifySupport(req.Host),
-	}
-	if result.Support.Level == platform.SupportUnsupported {
-		result.Outcome = OutcomeBlocked
-		result.Blockers = append(result.Blockers, Blocker{
-			Code:    BlockerUnsupportedTarget,
-			Message: result.Support.Reason,
-		})
-		return result, nil
-	}
-	if req.RequireSystemChange {
-		switch result.Support.Level {
-		case platform.SupportFull:
-			if !req.AllowSystem {
-				result.Outcome = OutcomeBlocked
-				result.Blockers = append(result.Blockers, Blocker{
-					Code:    BlockerSystemChangeAuthorization,
-					Message: "system changes require --allow-system",
-				})
-				return result, nil
-			}
-		default:
-			result.Outcome = OutcomeBlocked
-			result.Blockers = append(result.Blockers, Blocker{
-				Code:    BlockerUnsupportedSystemChange,
-				Message: "host is outside the support floor for system changes",
-			})
-			return result, nil
-		}
-	}
-	state, err := ReadState(req.Home)
-	if err == nil && state.DesiredStateID == r.desiredStateID && state.ToolLockSHA256 == r.toolLockSHA256 && state.Target == req.Target {
-		result.Outcome = OutcomeNoChange
-		return result, nil
-	}
-	if err != nil && !os.IsNotExist(err) {
-		return Result{}, err
-	}
-	result.Outcome = OutcomeChangesPlanned
-	return result, nil
-}
-
-func (r Reconciler) Apply(ctx context.Context, req Request) (Result, error) {
-	plan, err := r.Plan(ctx, req)
+	defer release()
+	snapshot, err := r.buildPlan(ctx, req)
 	if err != nil {
 		return Result{}, err
 	}
-	if plan.Outcome == OutcomeBlocked || plan.Outcome == OutcomeNoChange {
-		return plan, nil
+	return snapshot.Result, nil
+}
+
+func (r Reconciler) Apply(ctx context.Context, req Request) (Result, error) {
+	release, blocked, err := acquireReconciliationLock(req.Home, exclusiveLock, req.SkipLock)
+	if err != nil || blocked != nil {
+		return lockResult(r, req, blocked), err
 	}
-	if !req.Yes {
-		plan.Outcome = OutcomeDenied
-		return plan, nil
+	defer release()
+	if req.Yes {
+		if err := recoverPendingWork(req.Home); err != nil {
+			return Result{}, err
+		}
 	}
-	if err := os.MkdirAll(filepath.Dir(StatePath(req.Home)), 0o700); err != nil {
+	snapshot, err := r.buildPlan(ctx, req)
+	if err != nil {
 		return Result{}, err
 	}
-	state := State{
-		DesiredStateID: r.desiredStateID,
-		ToolLockSHA256: r.toolLockSHA256,
-		Target:         req.Target,
-		AppliedAt:      r.clock().UTC().Format(time.RFC3339),
-	}
-	if err := writeState(req.Home, state); err != nil {
-		return Result{}, err
-	}
-	plan.Outcome = OutcomeApplied
-	plan.DurableEffects = []string{StatePath(req.Home)}
-	return plan, nil
+	return r.executePlan(ctx, req, snapshot)
 }
 
 func (r Reconciler) Doctor(ctx context.Context, req Request) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
+	release, blocked, err := acquireReconciliationLock(req.Home, sharedLock, req.SkipLock)
+	if err != nil || blocked != nil {
+		return lockResult(r, req, blocked), err
+	}
+	defer release()
 	result := Result{
 		Outcome:        OutcomeHealthy,
 		DesiredStateID: r.desiredStateID,
@@ -185,6 +163,30 @@ func (r Reconciler) Doctor(ctx context.Context, req Request) (Result, error) {
 			{Name: "support-floor", Healthy: platform.ClassifySupport(req.Host).Level != platform.SupportUnsupported, Message: platform.ClassifySupport(req.Host).Reason},
 		},
 	}
+	loaded, err := loadState(req.Home)
+	if err != nil {
+		result.Checks = append(result.Checks, Check{Name: "reconciliation-state", Healthy: false, Message: err.Error()})
+	} else if loaded.Exists {
+		for path, ownership := range loaded.State.Ownership {
+			got, exists := maybeFileDigest(path)
+			healthy := exists && got == ownership.Digest
+			result.Checks = append(result.Checks, Check{
+				Name:    "managed:" + string(ownership.Component),
+				Healthy: healthy,
+				Message: path,
+			})
+		}
+	} else {
+		result.Checks = append(result.Checks, Check{Name: "reconciliation-state", Healthy: false, Message: "state has not been applied"})
+	}
+	if req.NetworkChecks != nil {
+		for _, check := range req.NetworkChecks {
+			check.Message = redactCredentialURL(check.Message)
+			result.Checks = append(result.Checks, check)
+		}
+	} else {
+		result.Checks = append(result.Checks, Check{Name: "https-diagnostic", Healthy: true, Message: "bounded diagnostic not configured in this run"})
+	}
 	for _, check := range result.Checks {
 		if !check.Healthy {
 			result.Outcome = OutcomeUnhealthy
@@ -194,42 +196,62 @@ func (r Reconciler) Doctor(ctx context.Context, req Request) (Result, error) {
 	return result, nil
 }
 
-func StatePath(home string) string {
-	return filepath.Join(home, "state", "reconciliation.json")
+func lockResult(r Reconciler, req Request, blocker *Blocker) Result {
+	result := Result{
+		Outcome:        OutcomeBlocked,
+		DesiredStateID: r.desiredStateID,
+		Target:         req.Target,
+		Support:        platform.ClassifySupport(req.Host),
+	}
+	if blocker != nil {
+		result.Blockers = append(result.Blockers, *blocker)
+	}
+	return result
 }
 
-func DefaultPlasticineHome() (string, error) {
-	if home := os.Getenv("PLASTICINE_HOME"); home != "" {
-		return home, nil
+func recoverPendingWork(home string) error {
+	loaded, err := loadState(home)
+	if os.IsNotExist(err) || !loaded.Exists {
+		return nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".plasticine"), nil
-}
-
-func ReadState(home string) (State, error) {
-	data, err := os.ReadFile(StatePath(home))
-	if err != nil {
-		return State{}, err
-	}
-	var state State
-	if err := json.Unmarshal(data, &state); err != nil {
-		return State{}, fmt.Errorf("decode reconciliation state: %w", err)
-	}
-	return state, nil
-}
-
-func writeState(home string, state State) error {
-	path := StatePath(home)
-	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
 	}
-	tempPath := path + ".tmp"
-	if err := os.WriteFile(tempPath, append(data, '\n'), 0o600); err != nil {
-		return err
+	if len(loaded.State.PendingWork) == 0 {
+		return nil
 	}
-	return os.Rename(tempPath, path)
+	for _, pending := range loaded.State.PendingWork {
+		currentDigest, exists := maybeFileDigest(pending.Path)
+		ownership, owned := loaded.State.Ownership[pending.Path]
+		switch {
+		case owned && exists && currentDigest == ownership.Digest:
+			continue
+		case pending.Precondition == preconditionAbsent && !exists:
+			continue
+		case pending.Precondition != "" && exists && currentDigest == pending.Precondition:
+			continue
+		default:
+			return nil
+		}
+	}
+	loaded.State.PendingWork = nil
+	return writeState(home, loaded.State)
+}
+
+func redactCredentialURL(message string) string {
+	const marker = "://"
+	start := strings.Index(message, marker)
+	if start < 0 {
+		return message
+	}
+	authorityStart := start + len(marker)
+	authorityEnd := len(message)
+	if slash := strings.Index(message[authorityStart:], "/"); slash >= 0 {
+		authorityEnd = authorityStart + slash
+	}
+	authority := message[authorityStart:authorityEnd]
+	if at := strings.LastIndex(authority, "@"); at >= 0 {
+		return message[:authorityStart] + "[redacted]@" + authority[at+1:] + message[authorityEnd:]
+	}
+	return message
 }

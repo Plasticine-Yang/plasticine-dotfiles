@@ -1,0 +1,862 @@
+package reconciler
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/platform"
+)
+
+const preconditionAbsent = "absent"
+
+type planSnapshot struct {
+	Result         Result
+	State          State
+	ToolLockSHA256 string
+	Desired        []desiredResource
+	DesiredByPath  map[string]desiredResource
+	ScopeChanged   bool
+	SystemChange   bool
+	Loaded         loadedState
+	Active         map[ComponentID]bool
+	Filtered       map[ComponentID]bool
+	Secret         *SecretReference
+	Adopt          bool
+}
+
+func (r Reconciler) buildPlan(ctx context.Context, req Request) (planSnapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return planSnapshot{}, err
+	}
+
+	loaded, loadErr := loadState(req.Home)
+	state := loaded.State
+	result := Result{
+		DesiredStateID: r.desiredStateID,
+		Target:         req.Target,
+		Support:        platform.ClassifySupport(req.Host),
+	}
+	snapshot := planSnapshot{
+		Result:         result,
+		State:          state,
+		ToolLockSHA256: r.toolLockSHA256,
+		DesiredByPath:  map[string]desiredResource{},
+		Loaded:         loaded,
+		Active:         map[ComponentID]bool{},
+		Filtered:       map[ComponentID]bool{},
+		Adopt:          req.Adopt,
+	}
+
+	if result.Support.Level == platform.SupportUnsupported {
+		snapshot.block(BlockerUnsupportedTarget, result.Support.Reason)
+		return snapshot, nil
+	}
+	if loadErr != nil {
+		snapshot.block(BlockerStateUnreadable, loadErr.Error())
+		return snapshot, nil
+	}
+	if len(state.PendingWork) > 0 {
+		snapshot.block(BlockerPendingWork, "pending component work requires Apply recovery before planning")
+		return snapshot, nil
+	}
+	if loaded.Migration != nil {
+		snapshot.Result.StateMigration = loaded.Migration
+		snapshot.Result.Changes = append(snapshot.Result.Changes, Change{
+			Kind:         ChangeStateMigration,
+			ResourceKind: ResourceManagedPath,
+			Path:         StatePath(req.Home),
+			Summary:      loaded.Migration.Message,
+		})
+	}
+
+	catalog := defaultComponents()
+	excluded := normalizedComponents(state.Scope.Excluded)
+	if req.ReplaceScope {
+		excluded = normalizedComponents(req.Exclude)
+	}
+	scopeExcluded := componentSet(excluded)
+	activeCatalog := componentSet(catalog)
+	for _, component := range catalog {
+		if !scopeExcluded[component] {
+			snapshot.Active[component] = true
+		}
+	}
+	if len(req.Components) > 0 {
+		filtered := componentSet(normalizedComponents(req.Components))
+		snapshot.Filtered = filtered
+		for component := range snapshot.Active {
+			if !filtered[component] {
+				delete(snapshot.Active, component)
+			}
+		}
+		for component := range filtered {
+			switch {
+			case scopeExcluded[component]:
+				snapshot.block(BlockerComponentExcluded, fmt.Sprintf("component %s is excluded by Workstation Scope", component))
+			case !activeCatalog[component]:
+				snapshot.block(BlockerUnknownComponent, fmt.Sprintf("component %s is not in the selected Desired State", component))
+			}
+		}
+	}
+
+	snapshot.Result.Scope = ScopeSummary{
+		Excluded:  sortedComponentsFromSet(scopeExcluded),
+		Active:    sortedComponentsFromSet(snapshot.Active),
+		Suspended: suspendedComponents(state, scopeExcluded),
+	}
+	for _, component := range snapshot.Result.ActiveComponents() {
+		snapshot.Result.Components = append(snapshot.Result.Components, ComponentResult{Component: component, Status: ComponentActive})
+	}
+	for _, component := range snapshot.Result.Scope.Suspended {
+		snapshot.Result.Components = append(snapshot.Result.Components, ComponentResult{Component: component, Status: ComponentSuspended})
+	}
+	if req.ReplaceScope && !sameComponents(state.Scope.Excluded, excluded) {
+		snapshot.ScopeChanged = true
+		snapshot.Result.Changes = append(snapshot.Result.Changes, Change{
+			Kind:         ChangeScopeReplacement,
+			ResourceKind: ResourceManagedPath,
+			Path:         StatePath(req.Home),
+			Summary:      "persist Workstation Scope replacement before component effects",
+		})
+	}
+
+	snapshot.validateComponentGraph()
+	snapshot.planSystemDependencies(req)
+	if req.RequireSystemChange {
+		snapshot.planRequiredSystemChange(req)
+	}
+
+	secret, secretBlocker := resolveGitHubSecret(req, state, snapshot.Active[ComponentGitHubSSH])
+	if secretBlocker != nil {
+		snapshot.Result.Blockers = append(snapshot.Result.Blockers, *secretBlocker)
+	} else if secret != nil {
+		snapshot.Secret = secret
+		if existing := state.SecretReferences[ComponentGitHubSSH]; existing != *secret {
+			snapshot.Result.Changes = append(snapshot.Result.Changes, Change{
+				Component:    ComponentGitHubSSH,
+				Kind:         ChangeSecretReference,
+				ResourceKind: ResourceSecretReference,
+				Summary:      "persist non-secret GitHub SSH Secret Reference",
+			})
+		}
+	}
+
+	resourceReq := req
+	resourceReq.ToolLockSHA256 = r.toolLockSHA256
+	for _, component := range sortedComponentsFromSet(snapshot.Active) {
+		for _, resource := range componentDesiredResources(resourceReq, component, snapshot.Secret) {
+			snapshot.Desired = append(snapshot.Desired, resource)
+			snapshot.DesiredByPath[resource.Path] = resource
+			snapshot.planResource(state, resource, req.Adopt)
+		}
+	}
+	snapshot.planRetirements(state, req.Adopt)
+	snapshot.finishOutcome()
+	return snapshot, nil
+}
+
+func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planSnapshot) (Result, error) {
+	result := snapshot.Result
+	if result.Outcome == OutcomeBlocked || result.Outcome == OutcomeNoChange {
+		return result, nil
+	}
+	if !req.Yes {
+		result.Outcome = OutcomeDenied
+		return result, nil
+	}
+	if snapshot.SystemChange && !req.AllowSystem {
+		result.Outcome = OutcomeBlocked
+		result.Blockers = append(result.Blockers, Blocker{
+			Code:    BlockerSystemChangeAuthorization,
+			Message: "system changes require --allow-system",
+		})
+		return result, nil
+	}
+
+	state := snapshot.State
+	state.SchemaVersion = CurrentStateSchema
+	state.DesiredStateID = r.desiredStateID
+	state.ToolLockSHA256 = r.toolLockSHA256
+	state.Target = req.Target
+	state.AppliedAt = r.clock().UTC().Format(time.RFC3339)
+	ensureStateMaps(&state)
+
+	if err := os.MkdirAll(req.Home, 0o700); err != nil {
+		return Result{}, err
+	}
+	if err := os.Chmod(req.Home, 0o700); err != nil {
+		return Result{}, err
+	}
+	if snapshot.ScopeChanged {
+		state.Scope.Excluded = append([]ComponentID(nil), snapshot.Result.Scope.Excluded...)
+		if err := writeState(req.Home, state); err != nil {
+			return Result{}, err
+		}
+		result.DurableEffects = appendUnique(result.DurableEffects, StatePath(req.Home))
+	}
+
+	for _, conflict := range result.Conflicts {
+		if !conflict.Adoptable {
+			continue
+		}
+		backup, err := createBackup(req.Home, r.clock, conflict)
+		if err != nil {
+			return Result{}, err
+		}
+		if backup.Backup != "" {
+			state.Backups = append(state.Backups, backup)
+			result.DurableEffects = appendUnique(result.DurableEffects, backup.Backup)
+		}
+	}
+
+	for _, retirement := range result.Retirements {
+		if err := applyRetirement(retirement, &state); err != nil {
+			return Result{}, err
+		}
+		result.DurableEffects = appendUnique(result.DurableEffects, retirement.Path)
+	}
+
+	resourceChanges := map[ComponentID][]Change{}
+	for _, change := range result.Changes {
+		switch change.Kind {
+		case ChangeScopeReplacement, ChangeStateMigration:
+			continue
+		case ChangeSystemDependency:
+			if err := materializeSystemDependency(req.Home, change); err != nil {
+				return Result{}, err
+			}
+			result.DurableEffects = appendUnique(result.DurableEffects, filepath.Join(req.Home, "system"))
+			continue
+		case ChangeSecretReference:
+			if snapshot.Secret != nil {
+				state.SecretReferences[ComponentGitHubSSH] = *snapshot.Secret
+			}
+			continue
+		}
+		resourceChanges[change.Component] = append(resourceChanges[change.Component], change)
+	}
+
+	for _, component := range sortedComponentsFromSet(componentChangeSet(resourceChanges)) {
+		changes := resourceChanges[component]
+		state.PendingWork = journalEntriesFor(changes)
+		if err := writeState(req.Home, state); err != nil {
+			return Result{}, err
+		}
+		result.DurableEffects = appendUnique(result.DurableEffects, StatePath(req.Home))
+
+		componentOwnership := map[string]Ownership{}
+		for _, change := range changes {
+			resource, ok := snapshot.DesiredByPath[change.Path]
+			if !ok {
+				continue
+			}
+			if req.BeforeMutation != nil {
+				req.BeforeMutation(change)
+			}
+			if req.FailBeforeEffectPath == change.Path {
+				result.Outcome = OutcomePartial
+				return result, nil
+			}
+			if err := verifyPrecondition(change.Path, change.Precondition); err != nil {
+				result.Outcome = OutcomeBlocked
+				result.Blockers = append(result.Blockers, Blocker{Code: BlockerStalePlan, Message: err.Error()})
+				return result, nil
+			}
+			if err := writeResource(resource); err != nil {
+				return Result{}, err
+			}
+			componentOwnership[resource.Path] = Ownership{
+				Component:    resource.Component,
+				Path:         resource.Path,
+				ResourceKind: resource.ResourceKind,
+				Digest:       fileDigest(resource.Path),
+				AcceptedAt:   state.AppliedAt,
+			}
+			result.DurableEffects = appendUnique(result.DurableEffects, resource.Path)
+		}
+		for path, ownership := range componentOwnership {
+			state.Ownership[path] = ownership
+		}
+		state.PendingWork = nil
+		if err := writeState(req.Home, state); err != nil {
+			return Result{}, err
+		}
+	}
+
+	state.PendingWork = nil
+	if err := writeState(req.Home, state); err != nil {
+		return Result{}, err
+	}
+	result.DurableEffects = appendUnique(result.DurableEffects, StatePath(req.Home))
+	result.Outcome = OutcomeApplied
+	return result, nil
+}
+
+func (s *planSnapshot) validateComponentGraph() {
+	if !s.Active[ComponentShell] {
+		for _, dependent := range []ComponentID{ComponentFNM, ComponentGitHubSSH} {
+			if s.Active[dependent] {
+				s.block(BlockerMissingComponentDependency, fmt.Sprintf("%s requires active shell component", dependent))
+			}
+		}
+	}
+}
+
+func (s *planSnapshot) planRequiredSystemChange(req Request) {
+	switch s.Result.Support.Level {
+	case platform.SupportFull:
+		s.SystemChange = true
+		s.Result.Changes = append(s.Result.Changes, Change{
+			Kind:         ChangeSystemDependency,
+			ResourceKind: ResourceSystemDependency,
+			Summary:      "exercise explicit system-change authorization",
+			SystemChange: true,
+		})
+	default:
+		s.block(BlockerUnsupportedSystemChange, "host is outside the support floor for system changes")
+	}
+}
+
+func (s *planSnapshot) planSystemDependencies(req Request) {
+	if req.Capabilities == nil {
+		return
+	}
+	missing := missingCapabilities(s.Active, req)
+	for _, capability := range missing {
+		change := Change{
+			Kind:         ChangeSystemDependency,
+			ResourceKind: ResourceSystemDependency,
+			Summary:      fmt.Sprintf("satisfy missing %s capability", capability),
+			SystemChange: true,
+		}
+		s.SystemChange = true
+		s.Result.Changes = append(s.Result.Changes, change)
+		if s.Result.Support.Level != platform.SupportFull {
+			s.block(BlockerUnsupportedSystemChange, fmt.Sprintf("%s requires an unsupported system change on this host", capability))
+		}
+	}
+}
+
+func (s *planSnapshot) planResource(state State, resource desiredResource, adopt bool) {
+	if resource.ResourceKind == ResourceManagedBlock {
+		s.planManagedBlock(state, resource, adopt)
+		return
+	}
+	desiredDigest := digestResource(resource)
+	currentDigest, exists := maybeFileDigest(resource.Path)
+	ownership, owned := state.Ownership[resource.Path]
+	precondition := preconditionAbsent
+	if exists {
+		precondition = currentDigest
+	}
+	if exists && !owned {
+		s.conflict(resource.Component, resource.Path, true, "unmanaged content exists at a managed path")
+		if adopt {
+			s.change(resource, ChangeUpdateManagedPath, precondition)
+		}
+		return
+	}
+	if owned && exists && currentDigest != ownership.Digest {
+		s.conflict(resource.Component, resource.Path, true, "managed path has Owner drift")
+		if adopt {
+			s.change(resource, ChangeUpdateManagedPath, precondition)
+		}
+		return
+	}
+	if !exists {
+		s.change(resource, ChangeCreateManagedPath, preconditionAbsent)
+		return
+	}
+	if currentDigest != desiredDigest {
+		s.change(resource, ChangeUpdateManagedPath, precondition)
+	}
+}
+
+func (s *planSnapshot) planManagedBlock(state State, resource desiredResource, adopt bool) {
+	data, err := os.ReadFile(resource.Path)
+	if os.IsNotExist(err) {
+		s.change(resource, ChangeCreateManagedBlock, preconditionAbsent)
+		return
+	}
+	if err != nil {
+		s.conflict(resource.Component, resource.Path, false, err.Error())
+		return
+	}
+	text := string(data)
+	digest := digestBytes(data)
+	switch blockState(text) {
+	case "empty":
+		s.change(resource, ChangeCreateManagedBlock, digest)
+	case "absent":
+		s.conflict(resource.Component, resource.Path, true, "existing SSH config requires adoption before first managed block insertion")
+		if adopt {
+			s.change(resource, ChangeCreateManagedBlock, digest)
+		}
+	case "malformed":
+		s.conflict(resource.Component, resource.Path, false, "SSH managed block markers are missing, duplicated, or malformed")
+	case "healthy":
+		ownership, owned := state.Ownership[resource.Path]
+		if owned && ownership.Digest != digest {
+			s.conflict(resource.Component, resource.Path, true, "managed SSH block has Owner drift")
+			if adopt {
+				s.change(resource, ChangeCreateManagedBlock, digest)
+			}
+			return
+		}
+		if !strings.Contains(text, resource.Content) {
+			s.change(resource, ChangeCreateManagedBlock, digest)
+		}
+	}
+}
+
+func (s *planSnapshot) planRetirements(state State, adopt bool) {
+	for path, ownership := range state.Ownership {
+		if _, stillDesired := s.DesiredByPath[path]; stillDesired {
+			continue
+		}
+		if !s.Active[ownership.Component] {
+			continue
+		}
+		retirement := Retirement{Component: ownership.Component, Path: path, Reason: "owned resource is absent from the selected Desired State catalog"}
+		currentDigest, exists := maybeFileDigest(path)
+		if exists && currentDigest != ownership.Digest {
+			s.conflict(ownership.Component, path, true, "retiring managed path has Owner drift")
+			if !adopt {
+				continue
+			}
+		}
+		s.Result.Retirements = append(s.Result.Retirements, retirement)
+	}
+}
+
+func (s *planSnapshot) finishOutcome() {
+	if len(s.Result.Conflicts) > 0 {
+		for _, conflict := range s.Result.Conflicts {
+			if !conflict.Adoptable {
+				s.Result.Blockers = append(s.Result.Blockers, Blocker{Code: BlockerConflict, Message: conflict.Reason})
+				continue
+			}
+			if s.Adopt {
+				continue
+			}
+			s.Result.Blockers = append(s.Result.Blockers, Blocker{Code: BlockerConflict, Message: "conflicts require --adopt"})
+		}
+	}
+	if len(s.Result.Blockers) > 0 {
+		s.Result.Outcome = OutcomeBlocked
+		return
+	}
+	stateOutdated := !s.Loaded.Exists ||
+		s.State.DesiredStateID != s.Result.DesiredStateID ||
+		s.State.ToolLockSHA256 != s.ToolLockSHA256 ||
+		s.State.Target != s.Result.Target
+	if len(s.Result.Changes) == 0 && len(s.Result.Retirements) == 0 && !stateOutdated {
+		s.Result.Outcome = OutcomeNoChange
+		return
+	}
+	s.Result.Outcome = OutcomeChangesPlanned
+}
+
+func (s *planSnapshot) block(code BlockerCode, message string) {
+	s.Result.Blockers = append(s.Result.Blockers, Blocker{Code: code, Message: message})
+	s.Result.Outcome = OutcomeBlocked
+}
+
+func (s *planSnapshot) conflict(component ComponentID, path string, adoptable bool, reason string) {
+	s.Result.Conflicts = append(s.Result.Conflicts, Conflict{
+		Component: component,
+		Path:      path,
+		Adoptable: adoptable,
+		Reason:    reason,
+	})
+}
+
+func (s *planSnapshot) change(resource desiredResource, kind ChangeKind, precondition string) {
+	s.Result.Changes = append(s.Result.Changes, Change{
+		Component:    resource.Component,
+		Kind:         kind,
+		ResourceKind: resource.ResourceKind,
+		Path:         resource.Path,
+		Summary:      resource.Summary,
+		Precondition: precondition,
+	})
+}
+
+func resolveGitHubSecret(req Request, state State, active bool) (*SecretReference, *Blocker) {
+	if !active {
+		return nil, nil
+	}
+	if req.GitHubKeyPath != "" {
+		ref, err := validateSecretReference(req.GitHubKeyPath, "")
+		if err != nil {
+			return nil, &Blocker{Code: BlockerSecretReferenceRequired, Message: err.Error()}
+		}
+		return &ref, nil
+	}
+	existing, ok := state.SecretReferences[ComponentGitHubSSH]
+	if !ok || existing.Path == "" {
+		return nil, &Blocker{Code: BlockerSecretReferenceRequired, Message: "github-ssh requires an explicit --github-key or a valid persisted Secret Reference"}
+	}
+	ref, err := validateSecretReference(existing.Path, existing.Fingerprint)
+	if err != nil {
+		return nil, &Blocker{Code: BlockerSecretReferenceRequired, Message: err.Error()}
+	}
+	return &ref, nil
+}
+
+func validateSecretReference(path string, expectedFingerprint string) (SecretReference, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return SecretReference{}, fmt.Errorf("validate GitHub SSH private key: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return SecretReference{}, fmt.Errorf("GitHub SSH key must be a regular file")
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Uid != uint32(os.Getuid()) {
+		return SecretReference{}, fmt.Errorf("GitHub SSH key must be owned by the current user")
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return SecretReference{}, fmt.Errorf("GitHub SSH key permissions must not be readable by group or others")
+	}
+	publicKey, err := exec.Command("ssh-keygen", "-y", "-f", path).Output()
+	if err != nil {
+		return SecretReference{}, fmt.Errorf("validate GitHub SSH key readability: %w", err)
+	}
+	fingerprintCommand := exec.Command("ssh-keygen", "-lf", "-")
+	fingerprintCommand.Stdin = bytes.NewReader(publicKey)
+	fingerprintOutput, err := fingerprintCommand.Output()
+	if err != nil {
+		return SecretReference{}, fmt.Errorf("derive GitHub SSH public fingerprint: %w", err)
+	}
+	fields := strings.Fields(string(fingerprintOutput))
+	if len(fields) < 2 {
+		return SecretReference{}, fmt.Errorf("derive GitHub SSH public fingerprint: unexpected ssh-keygen output")
+	}
+	fingerprint := fields[1]
+	if expectedFingerprint != "" && fingerprint != expectedFingerprint {
+		return SecretReference{}, fmt.Errorf("GitHub SSH key fingerprint changed; choose it explicitly again")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return SecretReference{}, err
+	}
+	return SecretReference{Component: ComponentGitHubSSH, Path: abs, Fingerprint: fingerprint}, nil
+}
+
+func writeResource(resource desiredResource) error {
+	if err := os.MkdirAll(filepath.Dir(resource.Path), 0o700); err != nil {
+		return err
+	}
+	if resource.ResourceKind == ResourceSymlink {
+		tempPath := resource.Path + ".tmp"
+		_ = os.Remove(tempPath)
+		if err := os.Symlink(resource.Content, tempPath); err != nil {
+			return err
+		}
+		return os.Rename(tempPath, resource.Path)
+	}
+	if resource.ResourceKind == ResourceManagedBlock {
+		return writeManagedBlock(resource.Path, resource.Content)
+	}
+	mode := os.FileMode(0o644)
+	if strings.Contains(filepath.ToSlash(resource.Path), "/bin/") {
+		mode = 0o755
+	}
+	tempPath := resource.Path + ".tmp"
+	if err := os.WriteFile(tempPath, []byte(resource.Content), mode); err != nil {
+		return err
+	}
+	return os.Rename(tempPath, resource.Path)
+}
+
+func writeManagedBlock(path string, block string) error {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return os.WriteFile(path, []byte(block), 0o600)
+	}
+	if err != nil {
+		return err
+	}
+	text := string(data)
+	if strings.TrimSpace(text) == "" {
+		return os.WriteFile(path, []byte(block), 0o600)
+	}
+	start := strings.Index(text, sshBlockStart)
+	end := strings.Index(text, sshBlockEnd)
+	if start < 0 && end < 0 {
+		if !strings.HasSuffix(text, "\n") {
+			text += "\n"
+		}
+		return os.WriteFile(path, []byte(text+block), 0o600)
+	}
+	if start < 0 || end < start {
+		return fmt.Errorf("managed block markers are not replaceable")
+	}
+	end += len(sshBlockEnd)
+	if end < len(text) && text[end] == '\n' {
+		end++
+	}
+	next := text[:start] + block + text[end:]
+	return os.WriteFile(path, []byte(next), 0o600)
+}
+
+func createBackup(home string, clock func() time.Time, conflict Conflict) (BackupMetadata, error) {
+	data, err := os.ReadFile(conflict.Path)
+	if os.IsNotExist(err) {
+		return BackupMetadata{}, nil
+	}
+	if err != nil {
+		return BackupMetadata{}, err
+	}
+	digest := digestBytes(data)
+	dir := filepath.Join(home, "backups", clock().UTC().Format("20060102T150405Z"))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return BackupMetadata{}, err
+	}
+	name := strings.ReplaceAll(strings.TrimPrefix(filepath.ToSlash(conflict.Path), "/"), "/", "_")
+	if name == "" {
+		name = "root"
+	}
+	backupPath := filepath.Join(dir, name+"-"+digest[:12])
+	for index := 1; ; index++ {
+		if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+			break
+		}
+		backupPath = filepath.Join(dir, fmt.Sprintf("%s-%s-%d", name, digest[:12], index))
+	}
+	if err := os.WriteFile(backupPath, data, 0o600); err != nil {
+		return BackupMetadata{}, err
+	}
+	return BackupMetadata{
+		Component: conflict.Component,
+		Source:    conflict.Path,
+		Backup:    backupPath,
+		Digest:    digest,
+		CreatedAt: clock().UTC().Format(time.RFC3339),
+	}, nil
+}
+
+func applyRetirement(retirement Retirement, state *State) error {
+	if err := os.Remove(retirement.Path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	delete(state.Ownership, retirement.Path)
+	return nil
+}
+
+func materializeSystemDependency(home string, change Change) error {
+	path := filepath.Join(home, "system", sanitizeName(change.Summary)+".txt")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(change.Summary+"\n"), 0o644)
+}
+
+func verifyPrecondition(path string, precondition string) error {
+	current, exists := maybeFileDigest(path)
+	if precondition == preconditionAbsent {
+		if exists {
+			return fmt.Errorf("stale plan for %s: expected absence", path)
+		}
+		return nil
+	}
+	if !exists {
+		return fmt.Errorf("stale plan for %s: expected digest %s but path is absent", path, precondition)
+	}
+	if current != precondition {
+		return fmt.Errorf("stale plan for %s: expected digest %s", path, precondition)
+	}
+	return nil
+}
+
+func maybeFileDigest(path string) (string, bool) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", false
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(path)
+		if err != nil {
+			return "", false
+		}
+		return digestString("symlink:" + target), true
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	return digestBytes(data), true
+}
+
+func fileDigest(path string) string {
+	digest, _ := maybeFileDigest(path)
+	return digest
+}
+
+func digestString(value string) string {
+	return digestBytes([]byte(value))
+}
+
+func digestResource(resource desiredResource) string {
+	if resource.ResourceKind == ResourceSymlink {
+		return digestString("symlink:" + resource.Content)
+	}
+	return digestString(resource.Content)
+}
+
+func digestBytes(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func blockState(text string) string {
+	if strings.TrimSpace(text) == "" {
+		return "empty"
+	}
+	startCount := strings.Count(text, sshBlockStart)
+	endCount := strings.Count(text, sshBlockEnd)
+	if startCount == 0 && endCount == 0 {
+		return "absent"
+	}
+	if startCount != 1 || endCount != 1 || strings.Index(text, sshBlockStart) > strings.Index(text, sshBlockEnd) {
+		return "malformed"
+	}
+	return "healthy"
+}
+
+func missingCapabilities(active map[ComponentID]bool, req Request) []Capability {
+	required := map[Capability]bool{}
+	for component := range active {
+		switch component {
+		case ComponentShell:
+			required[CapabilityZsh] = true
+		case ComponentGitConfig:
+			required[CapabilityGit] = true
+		case ComponentGitHubSSH:
+			required[CapabilityGit] = true
+			required[CapabilityOpenSSH] = true
+			required[CapabilityCA] = true
+			if req.Target.OS == "linux" {
+				required[CapabilitySystemdUserSession] = true
+			}
+			if req.Target.OS == "darwin" {
+				required[CapabilityAppleDevelopmentTools] = true
+			}
+		case ComponentNeovim, ComponentLazygit, ComponentFNM, ComponentUV:
+			required[CapabilityCA] = true
+		}
+	}
+	var missing []Capability
+	for capability := range required {
+		if present, explicitlySet := req.Capabilities[capability]; explicitlySet && !present {
+			missing = append(missing, capability)
+		}
+	}
+	sort.Slice(missing, func(i int, j int) bool { return missing[i] < missing[j] })
+	return missing
+}
+
+func suspendedComponents(state State, excluded map[ComponentID]bool) []ComponentID {
+	suspended := map[ComponentID]bool{}
+	for _, ownership := range state.Ownership {
+		if excluded[ownership.Component] {
+			suspended[ownership.Component] = true
+		}
+	}
+	return sortedComponentsFromSet(suspended)
+}
+
+func normalizedComponents(values []ComponentID) []ComponentID {
+	seen := map[ComponentID]bool{}
+	var normalized []ComponentID
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		normalized = append(normalized, value)
+	}
+	sort.Slice(normalized, func(i int, j int) bool { return normalized[i] < normalized[j] })
+	return normalized
+}
+
+func componentSet(values []ComponentID) map[ComponentID]bool {
+	set := map[ComponentID]bool{}
+	for _, value := range values {
+		set[value] = true
+	}
+	return set
+}
+
+func sortedComponentsFromSet(set map[ComponentID]bool) []ComponentID {
+	values := make([]ComponentID, 0, len(set))
+	for value := range set {
+		values = append(values, value)
+	}
+	sort.Slice(values, func(i int, j int) bool { return values[i] < values[j] })
+	return values
+}
+
+func sameComponents(left []ComponentID, right []ComponentID) bool {
+	left = normalizedComponents(left)
+	right = normalizedComponents(right)
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func componentChangeSet(changes map[ComponentID][]Change) map[ComponentID]bool {
+	set := map[ComponentID]bool{}
+	for component := range changes {
+		set[component] = true
+	}
+	return set
+}
+
+func journalEntriesFor(changes []Change) []JournalEntry {
+	entries := make([]JournalEntry, 0, len(changes))
+	for _, change := range changes {
+		entries = append(entries, JournalEntry{
+			Component:    change.Component,
+			Path:         change.Path,
+			ResourceKind: change.ResourceKind,
+			Intent:       string(change.Kind),
+			Precondition: change.Precondition,
+		})
+	}
+	return entries
+}
+
+func sanitizeName(value string) string {
+	replacer := strings.NewReplacer(" ", "-", "/", "-", ":", "", "--", "-")
+	return replacer.Replace(strings.ToLower(value))
+}
+
+func (result Result) ActiveComponents() []ComponentID {
+	return append([]ComponentID(nil), result.Scope.Active...)
+}

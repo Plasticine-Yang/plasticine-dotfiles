@@ -21,6 +21,8 @@ curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/lates
 
 Prereleases are never selected by the default latest-stable path; choose them
 explicitly with `PLASTICINE_VERSION`.
+When GitHub offers immutable Release assets for the repository, keep that
+setting enabled; the publication workflow also refuses duplicate tags or assets.
 
 ## CLI
 

@@ -68,6 +68,17 @@ func runCandidateSelfInstall(args []string) int {
 		InstallPath:         installPath,
 		StateCompatible:     candidate.ReadOnlyStateCompatible(plasticineHome),
 		FirstApply: func(context.Context) error {
+			previousLockEnv, hadLockEnv := os.LookupEnv("PLASTICINE_LOCK_HELD")
+			if err := os.Setenv("PLASTICINE_LOCK_HELD", "1"); err != nil {
+				return err
+			}
+			defer func() {
+				if hadLockEnv {
+					_ = os.Setenv("PLASTICINE_LOCK_HELD", previousLockEnv)
+				} else {
+					_ = os.Unsetenv("PLASTICINE_LOCK_HELD")
+				}
+			}()
 			if code := runReconcilerCommand("apply", args); code != 0 {
 				return fmt.Errorf("first apply exited with %d", code)
 			}
@@ -91,7 +102,12 @@ func runReconcilerCommand(command string, args []string) int {
 	home := flags.String("home", "", "Plasticine home")
 	yes := flags.Bool("yes", false, "authorize non-interactive apply")
 	allowSystem := flags.Bool("allow-system", false, "authorize planned system changes")
-	requireSystemChange := flags.Bool("require-system-change", false, "exercise system-change policy")
+	adopt := flags.Bool("adopt", false, "adopt all conflicts in the current filtered plan")
+	githubKey := flags.String("github-key", "", "explicit GitHub SSH private key path")
+	var excludes componentListFlag
+	var components componentListFlag
+	flags.Var(&excludes, "exclude", "replace Workstation Scope with an excluded component (repeatable)")
+	flags.Var(&components, "component", "narrow this run to an active component (repeatable)")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -104,6 +120,15 @@ func runReconcilerCommand(command string, args []string) int {
 			return 1
 		}
 	}
+	workstationRoot := os.Getenv("PLASTICINE_WORKSTATION_ROOT")
+	if workstationRoot == "" {
+		var err error
+		workstationRoot, err = os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "resolve workstation root: %v\n", err)
+			return 1
+		}
+	}
 	target := currentTarget()
 	host := currentHost(target)
 	r := reconciler.New(reconciler.Options{
@@ -111,12 +136,18 @@ func runReconcilerCommand(command string, args []string) int {
 		ToolLockSHA256: toolLockSHA256(),
 	})
 	req := reconciler.Request{
-		Home:                plasticineHome,
-		Target:              target,
-		Host:                host,
-		Yes:                 *yes,
-		AllowSystem:         *allowSystem,
-		RequireSystemChange: *requireSystemChange,
+		Home:             plasticineHome,
+		WorkstationRoot:  workstationRoot,
+		Target:           target,
+		Host:             host,
+		Yes:              *yes,
+		AllowSystem:      *allowSystem,
+		ReplaceScope:     excludes.set,
+		Exclude:          excludes.values,
+		Components:       components.values,
+		Adopt:            *adopt,
+		IncludeGitHubSSH: *githubKey != "",
+		GitHubKeyPath:    *githubKey,
 	}
 	var (
 		result reconciler.Result
@@ -140,7 +171,7 @@ func runReconcilerCommand(command string, args []string) int {
 	switch result.Outcome {
 	case reconciler.OutcomeChangesPlanned, reconciler.OutcomeApplied, reconciler.OutcomeNoChange, reconciler.OutcomeHealthy:
 		return 0
-	case reconciler.OutcomeDenied, reconciler.OutcomeBlocked, reconciler.OutcomeUnhealthy:
+	case reconciler.OutcomeDenied, reconciler.OutcomeBlocked, reconciler.OutcomePartial, reconciler.OutcomeUnhealthy:
 		return 1
 	default:
 		return 1
@@ -193,6 +224,24 @@ func printResult(command string, result reconciler.Result) {
 	if result.DesiredStateID != "" {
 		fmt.Printf("desired_state: %s\n", result.DesiredStateID)
 	}
+	for _, component := range result.Scope.Active {
+		fmt.Printf("active_component: %s\n", component)
+	}
+	for _, component := range result.Scope.Excluded {
+		fmt.Printf("excluded_component: %s\n", component)
+	}
+	if result.StateMigration != nil {
+		fmt.Printf("state_migration: %d->%d %s\n", result.StateMigration.FromSchema, result.StateMigration.ToSchema, result.StateMigration.Message)
+	}
+	for _, change := range result.Changes {
+		fmt.Printf("change: %s %s %s\n", change.Component, change.Kind, strings.TrimSpace(change.Summary))
+	}
+	for _, conflict := range result.Conflicts {
+		fmt.Printf("conflict: %s adoptable=%t %s\n", conflict.Component, conflict.Adoptable, conflict.Path)
+	}
+	for _, retirement := range result.Retirements {
+		fmt.Printf("retirement: %s %s\n", retirement.Component, retirement.Path)
+	}
 	for _, blocker := range result.Blockers {
 		fmt.Printf("blocker: %s %s\n", blocker.Code, blocker.Message)
 	}
@@ -210,4 +259,29 @@ func printResult(command string, result reconciler.Result) {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: plasticine <plan|apply|doctor|version>")
+}
+
+type componentListFlag struct {
+	values []reconciler.ComponentID
+	set    bool
+}
+
+func (flag *componentListFlag) String() string {
+	parts := make([]string, 0, len(flag.values))
+	for _, value := range flag.values {
+		parts = append(parts, string(value))
+	}
+	return strings.Join(parts, ",")
+}
+
+func (flag *componentListFlag) Set(value string) error {
+	flag.set = true
+	for _, part := range strings.Split(value, ",") {
+		component := strings.TrimSpace(part)
+		if component == "" {
+			continue
+		}
+		flag.values = append(flag.values, reconciler.ComponentID(component))
+	}
+	return nil
 }
