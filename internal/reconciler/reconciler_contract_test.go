@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -1510,6 +1511,153 @@ func TestFNMExcludedFromScopeOmitsShellIntegration(t *testing.T) {
 	}
 }
 
+func TestUVComponentMaterializesUVAndUVXLaunchersWithRuntimeRelocation(t *testing.T) {
+	t.Parallel()
+
+	artifact := []byte(strings.Join([]string{
+		"#!/bin/sh",
+		"printf 'fixture=uv-v-test\\n'",
+		"printf 'entry=%s\\n' \"${0##*/}\"",
+		"printf 'cache=%s\\n' \"$UV_CACHE_DIR\"",
+		"printf 'tools=%s\\n' \"$UV_TOOL_DIR\"",
+		"printf 'python=%s\\n' \"$UV_PYTHON_INSTALL_DIR\"",
+		"",
+	}, "\n"))
+	artifactSHA := testDigestBytes(artifact)
+	var downloads atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		downloads.Add(1)
+		_, _ = w.Write(artifact)
+	}))
+	t.Cleanup(server.Close)
+
+	r := reconciler.New(reconciler.Options{
+		DesiredStateID: "uv-runtime-contract",
+		ToolLockSHA256: artifactSHA,
+		ToolLock: release.ToolLock{Tools: map[release.ManagedTool]release.ToolVersion{
+			release.ManagedToolUV: {
+				Version: "v-test",
+				Targets: map[platform.ArtifactTarget]release.ToolArtifact{
+					platform.TargetDarwinARM64: {
+						URL:          server.URL + "/uv",
+						ArtifactType: release.ArtifactTypeRawExecutable,
+						SHA256:       artifactSHA,
+					},
+				},
+			},
+		}},
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
+	req := contractRequest(t.TempDir())
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentGitHubSSH,
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentFNM,
+	}
+	req.Components = []reconciler.ComponentID{reconciler.ComponentUV}
+	req.Yes = true
+	uvRuntimeRoot := filepath.Join(req.Home, "runtime", "uv")
+
+	applied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply uv: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply outcome = %s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+	for _, entry := range []string{"uv", "uvx"} {
+		launcher := filepath.Join(req.Home, "bin", entry)
+		output, err := runManagedLauncher(t, launcher, req.Home)
+		if err != nil {
+			t.Fatalf("run %s launcher: %v\n%s", entry, err, output)
+		}
+		assertUVLauncherOutput(t, entry, output, uvRuntimeRoot)
+	}
+	if zsh, ok := findZsh(t); ok {
+		for _, entry := range []string{"uv", "uvx"} {
+			output, err := runManagedLauncherFromZsh(t, zsh, entry, req.Home)
+			if err != nil {
+				t.Fatalf("run %s launcher from zsh: %v\n%s", entry, err, output)
+			}
+			assertUVLauncherOutput(t, entry, output, uvRuntimeRoot)
+		}
+	}
+	runtimeState := map[string]string{
+		filepath.Join(uvRuntimeRoot, "cache", "artifact"):       "download-cache",
+		filepath.Join(uvRuntimeRoot, "tools", "example", "bin"): "installed-tool",
+		filepath.Join(uvRuntimeRoot, "python", "cpython"):       "python-runtime",
+	}
+	for path, body := range runtimeState {
+		writeText(t, path, body)
+	}
+
+	downloadsBeforePlan := downloads.Load()
+	plan, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("plan after uv runtime state appears: %v", err)
+	}
+	if plan.Outcome != reconciler.OutcomeNoChange {
+		t.Fatalf("plan outcome = %s changes=%#v conflicts=%#v", plan.Outcome, plan.Changes, plan.Conflicts)
+	}
+	if got := downloads.Load(); got != downloadsBeforePlan {
+		t.Fatalf("plan downloaded uv artifacts: before=%d after=%d", downloadsBeforePlan, got)
+	}
+
+	downloadsBeforeSecondApply := downloads.Load()
+	second, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("second apply uv: %v", err)
+	}
+	if second.Outcome != reconciler.OutcomeNoChange {
+		t.Fatalf("second apply outcome = %s blockers=%#v changes=%#v", second.Outcome, second.Blockers, second.Changes)
+	}
+	if got := downloads.Load(); got != downloadsBeforeSecondApply {
+		t.Fatalf("second apply downloaded uv artifacts: before=%d after=%d", downloadsBeforeSecondApply, got)
+	}
+	for path, want := range runtimeState {
+		if got := readText(t, path); got != want {
+			t.Fatalf("runtime state %s = %q, want %q", path, got, want)
+		}
+	}
+
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if len(state.Backups) != 0 {
+		t.Fatalf("uv runtime state created backups: %#v", state.Backups)
+	}
+	for path := range state.Ownership {
+		if isUnderPath(path, uvRuntimeRoot) {
+			t.Fatalf("uv Tool-managed State entered ownership: %s", path)
+		}
+	}
+	doctor, err := r.Doctor(context.Background(), req)
+	if err != nil {
+		t.Fatalf("doctor after uv runtime state appears: %v", err)
+	}
+	if doctor.Outcome != reconciler.OutcomeHealthy {
+		t.Fatalf("doctor outcome = %s checks=%#v", doctor.Outcome, doctor.Checks)
+	}
+	for _, check := range doctor.Checks {
+		if isUnderPath(check.Message, uvRuntimeRoot) {
+			t.Fatalf("doctor observed uv Tool-managed State: %#v", check)
+		}
+	}
+
+	writeText(t, filepath.Join(req.Home, "bin", "uvx"), "#!/bin/sh\nprintf 'broken relocation\\n'\n")
+	doctor, err = r.Doctor(context.Background(), req)
+	if err != nil {
+		t.Fatalf("doctor after uvx drift: %v", err)
+	}
+	if doctor.Outcome != reconciler.OutcomeUnhealthy || !hasUnhealthyCheck(doctor.Checks, "managed:"+string(reconciler.ComponentUV)) {
+		t.Fatalf("doctor outcome = %s checks=%#v, want unhealthy uv managed check", doctor.Outcome, doctor.Checks)
+	}
+}
+
 func TestManagedToolChecksumMismatchDoesNotPromoteArtifact(t *testing.T) {
 	t.Parallel()
 
@@ -2556,6 +2704,21 @@ func hasUnhealthyCheck(checks []reconciler.Check, name string) bool {
 	return false
 }
 
+func assertUVLauncherOutput(t *testing.T, entry string, output string, runtimeRoot string) {
+	t.Helper()
+	for _, want := range []string{
+		"fixture=uv-v-test",
+		"entry=" + entry,
+		"cache=" + filepath.Join(runtimeRoot, "cache"),
+		"tools=" + filepath.Join(runtimeRoot, "tools"),
+		"python=" + filepath.Join(runtimeRoot, "python"),
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("%s launcher output missing %q:\n%s", entry, want, output)
+		}
+	}
+}
+
 func hasComponentStatus(results []reconciler.ComponentResult, component reconciler.ComponentID, status reconciler.ComponentStatus) bool {
 	for _, result := range results {
 		if result.Component == component && result.Status == status {
@@ -2605,6 +2768,44 @@ func readText(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(data)
+}
+
+func runManagedLauncher(t *testing.T, launcher string, home string) (string, error) {
+	t.Helper()
+	cmd := exec.Command(launcher)
+	cmd.Env = launcherEnv(home)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+func findZsh(t *testing.T) (string, bool) {
+	t.Helper()
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Log("zsh not found; direct launcher execution still covers the stable POSIX entrypoint")
+		return "", false
+	}
+	return zsh, true
+}
+
+func runManagedLauncherFromZsh(t *testing.T, zsh string, entry string, home string) (string, error) {
+	t.Helper()
+	cmd := exec.Command(zsh, "-fc", entry)
+	cmd.Env = launcherEnv(home, "PATH="+filepath.Join(home, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+func launcherEnv(home string, extra ...string) []string {
+	env := append(os.Environ(), "PLASTICINE_HOME="+home)
+	env = append(env, extra...)
+	return env
+}
+
+func isUnderPath(path string, root string) bool {
+	cleanPath := filepath.ToSlash(filepath.Clean(path))
+	cleanRoot := filepath.ToSlash(filepath.Clean(root))
+	return cleanPath == cleanRoot || strings.HasPrefix(cleanPath, cleanRoot+"/")
 }
 
 func writeStateJSON(t *testing.T, home string, state reconciler.State) {
