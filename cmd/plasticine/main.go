@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/user"
@@ -41,6 +43,8 @@ func run(args []string) int {
 		return runReconcilerCommand(args[0], args[1:])
 	case "doctor":
 		return runReconcilerCommand(args[0], args[1:])
+	case "upgrade":
+		return runUpgrade(args[1:])
 	case "__candidate-self-install":
 		if version.Current().Version == "dev" {
 			fmt.Fprintln(os.Stderr, "development builds cannot use candidate self-install")
@@ -51,6 +55,141 @@ func run(args []string) int {
 		usage()
 		return 2
 	}
+}
+
+func runUpgrade(applyArgs []string) int {
+	plasticineHome, err := reconciler.DefaultPlasticineHome()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "resolve home: %v\n", err)
+		return 1
+	}
+	target := currentTarget()
+	if !supportedArtifactTarget(target) {
+		fmt.Fprintf(os.Stderr, "unsupported artifact target: %s\n", target)
+		return 1
+	}
+	binaryName := release.BinaryName(target)
+	baseURL := upgradeAssetBaseURL()
+	workDir := filepath.Join(plasticineHome, "bootstrap")
+	candidatePath := filepath.Join(workDir, binaryName)
+	manifestPath := filepath.Join(workDir, release.ChecksumManifestName)
+	if err := os.MkdirAll(workDir, 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "prepare bootstrap directory: %v\n", err)
+		return 1
+	}
+	if err := downloadReleaseAsset(baseURL+"/"+binaryName, candidatePath); err != nil {
+		fmt.Fprintf(os.Stderr, "download candidate: %v\n", err)
+		return 1
+	}
+	if err := downloadReleaseAsset(baseURL+"/"+release.ChecksumManifestName, manifestPath); err != nil {
+		fmt.Fprintf(os.Stderr, "download checksum manifest: %v\n", err)
+		return 1
+	}
+	expected, err := checksumFromManifest(manifestPath, binaryName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "read checksum manifest: %v\n", err)
+		return 1
+	}
+	actual, err := sha256File(candidatePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "checksum candidate: %v\n", err)
+		return 1
+	}
+	if actual != expected {
+		fmt.Fprintf(os.Stderr, "checksum mismatch for %s\n", binaryName)
+		return 1
+	}
+	if err := os.Chmod(candidatePath, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "mark candidate executable: %v\n", err)
+		return 1
+	}
+	cmd := exec.Command(candidatePath, append([]string{"__candidate-self-install"}, applyArgs...)...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		if exit, ok := err.(*exec.ExitError); ok {
+			return exit.ExitCode()
+		}
+		fmt.Fprintf(os.Stderr, "run candidate self-install: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func upgradeAssetBaseURL() string {
+	downloadBase := strings.TrimRight(os.Getenv("PLASTICINE_DOWNLOAD_BASE"), "/")
+	if downloadBase == "" {
+		downloadBase = "https://github.com/Plasticine-Yang/plasticine-dotfiles/releases"
+	}
+	if selectedVersion := os.Getenv("PLASTICINE_VERSION"); selectedVersion != "" {
+		return downloadBase + "/download/" + selectedVersion
+	}
+	return downloadBase + "/latest/download"
+}
+
+func downloadReleaseAsset(url string, destination string) error {
+	partial := destination + ".partial"
+	_ = os.Remove(partial)
+	response, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode > 299 {
+		return fmt.Errorf("%s returned %s", url, response.Status)
+	}
+	target, err := os.OpenFile(partial, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(target, response.Body)
+	closeErr := target.Close()
+	if copyErr != nil {
+		_ = os.Remove(partial)
+		return copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(partial)
+		return closeErr
+	}
+	return os.Rename(partial, destination)
+}
+
+func checksumFromManifest(path string, binaryName string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[1] == binaryName {
+			return fields[0], nil
+		}
+	}
+	return "", fmt.Errorf("checksum manifest missing %s", binaryName)
+}
+
+func sha256File(path string) (string, error) {
+	source, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer source.Close()
+	sum := sha256.New()
+	if _, err := io.Copy(sum, source); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(sum.Sum(nil)), nil
+}
+
+func supportedArtifactTarget(target platform.ArtifactTarget) bool {
+	for _, supported := range platform.SupportedArtifactTargets() {
+		if target == supported {
+			return true
+		}
+	}
+	return false
 }
 
 func runCandidateSelfInstall(args []string) int {
@@ -365,7 +504,7 @@ func promptGitHubKeySelection() (string, bool) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: plasticine <plan|apply|doctor|version>")
+	fmt.Fprintln(os.Stderr, "usage: plasticine <plan|apply|doctor|upgrade|version>")
 }
 
 type componentListFlag struct {

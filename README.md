@@ -33,6 +33,7 @@ plasticine version
 plasticine plan
 plasticine apply --yes
 plasticine doctor
+plasticine upgrade --yes
 ```
 
 `plan` is read-only. `apply` executes the internally generated plan and requires
@@ -40,7 +41,12 @@ plasticine doctor
 separate `--allow-system` authorization. Use `--skip-login-shell` in
 non-interactive environments where another platform owns the login shell but the
 managed shell configuration should still be materialized. `doctor` performs safe
-diagnostics and does not mutate local state.
+diagnostics and does not mutate local state. `upgrade` downloads the latest
+stable Release, verifies its checksum, and hands off to the candidate
+`__candidate-self-install` path so the global `~/.plasticine/bin/plasticine`
+entry updates itself before running the new Release's first Apply. Pass the same
+authorization and scope flags you would pass to `apply`; set
+`PLASTICINE_VERSION=vX.Y.Z` to select an exact Release.
 
 Default command output is human-readable and grouped by outcome, Components,
 risks, changes, durable effects, checks, and next actions. Interactive terminals

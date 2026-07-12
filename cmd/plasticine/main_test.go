@@ -2,10 +2,17 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/reconciler"
+	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/release"
 )
 
 func TestRenderResultGroupsComponentStatuses(t *testing.T) {
@@ -33,6 +40,48 @@ func TestRenderResultGroupsComponentStatuses(t *testing.T) {
 	}
 	if !strings.Contains(text, "detail: github-ssh awaiting-owner-action awaiting Owner action") {
 		t.Fatalf("output did not include awaiting Owner action component status:\n%s", text)
+	}
+}
+
+func TestUpgradeDownloadsLatestReleaseAndHandoffsToCandidateSelfInstall(t *testing.T) {
+	home := t.TempDir()
+	capture := filepath.Join(home, "candidate-args.txt")
+	candidate := []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$PLASTICINE_CAPTURE\"\n")
+	sum := sha256.Sum256(candidate)
+	target := currentTarget()
+	binaryName := release.BinaryName(target)
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.URL.Path)
+		switch {
+		case strings.HasSuffix(r.URL.Path, release.ChecksumManifestName):
+			fmt.Fprintf(w, "%x  %s\n", sum, binaryName)
+		case strings.HasSuffix(r.URL.Path, binaryName):
+			_, _ = w.Write(candidate)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("PLASTICINE_DOWNLOAD_BASE", server.URL+"/releases")
+	t.Setenv("PLASTICINE_HOME", home)
+	t.Setenv("PLASTICINE_CAPTURE", capture)
+	t.Setenv("PLASTICINE_VERSION", "")
+
+	code := run([]string{"upgrade", "--yes", "--skip-login-shell", "--exclude", "git-config"})
+	if code != 0 {
+		t.Fatalf("upgrade exit code = %d, want 0", code)
+	}
+	for _, want := range []string{
+		"/releases/latest/download/" + binaryName,
+		"/releases/latest/download/" + release.ChecksumManifestName,
+	} {
+		if !stringSliceContains(requests, want) {
+			t.Fatalf("requests = %#v, missing %s", requests, want)
+		}
+	}
+	if got := strings.TrimSpace(readUpgradeTestFile(t, capture)); got != "__candidate-self-install\n--yes\n--skip-login-shell\n--exclude\ngit-config" {
+		t.Fatalf("candidate args = %q", got)
 	}
 }
 
@@ -169,4 +218,22 @@ func TestRenderDoctorGroupsChecks(t *testing.T) {
 	if strings.Contains(text, "user:pass") {
 		t.Fatalf("doctor output leaked credentials:\n%s", text)
 	}
+}
+
+func stringSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func readUpgradeTestFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(data)
 }
