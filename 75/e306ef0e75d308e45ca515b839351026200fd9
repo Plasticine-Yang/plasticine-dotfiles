@@ -1,0 +1,294 @@
+.scratch/plasticine-cli-output/issues/02-terminal-color-policy.md
+  s_f273542acbeca2::t_c7674c714746f8 1-15 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a534a38ad60f47fe2aab72e","tool_type":"agent","tool_id":"apply_patch","line_ranges":[{"Range":[1,15]}]}]}
+.scratch/plasticine-cli-output/spec.md
+  s_f273542acbeca2::t_4fde8cb950dc09 1-52 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a534a11ad60f47fe2aab6f3","tool_type":"agent","tool_id":"apply_patch","line_ranges":[{"Range":[1,52]}]}]}
+.scratch/plasticine-cli-output/issues/04-failure-next-action-guidance.md
+  s_f273542acbeca2::t_a67824c9a096d9 1-17 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a534a4cad60f47fe2aab76e","tool_type":"agent","tool_id":"apply_patch","line_ranges":[{"Range":[1,17]}]}]}
+.scratch/plasticine-cli-output/issues/05-doctor-readable-output.md
+  s_f273542acbeca2::t_eea0603a6211de 1-15 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a534a56ad60f47fe2aab790","tool_type":"agent","tool_id":"apply_patch","line_ranges":[{"Range":[1,15]}]}]}
+.scratch/plasticine-cli-output/issues/06-docs-and-output-gates.md
+  s_f273542acbeca2::t_e6f9424aa8556b 1-15 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a534a5ead60f47fe2aab7b0","tool_type":"agent","tool_id":"apply_patch","line_ranges":[{"Range":[1,15]}]}]}
+.scratch/plasticine-cli-output/issues/01-result-renderer-seam.md
+  s_f273542acbeca2::t_daa666eb18c590 1-15 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a534a2cad60f47fe2aab70d","tool_type":"agent","tool_id":"apply_patch","line_ranges":[{"Range":[1,15]}]}]}
+.scratch/plasticine-cli-output/issues/03-plan-apply-summary-output.md
+  s_f273542acbeca2::t_e97e26c65e7b13 1-15 gitai:{"mixed_line_ranges":[],"operations":[{"operation_id":"6a534a43ad60f47fe2aab74d","tool_type":"agent","tool_id":"apply_patch","line_ranges":[{"Range":[1,15]}]}]}
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "75e306ef0e75d308e45ca515b839351026200fd9",
+  "prompts": {},
+  "sessions": {
+    "s_f273542acbeca2": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a525a9263a01e2af910431d",
+        "model": "gpt-5.5__max"
+      },
+      "human_author": "yangwenfeng.0719 <yangwenfeng.0719@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {
+    ".scratch/plasticine-cli-output/issues/01-result-renderer-seam.md": [
+      {
+        "hash": "s_f273542acbeca2::t_daa666eb18c590",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              15
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a534a2cad60f47fe2aab70d",
+            "tool_type": "agent",
+            "tool_id": "apply_patch",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  15
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli-output/issues/02-terminal-color-policy.md": [
+      {
+        "hash": "s_f273542acbeca2::t_c7674c714746f8",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              15
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a534a38ad60f47fe2aab72e",
+            "tool_type": "agent",
+            "tool_id": "apply_patch",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  15
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli-output/issues/03-plan-apply-summary-output.md": [
+      {
+        "hash": "s_f273542acbeca2::t_e97e26c65e7b13",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              15
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a534a43ad60f47fe2aab74d",
+            "tool_type": "agent",
+            "tool_id": "apply_patch",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  15
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli-output/issues/04-failure-next-action-guidance.md": [
+      {
+        "hash": "s_f273542acbeca2::t_a67824c9a096d9",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              17
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a534a4cad60f47fe2aab76e",
+            "tool_type": "agent",
+            "tool_id": "apply_patch",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  17
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli-output/issues/05-doctor-readable-output.md": [
+      {
+        "hash": "s_f273542acbeca2::t_eea0603a6211de",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              15
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a534a56ad60f47fe2aab790",
+            "tool_type": "agent",
+            "tool_id": "apply_patch",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  15
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli-output/issues/06-docs-and-output-gates.md": [
+      {
+        "hash": "s_f273542acbeca2::t_e6f9424aa8556b",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              15
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a534a5ead60f47fe2aab7b0",
+            "tool_type": "agent",
+            "tool_id": "apply_patch",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  15
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    ".scratch/plasticine-cli-output/spec.md": [
+      {
+        "hash": "s_f273542acbeca2::t_4fde8cb950dc09",
+        "line_ranges": [
+          {
+            "Range": [
+              1,
+              52
+            ]
+          }
+        ],
+        "mixed_line_ranges": [],
+        "operations": [
+          {
+            "operation_id": "6a534a11ad60f47fe2aab6f3",
+            "tool_type": "agent",
+            "tool_id": "apply_patch",
+            "line_ranges": [
+              {
+                "Range": [
+                  1,
+                  52
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "remote_transcripts": {
+    "s_f273542acbeca2": {
+      "tool": "trae",
+      "conversation_id": "6a525a9263a01e2af910431d",
+      "session_id": "6a525a9263a01e2af910431d",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    },
+    "s_f273542acbeca2::t_4fde8cb950dc09": {
+      "tool": "trae",
+      "conversation_id": "6a525a9263a01e2af910431d",
+      "session_id": "6a525a9263a01e2af910431d",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    },
+    "s_f273542acbeca2::t_a67824c9a096d9": {
+      "tool": "trae",
+      "conversation_id": "6a525a9263a01e2af910431d",
+      "session_id": "6a525a9263a01e2af910431d",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    },
+    "s_f273542acbeca2::t_c7674c714746f8": {
+      "tool": "trae",
+      "conversation_id": "6a525a9263a01e2af910431d",
+      "session_id": "6a525a9263a01e2af910431d",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    },
+    "s_f273542acbeca2::t_daa666eb18c590": {
+      "tool": "trae",
+      "conversation_id": "6a525a9263a01e2af910431d",
+      "session_id": "6a525a9263a01e2af910431d",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    },
+    "s_f273542acbeca2::t_e6f9424aa8556b": {
+      "tool": "trae",
+      "conversation_id": "6a525a9263a01e2af910431d",
+      "session_id": "6a525a9263a01e2af910431d",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    },
+    "s_f273542acbeca2::t_e97e26c65e7b13": {
+      "tool": "trae",
+      "conversation_id": "6a525a9263a01e2af910431d",
+      "session_id": "6a525a9263a01e2af910431d",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    },
+    "s_f273542acbeca2::t_eea0603a6211de": {
+      "tool": "trae",
+      "conversation_id": "6a525a9263a01e2af910431d",
+      "session_id": "6a525a9263a01e2af910431d",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    }
+  }
+}
