@@ -98,6 +98,7 @@ type Request struct {
 	Yes                  bool
 	AllowSystem          bool
 	RequireSystemChange  bool
+	SkipLoginShell       bool
 	ReplaceScope         bool
 	Exclude              []ComponentID
 	Components           []ComponentID

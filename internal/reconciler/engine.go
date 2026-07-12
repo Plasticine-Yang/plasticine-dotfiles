@@ -145,7 +145,9 @@ func (r Reconciler) buildPlan(ctx context.Context, req Request) (planSnapshot, e
 	if err := snapshot.planSystemDependencies(ctx, req, r.system); err != nil {
 		return planSnapshot{}, err
 	}
-	snapshot.planLoginShell(req)
+	if !req.SkipLoginShell {
+		snapshot.planLoginShell(req)
+	}
 	if req.RequireSystemChange {
 		snapshot.planRequiredSystemChange(req)
 	}

@@ -108,6 +108,7 @@ func runReconcilerCommand(command string, args []string) int {
 	home := flags.String("home", "", "Plasticine home")
 	yes := flags.Bool("yes", false, "authorize non-interactive apply")
 	allowSystem := flags.Bool("allow-system", false, "authorize planned system changes")
+	skipLoginShell := flags.Bool("skip-login-shell", false, "skip login shell changes while keeping shell configuration active")
 	adopt := flags.Bool("adopt", false, "adopt all conflicts in the current filtered plan")
 	githubKey := flags.String("github-key", "", "explicit GitHub SSH private key path")
 	colorValue := flags.String("color", "auto", "colorize output: auto, always, or never")
@@ -164,6 +165,7 @@ func runReconcilerCommand(command string, args []string) int {
 		Host:             host,
 		Yes:              *yes,
 		AllowSystem:      *allowSystem,
+		SkipLoginShell:   *skipLoginShell,
 		ReplaceScope:     excludes.set,
 		Exclude:          excludes.values,
 		Components:       components.values,

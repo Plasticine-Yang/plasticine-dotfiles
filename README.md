@@ -37,8 +37,10 @@ plasticine doctor
 
 `plan` is read-only. `apply` executes the internally generated plan and requires
 `--yes` for non-interactive authorization. Any planned System Change requires the
-separate `--allow-system` authorization. `doctor` performs safe diagnostics and
-does not mutate local state.
+separate `--allow-system` authorization. Use `--skip-login-shell` in
+non-interactive environments where another platform owns the login shell but the
+managed shell configuration should still be materialized. `doctor` performs safe
+diagnostics and does not mutate local state.
 
 Default command output is human-readable and grouped by outcome, Components,
 risks, changes, durable effects, checks, and next actions. Interactive terminals

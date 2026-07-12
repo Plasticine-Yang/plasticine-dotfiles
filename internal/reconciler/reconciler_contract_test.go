@@ -857,6 +857,81 @@ func TestShellLoginShellChangeRequiresSystemAuthorizationAndDoesNotRepeat(t *tes
 	}
 }
 
+func TestShellCanSkipLoginShellChangeWhileKeepingDependentsActive(t *testing.T) {
+	t.Parallel()
+
+	artifact := []byte("#!/bin/sh\nprintf 'fnm fixture\\n'\n")
+	artifactSHA := testDigestBytes(artifact)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(artifact)
+	}))
+	t.Cleanup(server.Close)
+
+	r := reconciler.New(reconciler.Options{
+		DesiredStateID: "skip-login-shell-contract",
+		ToolLockSHA256: artifactSHA,
+		ToolLock: release.ToolLock{Tools: map[release.ManagedTool]release.ToolVersion{
+			release.ManagedToolFNM: {
+				Version: "v-test",
+				Targets: map[platform.ArtifactTarget]release.ToolArtifact{
+					platform.TargetDarwinARM64: {
+						URL:          server.URL + "/fnm",
+						ArtifactType: release.ArtifactTypeRawExecutable,
+						SHA256:       artifactSHA,
+					},
+				},
+			},
+		}},
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
+	req := contractRequest(t.TempDir())
+	req.Exclude = []reconciler.ComponentID{
+		reconciler.ComponentGitHubSSH,
+		reconciler.ComponentNeovim,
+		reconciler.ComponentLazygit,
+		reconciler.ComponentUV,
+	}
+	req.Capabilities = map[reconciler.Capability]bool{
+		reconciler.CapabilityGit: true,
+		reconciler.CapabilityZsh: true,
+		reconciler.CapabilityCA:  true,
+	}
+	req.LoginShell = "/bin/bash"
+	req.LoginShellKnown = true
+	req.ZshPath = "/bin/zsh"
+	req.SkipLoginShell = true
+	req.ShellChangeExecutor = func(context.Context, string) ([]string, error) {
+		t.Fatalf("login shell executor should not run when login shell changes are skipped")
+		return nil, nil
+	}
+	req.Yes = true
+
+	applied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply skip login shell: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply outcome=%s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+	if hasChange(applied.Changes, reconciler.ComponentShell, reconciler.ResourceLoginShell) {
+		t.Fatalf("apply planned login-shell change despite skip: %#v", applied.Changes)
+	}
+	if !hasComponentStatus(applied.Components, reconciler.ComponentShell, reconciler.ComponentSucceeded) {
+		t.Fatalf("shell did not succeed with skipped login shell: %#v", applied.Components)
+	}
+	if !hasComponentStatus(applied.Components, reconciler.ComponentFNM, reconciler.ComponentSucceeded) {
+		t.Fatalf("fnm did not remain active after skipped login shell: %#v", applied.Components)
+	}
+	if !pathExists(filepath.Join(req.Home, "bin", "fnm")) {
+		t.Fatalf("fnm launcher was not materialized")
+	}
+	if !pathExists(filepath.Join(req.Home, "config", "zsh", ".zshrc")) {
+		t.Fatalf("managed zsh configuration was not materialized")
+	}
+}
+
 func TestShellPlanIncludesLoginShellChangeWhenZshCapabilityIsMissing(t *testing.T) {
 	t.Parallel()
 
