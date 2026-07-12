@@ -140,7 +140,7 @@ func componentDesiredResources(req Request, component ComponentID, secret *Secre
 			},
 		}
 	case ComponentNeovim:
-		return append(neovimConfigResources(req.Home), managedToolResources(req, component, release.ManagedToolNeovim, []string{"nvim"}, toolLock)...)
+		return neovimResources(req, toolLock)
 	case ComponentLazygit:
 		return managedToolResources(req, component, release.ManagedToolLazygit, []string{"lazygit"}, toolLock)
 	case ComponentFNM:
@@ -214,6 +214,27 @@ func neovimConfigResources(home string) []desiredResource {
 			Summary:      "materialize centralized Neovim configuration",
 		})
 	}
+	return resources
+}
+
+func neovimResources(req Request, toolLock release.ToolLock) []desiredResource {
+	resources := neovimConfigResources(req.Home)
+	payload := managedToolDirectoryResource(req, ComponentNeovim, release.ManagedToolNeovim, toolLock, []string{
+		"bin/nvim",
+		"share/nvim/runtime/lua/vim/deprecated/health.lua",
+		"share/nvim/runtime/syntax/syntax.vim",
+	})
+	if payload.Path == "" {
+		return resources
+	}
+	versionedRoot := filepath.Join(req.Home, "tools", string(release.ManagedToolNeovim), managedToolVersionSegment(toolLock, release.ManagedToolNeovim, req.ToolLockSHA256))
+	resources = append(resources, payload, desiredResource{
+		Component:    ComponentNeovim,
+		Path:         filepath.Join(req.Home, "bin", "nvim"),
+		ResourceKind: ResourceIntegrationShim,
+		Content:      toolLauncher(versionedRoot, string(release.ManagedToolNeovim), "nvim"),
+		Summary:      "materialize stable nvim launcher",
+	})
 	return resources
 }
 
@@ -453,13 +474,16 @@ func sanitizePathSegment(value string) string {
 
 func toolLauncher(versionedRoot string, tool string, entry string) string {
 	lines := []string{"#!/bin/sh"}
+	execPath := filepath.Join(versionedRoot, entry)
 	switch tool {
 	case "neovim":
+		execPath = filepath.Join(versionedRoot, "bin", entry)
 		lines = append(lines,
 			"export XDG_CONFIG_HOME=\"${PLASTICINE_HOME:-$HOME/.plasticine}/config\"",
 			"export XDG_STATE_HOME=\"${PLASTICINE_HOME:-$HOME/.plasticine}/runtime/nvim/state\"",
 			"export XDG_DATA_HOME=\"${PLASTICINE_HOME:-$HOME/.plasticine}/runtime/nvim/data\"",
 			"export XDG_CACHE_HOME=\"${PLASTICINE_HOME:-$HOME/.plasticine}/runtime/nvim/cache\"",
+			"export VIMRUNTIME=\""+filepath.Join(versionedRoot, "share", "nvim", "runtime")+"\"",
 		)
 	case "fnm":
 		lines = append(lines, "export FNM_DIR=\"${PLASTICINE_HOME:-$HOME/.plasticine}/runtime/fnm\"")
@@ -470,7 +494,7 @@ func toolLauncher(versionedRoot string, tool string, entry string) string {
 			"export UV_PYTHON_INSTALL_DIR=\"${PLASTICINE_HOME:-$HOME/.plasticine}/runtime/uv/python\"",
 		)
 	}
-	lines = append(lines, "exec \""+filepath.Join(versionedRoot, entry)+"\" \"$@\"", "")
+	lines = append(lines, "exec \""+execPath+"\" \"$@\"", "")
 	return strings.Join(lines, "\n")
 }
 

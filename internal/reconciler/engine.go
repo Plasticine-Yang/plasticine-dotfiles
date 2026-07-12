@@ -465,6 +465,9 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 			continue
 		}
 		for path, ownership := range componentOwnership {
+			if resource, ok := snapshot.DesiredByPath[path]; ok && resource.ManagedTool != nil && resource.ManagedTool.Directory {
+				pruneNestedManagedToolOwnership(&state, ownership.Component, path)
+			}
 			state.Ownership[path] = ownership
 		}
 		state.PendingWork = removeJournalEntries(state.PendingWork, componentPending)
@@ -700,6 +703,9 @@ func (s *planSnapshot) planRetirements(state State, adopt bool) {
 		if !s.Active[ownership.Component] {
 			continue
 		}
+		if ownership.ResourceKind == ResourceManagedTool && s.desiredManagedToolDirectoryCovers(ownership.Component, path) {
+			continue
+		}
 		if ownership.ResourceKind == ResourceManagedTool &&
 			state.ToolLockSHA256 != s.ToolLockSHA256 &&
 			s.hasDesiredResourceKind(ownership.Component, ResourceManagedTool) {
@@ -783,6 +789,21 @@ func (s *planSnapshot) planManagedToolCleanups(state State, adopt bool) {
 func (s *planSnapshot) hasDesiredResourceKind(component ComponentID, kind ResourceKind) bool {
 	for _, resource := range s.Desired {
 		if resource.Component == component && resource.ResourceKind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *planSnapshot) desiredManagedToolDirectoryCovers(component ComponentID, path string) bool {
+	for _, resource := range s.Desired {
+		if resource.Component != component || resource.ResourceKind != ResourceManagedTool {
+			continue
+		}
+		if resource.ManagedTool == nil || !resource.ManagedTool.Directory {
+			continue
+		}
+		if pathDescendsFrom(path, resource.Path) {
 			return true
 		}
 	}
@@ -1459,14 +1480,17 @@ func writeManagedBlock(path string, block string) error {
 }
 
 func createBackup(home string, clock func() time.Time, conflict Conflict) (BackupMetadata, error) {
-	data, err := os.ReadFile(conflict.Path)
+	info, err := os.Lstat(conflict.Path)
 	if os.IsNotExist(err) {
 		return BackupMetadata{}, nil
 	}
 	if err != nil {
 		return BackupMetadata{}, err
 	}
-	digest := digestBytes(data)
+	digest, exists := maybeFileDigest(conflict.Path)
+	if !exists {
+		return BackupMetadata{}, fmt.Errorf("digest backup source %s", conflict.Path)
+	}
 	dir := filepath.Join(home, "backups", clock().UTC().Format("20060102T150405Z"))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return BackupMetadata{}, err
@@ -1482,8 +1506,27 @@ func createBackup(home string, clock func() time.Time, conflict Conflict) (Backu
 		}
 		backupPath = filepath.Join(dir, fmt.Sprintf("%s-%s-%d", name, digest[:12], index))
 	}
-	if err := os.WriteFile(backupPath, data, 0o600); err != nil {
-		return BackupMetadata{}, err
+	switch {
+	case info.IsDir():
+		if err := copyDirectoryForBackup(conflict.Path, backupPath); err != nil {
+			return BackupMetadata{}, err
+		}
+	case info.Mode()&os.ModeSymlink != 0:
+		target, err := os.Readlink(conflict.Path)
+		if err != nil {
+			return BackupMetadata{}, err
+		}
+		if err := os.Symlink(target, backupPath); err != nil {
+			return BackupMetadata{}, err
+		}
+	default:
+		data, err := os.ReadFile(conflict.Path)
+		if err != nil {
+			return BackupMetadata{}, err
+		}
+		if err := os.WriteFile(backupPath, data, 0o600); err != nil {
+			return BackupMetadata{}, err
+		}
 	}
 	return BackupMetadata{
 		Component: conflict.Component,
@@ -1492,6 +1535,40 @@ func createBackup(home string, clock func() time.Time, conflict Conflict) (Backu
 		Digest:    digest,
 		CreatedAt: clock().UTC().Format(time.RFC3339),
 	}, nil
+}
+
+func copyDirectoryForBackup(sourceRoot string, targetRoot string) error {
+	return filepath.WalkDir(sourceRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(sourceRoot, path)
+		if err != nil {
+			return err
+		}
+		targetPath := targetRoot
+		if relative != "." {
+			targetPath = filepath.Join(targetRoot, relative)
+		}
+		mode := info.Mode()
+		switch {
+		case mode&os.ModeSymlink != 0:
+			return fmt.Errorf("backup refuses symlink %s", path)
+		case entry.IsDir():
+			return os.MkdirAll(targetPath, mode.Perm())
+		case mode.IsRegular():
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0o700); err != nil {
+				return err
+			}
+			return copyFile(path, targetPath, mode.Perm())
+		default:
+			return fmt.Errorf("backup refuses unsupported entry %s", path)
+		}
+	})
 }
 
 func retirementChange(retirement Retirement, state State) (Change, bool, *Blocker) {
@@ -1596,6 +1673,17 @@ func applyRemovalChange(change Change, state *State) error {
 	}
 	delete(state.Ownership, change.Path)
 	return nil
+}
+
+func pruneNestedManagedToolOwnership(state *State, component ComponentID, root string) {
+	for path, ownership := range state.Ownership {
+		if ownership.Component != component || ownership.ResourceKind != ResourceManagedTool {
+			continue
+		}
+		if pathDescendsFrom(path, root) {
+			delete(state.Ownership, path)
+		}
+	}
 }
 
 func removeManagedBlock(path string) error {
@@ -1866,6 +1954,14 @@ func verifyPrecondition(path string, precondition string) error {
 		return fmt.Errorf("stale plan for %s: expected digest %s", path, precondition)
 	}
 	return nil
+}
+
+func pathDescendsFrom(path string, root string) bool {
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator))
 }
 
 func maybeFileDigest(path string) (string, bool) {

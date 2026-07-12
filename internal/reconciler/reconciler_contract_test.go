@@ -1697,7 +1697,11 @@ func TestManagedToolDirectoryPayloadRejectsUnsafeArchives(t *testing.T) {
 func TestNeovimComponentMaterializesCentralizedConfig(t *testing.T) {
 	t.Parallel()
 
-	artifact := []byte("#!/bin/sh\nprintf 'nvim fixture\\n'\n")
+	artifact := tarGzFixture(t, map[string]string{
+		"nvim-macos-arm64/bin/nvim":                                         "#!/bin/sh\nprintf 'nvim fixture\\n'\n",
+		"nvim-macos-arm64/share/nvim/runtime/lua/vim/deprecated/health.lua": "-- health fixture\n",
+		"nvim-macos-arm64/share/nvim/runtime/syntax/syntax.vim":             "\" syntax fixture\n",
+	})
 	artifactSHA := testDigestBytes(artifact)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(artifact)
@@ -1712,8 +1716,8 @@ func TestNeovimComponentMaterializesCentralizedConfig(t *testing.T) {
 				Version: "v-test",
 				Targets: map[platform.ArtifactTarget]release.ToolArtifact{
 					platform.TargetDarwinARM64: {
-						URL:          server.URL + "/nvim",
-						ArtifactType: release.ArtifactTypeRawExecutable,
+						URL:          server.URL + "/nvim.tar.gz",
+						ArtifactType: release.ArtifactTypeTarGz,
 						SHA256:       artifactSHA,
 					},
 				},
@@ -1748,9 +1752,46 @@ func TestNeovimComponentMaterializesCentralizedConfig(t *testing.T) {
 	if got := readText(t, filepath.Join(req.Home, "config", "nvim", "lua", "plugins-config", "toggleterm.lua")); !strings.Contains(got, "_FLOAT_TERM") {
 		t.Fatalf("toggleterm.lua = %q, want handwritten plugin config", got)
 	}
+	pluginsConfig := readText(t, filepath.Join(req.Home, "config", "nvim", "lua", "plugins.lua"))
+	for _, want := range []string{
+		"folke/lazy.nvim",
+		"pcall(require, 'lazy')",
+		"lazy.setup",
+		"smoka7/hop.nvim",
+		"HopAnywhereBC",
+	} {
+		if !strings.Contains(pluginsConfig, want) {
+			t.Fatalf("plugins.lua missing %q:\n%s", want, pluginsConfig)
+		}
+	}
+	for _, stale := range []string{
+		"wbthomason/packer.nvim",
+		"PackerSync",
+		"phaazon/hop.nvim",
+	} {
+		if strings.Contains(pluginsConfig, stale) {
+			t.Fatalf("plugins.lua still contains stale plugin manager/source %q:\n%s", stale, pluginsConfig)
+		}
+	}
+	payloadRoot := filepath.Join(req.Home, "tools", "neovim", "v-test")
+	if got := readText(t, filepath.Join(payloadRoot, "bin", "nvim")); !strings.Contains(got, "nvim fixture") {
+		t.Fatalf("managed nvim executable = %q, want directory payload executable", got)
+	}
+	if got := readText(t, filepath.Join(payloadRoot, "share", "nvim", "runtime", "lua", "vim", "deprecated", "health.lua")); !strings.Contains(got, "health fixture") {
+		t.Fatalf("managed nvim runtime health.lua = %q, want directory payload runtime", got)
+	}
+	if got := readText(t, filepath.Join(payloadRoot, "share", "nvim", "runtime", "syntax", "syntax.vim")); !strings.Contains(got, "syntax fixture") {
+		t.Fatalf("managed nvim runtime syntax.vim = %q, want directory payload runtime", got)
+	}
 	launcher := readText(t, filepath.Join(req.Home, "bin", "nvim"))
 	if !strings.Contains(launcher, "XDG_CONFIG_HOME") || !strings.Contains(launcher, "/config") {
 		t.Fatalf("launcher does not point at centralized config: %q", launcher)
+	}
+	if !strings.Contains(launcher, "VIMRUNTIME") || !strings.Contains(launcher, filepath.Join(payloadRoot, "share", "nvim", "runtime")) {
+		t.Fatalf("launcher does not point at managed Neovim runtime: %q", launcher)
+	}
+	if !strings.Contains(launcher, filepath.Join(payloadRoot, "bin", "nvim")) {
+		t.Fatalf("launcher does not exec managed Neovim binary: %q", launcher)
 	}
 	state, err := reconciler.ReadState(req.Home)
 	if err != nil {
@@ -1758,6 +1799,100 @@ func TestNeovimComponentMaterializesCentralizedConfig(t *testing.T) {
 	}
 	if _, ok := state.Ownership[initPath]; !ok {
 		t.Fatalf("neovim config ownership was not recorded")
+	}
+}
+
+func TestNeovimDirectoryPayloadAdoptsLegacySingleExecutableInstall(t *testing.T) {
+	t.Parallel()
+
+	artifact := tarGzFixture(t, map[string]string{
+		"nvim-macos-arm64/bin/nvim":                                         "#!/bin/sh\nprintf 'nvim fixture\\n'\n",
+		"nvim-macos-arm64/share/nvim/runtime/lua/vim/deprecated/health.lua": "-- health fixture\n",
+		"nvim-macos-arm64/share/nvim/runtime/syntax/syntax.vim":             "\" syntax fixture\n",
+	})
+	artifactSHA := testDigestBytes(artifact)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(artifact)
+	}))
+	t.Cleanup(server.Close)
+
+	r := reconciler.New(reconciler.Options{
+		DesiredStateID: "neovim-directory-payload-migration",
+		ToolLockSHA256: artifactSHA,
+		ToolLock: release.ToolLock{Tools: map[release.ManagedTool]release.ToolVersion{
+			release.ManagedToolNeovim: {
+				Version: "v-test",
+				Targets: map[platform.ArtifactTarget]release.ToolArtifact{
+					platform.TargetDarwinARM64: {
+						URL:          server.URL + "/nvim.tar.gz",
+						ArtifactType: release.ArtifactTypeTarGz,
+						SHA256:       artifactSHA,
+					},
+				},
+			},
+		}},
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
+	req := contractRequest(t.TempDir())
+	req.Exclude = []reconciler.ComponentID{reconciler.ComponentGitHubSSH}
+	req.Components = []reconciler.ComponentID{reconciler.ComponentNeovim}
+	req.Yes = true
+	req.Adopt = true
+
+	payloadRoot := filepath.Join(req.Home, "tools", "neovim", "v-test")
+	legacyPayload := filepath.Join(payloadRoot, "nvim")
+	writeMode(t, legacyPayload, "legacy nvim\n", 0o755)
+	writeStateJSON(t, req.Home, reconciler.State{
+		SchemaVersion:  reconciler.CurrentStateSchema,
+		DesiredStateID: "legacy-single-file-neovim",
+		ToolLockSHA256: artifactSHA,
+		Target:         req.Target,
+		AppliedAt:      "2026-07-10T00:00:00Z",
+		Scope:          reconciler.WorkstationScope{Excluded: req.Exclude},
+		Ownership: map[string]reconciler.Ownership{
+			legacyPayload: {
+				Component:    reconciler.ComponentNeovim,
+				Path:         legacyPayload,
+				ResourceKind: reconciler.ResourceManagedTool,
+				Digest:       testDigest("legacy nvim\n"),
+				AcceptedAt:   "2026-07-10T00:00:00Z",
+			},
+		},
+	})
+
+	applied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply migrated neovim payload: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply outcome = %s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+	if pathExists(legacyPayload) {
+		t.Fatalf("legacy single-file payload still exists after directory payload adoption")
+	}
+	if got := readText(t, filepath.Join(payloadRoot, "bin", "nvim")); !strings.Contains(got, "nvim fixture") {
+		t.Fatalf("managed nvim executable = %q, want directory payload executable", got)
+	}
+	if got := readText(t, filepath.Join(payloadRoot, "share", "nvim", "runtime", "lua", "vim", "deprecated", "health.lua")); !strings.Contains(got, "health fixture") {
+		t.Fatalf("managed nvim runtime health.lua = %q, want directory payload runtime", got)
+	}
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if _, ok := state.Ownership[legacyPayload]; ok {
+		t.Fatalf("legacy single-file payload ownership was not retired")
+	}
+	if _, ok := state.Ownership[payloadRoot]; !ok {
+		t.Fatalf("directory payload ownership was not recorded")
+	}
+	if len(state.Backups) != 1 {
+		t.Fatalf("backup count = %d, want 1", len(state.Backups))
+	}
+	if got := readText(t, filepath.Join(state.Backups[0].Backup, "nvim")); got != "legacy nvim\n" {
+		t.Fatalf("directory backup payload = %q, want legacy nvim", got)
 	}
 }
 
