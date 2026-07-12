@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"os/user"
@@ -111,11 +110,17 @@ func runReconcilerCommand(command string, args []string) int {
 	allowSystem := flags.Bool("allow-system", false, "authorize planned system changes")
 	adopt := flags.Bool("adopt", false, "adopt all conflicts in the current filtered plan")
 	githubKey := flags.String("github-key", "", "explicit GitHub SSH private key path")
+	colorValue := flags.String("color", "auto", "colorize output: auto, always, or never")
 	var excludes componentListFlag
 	var components componentListFlag
 	flags.Var(&excludes, "exclude", "replace Workstation Scope with an excluded component (repeatable)")
 	flags.Var(&components, "component", "narrow this run to an active component (repeatable)")
 	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	color, err := parseColorMode(*colorValue)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
 	plasticineHome := *home
@@ -193,7 +198,9 @@ func runReconcilerCommand(command string, args []string) int {
 		fmt.Fprintf(os.Stderr, "%s failed: %v\n", command, runErr)
 		return 1
 	}
-	printResult(command, result)
+	caps := defaultOutputCapabilities()
+	caps.Color = color
+	renderResult(os.Stdout, command, result, caps)
 	switch result.Outcome {
 	case reconciler.OutcomeChangesPlanned, reconciler.OutcomeApplied, reconciler.OutcomeNoChange, reconciler.OutcomeHealthy:
 		return 0
@@ -309,66 +316,6 @@ func desiredStateID() string {
 func toolLockSHA256() string {
 	sum := sha256.Sum256(plasticine.DefaultToolLockJSON)
 	return hex.EncodeToString(sum[:])
-}
-
-func printResult(command string, result reconciler.Result) {
-	printResultTo(os.Stdout, command, result)
-}
-
-func printResultTo(writer io.Writer, command string, result reconciler.Result) {
-	fmt.Fprintf(writer, "%s: %s\n", command, result.Outcome)
-	fmt.Fprintf(writer, "target: %s\n", result.Target)
-	fmt.Fprintf(writer, "support: %s\n", result.Support.Level)
-	if result.DesiredStateID != "" {
-		fmt.Fprintf(writer, "desired_state: %s\n", result.DesiredStateID)
-	}
-	for _, component := range result.Scope.Active {
-		fmt.Fprintf(writer, "active_component: %s\n", component)
-	}
-	for _, component := range result.Scope.Excluded {
-		fmt.Fprintf(writer, "excluded_component: %s\n", component)
-	}
-	for _, component := range result.Components {
-		message := strings.TrimSpace(component.Message)
-		if message == "" {
-			fmt.Fprintf(writer, "component: %s %s\n", component.Component, component.Status)
-			continue
-		}
-		fmt.Fprintf(writer, "component: %s %s %s\n", component.Component, component.Status, message)
-	}
-	if result.StateMigration != nil {
-		fmt.Fprintf(writer, "state_migration: %d->%d %s\n", result.StateMigration.FromSchema, result.StateMigration.ToSchema, result.StateMigration.Message)
-	}
-	for _, change := range result.Changes {
-		scope := "user"
-		if change.SystemChange {
-			scope = "system"
-		}
-		if change.Path != "" {
-			fmt.Fprintf(writer, "change: %s %s %s %s %s\n", change.Component, change.Kind, scope, change.Path, strings.TrimSpace(change.Summary))
-			continue
-		}
-		fmt.Fprintf(writer, "change: %s %s %s %s\n", change.Component, change.Kind, scope, strings.TrimSpace(change.Summary))
-	}
-	for _, conflict := range result.Conflicts {
-		fmt.Fprintf(writer, "conflict: %s adoptable=%t %s\n", conflict.Component, conflict.Adoptable, conflict.Path)
-	}
-	for _, retirement := range result.Retirements {
-		fmt.Fprintf(writer, "retirement: %s %s\n", retirement.Component, retirement.Path)
-	}
-	for _, blocker := range result.Blockers {
-		fmt.Fprintf(writer, "blocker: %s %s\n", blocker.Code, blocker.Message)
-	}
-	for _, effect := range result.DurableEffects {
-		fmt.Fprintf(writer, "durable_effect: %s\n", effect)
-	}
-	for _, check := range result.Checks {
-		status := "ok"
-		if !check.Healthy {
-			status = "failed"
-		}
-		fmt.Fprintf(writer, "check: %s %s %s\n", check.Name, status, strings.TrimSpace(check.Message))
-	}
 }
 
 func promptApplyAuthorization(result reconciler.Result) bool {

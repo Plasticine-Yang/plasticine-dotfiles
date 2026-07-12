@@ -1,6 +1,10 @@
 package reconciler_test
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"crypto/x509"
@@ -14,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -1354,6 +1359,222 @@ func TestManagedToolInstallDownloadsVerifiesCachesAndReusesArtifact(t *testing.T
 	}
 }
 
+func TestShellInstallsAntidoteDirectoryPayloadAndBootstrap(t *testing.T) {
+	t.Parallel()
+
+	artifact := tarGzFixture(t, map[string]string{
+		"antidote-1.9.10/antidote.zsh":       "autoload -Uz antidote\n",
+		"antidote-1.9.10/functions/antidote": "antidote() { :; }\n",
+	})
+	artifactSHA := testDigestBytes(artifact)
+	var downloads atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		downloads.Add(1)
+		_, _ = w.Write(artifact)
+	}))
+	t.Cleanup(server.Close)
+
+	r := antidoteReconciler("antidote-shell-contract", artifactSHA, "v1.9.10", server.URL+"/antidote.tar.gz", artifactSHA, release.ArtifactTypeTarGz)
+	req := contractRequest(t.TempDir())
+	req.Components = []reconciler.ComponentID{reconciler.ComponentShell}
+	req.Yes = true
+
+	applied, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("apply shell antidote: %v", err)
+	}
+	if applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("apply outcome = %s blockers=%#v", applied.Outcome, applied.Blockers)
+	}
+	payloadRoot := filepath.Join(req.Home, "tools", "antidote", "v1.9.10")
+	if got := readText(t, filepath.Join(payloadRoot, "antidote.zsh")); !strings.Contains(got, "autoload") {
+		t.Fatalf("antidote core was not extracted: %q", got)
+	}
+	if !pathExists(filepath.Join(payloadRoot, "functions", "antidote")) {
+		t.Fatalf("antidote functions directory was not preserved")
+	}
+	plugins := readText(t, filepath.Join(req.Home, "config", "zsh", ".zsh_plugins.txt"))
+	for _, want := range []string{"zsh-users/zsh-completions", "zsh-users/zsh-autosuggestions", "zsh-users/zsh-syntax-highlighting"} {
+		if !strings.Contains(plugins, want) {
+			t.Fatalf("plugin declaration missing %q:\n%s", want, plugins)
+		}
+	}
+	sourceShim := readText(t, filepath.Join(req.Home, "config", "zsh", "antidote.zsh"))
+	if !strings.Contains(sourceShim, "/tools/antidote/v1.9.10/antidote.zsh") {
+		t.Fatalf("source shim does not point at versioned payload: %q", sourceShim)
+	}
+	zshrc := readText(t, filepath.Join(req.Home, "config", "zsh", ".zshrc"))
+	for _, want := range []string{
+		"ANTIDOTE_HOME=\"$PLASTICINE_HOME/runtime/antidote\"",
+		". \"$PLASTICINE_HOME/config/zsh/antidote.zsh\"",
+		"antidote bundle < \"$_plasticine_plugins\" >| \"$_plasticine_bundle\"",
+		"[ -r \"$_plasticine_bundle\" ] && . \"$_plasticine_bundle\"",
+	} {
+		if !strings.Contains(zshrc, want) {
+			t.Fatalf("zshrc missing %q:\n%s", want, zshrc)
+		}
+	}
+	state, err := reconciler.ReadState(req.Home)
+	if err != nil {
+		t.Fatalf("read state: %v", err)
+	}
+	if _, ok := state.Ownership[payloadRoot]; !ok {
+		t.Fatalf("directory payload ownership missing for %s", payloadRoot)
+	}
+
+	runtimeFile := filepath.Join(req.Home, "runtime", "antidote", "plugins", "zsh-users", "generated")
+	writeText(t, runtimeFile, "tool-managed")
+	second, err := r.Apply(context.Background(), req)
+	if err != nil {
+		t.Fatalf("second apply shell antidote: %v", err)
+	}
+	if second.Outcome != reconciler.OutcomeNoChange {
+		t.Fatalf("second apply outcome = %s blockers=%#v changes=%#v", second.Outcome, second.Blockers, second.Changes)
+	}
+	if got := readText(t, runtimeFile); got != "tool-managed" {
+		t.Fatalf("antidote runtime state was mutated: %q", got)
+	}
+	doctor, err := r.Doctor(context.Background(), req)
+	if err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	if doctor.Outcome != reconciler.OutcomeHealthy {
+		t.Fatalf("doctor outcome = %s checks=%#v", doctor.Outcome, doctor.Checks)
+	}
+	if downloads.Load() != 1 {
+		t.Fatalf("downloads = %d, want 1", downloads.Load())
+	}
+}
+
+func TestShellBlocksWhenDeclaredAntidoteArtifactIsMissingForTarget(t *testing.T) {
+	t.Parallel()
+
+	r := reconciler.New(reconciler.Options{
+		DesiredStateID: "antidote-missing-target-contract",
+		ToolLockSHA256: strings.Repeat("a", 64),
+		ToolLock: release.ToolLock{Tools: map[release.ManagedTool]release.ToolVersion{
+			release.ManagedToolAntidote: {
+				Version: "v-test",
+				Targets: map[platform.ArtifactTarget]release.ToolArtifact{
+					platform.TargetLinuxAMD64: {
+						URL:          "https://example.invalid/antidote.tar.gz",
+						ArtifactType: release.ArtifactTypeTarGz,
+						SHA256:       strings.Repeat("a", 64),
+					},
+				},
+			},
+		}},
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
+	req := contractRequest(t.TempDir())
+	req.Components = []reconciler.ComponentID{reconciler.ComponentShell}
+
+	plan, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("plan missing antidote target: %v", err)
+	}
+	if plan.Outcome != reconciler.OutcomeBlocked || !hasBlocker(plan.Blockers, reconciler.BlockerUnsupportedTarget) {
+		t.Fatalf("plan outcome=%s blockers=%#v, want unsupported target blocker", plan.Outcome, plan.Blockers)
+	}
+}
+
+func TestManagedToolDirectoryZipPayloadAndDriftDetection(t *testing.T) {
+	t.Parallel()
+
+	artifact := zipFixture(t, map[string]string{
+		"antidote.zsh":       "source body\n",
+		"functions/antidote": "fn body\n",
+		"functions/__helper": "helper body\n",
+	})
+	artifactSHA := testDigestBytes(artifact)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(artifact)
+	}))
+	t.Cleanup(server.Close)
+
+	r := antidoteReconciler("antidote-zip-contract", artifactSHA, "vzip", server.URL+"/antidote.zip", artifactSHA, release.ArtifactTypeZip)
+	req := contractRequest(t.TempDir())
+	req.Components = []reconciler.ComponentID{reconciler.ComponentShell}
+	req.Yes = true
+	if applied, err := r.Apply(context.Background(), req); err != nil || applied.Outcome != reconciler.OutcomeApplied {
+		t.Fatalf("zip apply outcome=%s err=%v blockers=%#v", applied.Outcome, err, applied.Blockers)
+	}
+	payloadRoot := filepath.Join(req.Home, "tools", "antidote", "vzip")
+	writeText(t, filepath.Join(payloadRoot, "functions", "antidote"), "owner drift")
+	plan, err := r.Plan(context.Background(), req)
+	if err != nil {
+		t.Fatalf("plan drift: %v", err)
+	}
+	if plan.Outcome != reconciler.OutcomeBlocked || !hasBlocker(plan.Blockers, reconciler.BlockerConflict) {
+		t.Fatalf("plan outcome=%s blockers=%#v conflicts=%#v", plan.Outcome, plan.Blockers, plan.Conflicts)
+	}
+	doctor, err := r.Doctor(context.Background(), req)
+	if err != nil {
+		t.Fatalf("doctor drift: %v", err)
+	}
+	if doctor.Outcome != reconciler.OutcomeUnhealthy {
+		t.Fatalf("doctor outcome=%s checks=%#v, want drift unhealthy", doctor.Outcome, doctor.Checks)
+	}
+}
+
+func TestManagedToolDirectoryPayloadRejectsUnsafeArchives(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		artifact []byte
+	}{
+		{
+			name: "missing required entry",
+			artifact: tarGzFixture(t, map[string]string{
+				"antidote-1.9.10/antidote.zsh": "autoload -Uz antidote\n",
+			}),
+		},
+		{
+			name: "path traversal",
+			artifact: tarGzFixture(t, map[string]string{
+				"antidote-1.9.10/antidote.zsh":       "autoload -Uz antidote\n",
+				"antidote-1.9.10/functions/antidote": "antidote() { :; }\n",
+				"antidote-1.9.10/../escape":          "bad\n",
+			}),
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			artifactSHA := testDigestBytes(tc.artifact)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write(tc.artifact)
+			}))
+			t.Cleanup(server.Close)
+
+			r := antidoteReconciler("antidote-unsafe-contract", artifactSHA, "vbad", server.URL+"/antidote.tar.gz", artifactSHA, release.ArtifactTypeTarGz)
+			req := contractRequest(t.TempDir())
+			req.Components = []reconciler.ComponentID{reconciler.ComponentShell}
+			req.Yes = true
+			applied, err := r.Apply(context.Background(), req)
+			if err != nil {
+				t.Fatalf("apply unsafe archive: %v", err)
+			}
+			if applied.Outcome != reconciler.OutcomePartial || !hasBlocker(applied.Blockers, reconciler.BlockerOperationalFailure) {
+				t.Fatalf("outcome=%s blockers=%#v, want partial operational failure", applied.Outcome, applied.Blockers)
+			}
+			payloadRoot := filepath.Join(req.Home, "tools", "antidote", "vbad")
+			if pathExists(payloadRoot) {
+				t.Fatalf("unsafe payload was promoted to %s", payloadRoot)
+			}
+			if state, err := reconciler.ReadState(req.Home); err == nil {
+				if _, ok := state.Ownership[payloadRoot]; ok {
+					t.Fatalf("unsafe payload entered ownership")
+				}
+			}
+		})
+	}
+}
+
 func TestNeovimComponentMaterializesCentralizedConfig(t *testing.T) {
 	t.Parallel()
 
@@ -2622,6 +2843,28 @@ func managedToolReconciler(desiredStateID string, toolLockSHA256 string, version
 	})
 }
 
+func antidoteReconciler(desiredStateID string, toolLockSHA256 string, version string, artifactURL string, artifactSHA256 string, artifactType release.ArtifactType) reconciler.Reconciler {
+	return reconciler.New(reconciler.Options{
+		DesiredStateID: desiredStateID,
+		ToolLockSHA256: toolLockSHA256,
+		ToolLock: release.ToolLock{Tools: map[release.ManagedTool]release.ToolVersion{
+			release.ManagedToolAntidote: {
+				Version: version,
+				Targets: map[platform.ArtifactTarget]release.ToolArtifact{
+					platform.TargetDarwinARM64: {
+						URL:          artifactURL,
+						ArtifactType: artifactType,
+						SHA256:       artifactSHA256,
+					},
+				},
+			},
+		}},
+		Clock: func() time.Time {
+			return time.Date(2026, 7, 11, 3, 0, 0, 0, time.UTC)
+		},
+	})
+}
+
 func contractRequest(home string) reconciler.Request {
 	return reconciler.Request{
 		Home:            home,
@@ -2744,6 +2987,75 @@ func testDigest(value string) string {
 func testDigestBytes(value []byte) string {
 	sum := sha256.Sum256(value)
 	return hex.EncodeToString(sum[:])
+}
+
+func tarGzFixture(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	dirs := map[string]bool{}
+	for _, name := range names {
+		for dir := filepath.Dir(name); dir != "." && dir != "/"; dir = filepath.Dir(dir) {
+			dirs[filepath.ToSlash(dir)+"/"] = true
+		}
+	}
+	dirNames := make([]string, 0, len(dirs))
+	for dir := range dirs {
+		dirNames = append(dirNames, dir)
+	}
+	sort.Strings(dirNames)
+	for _, dir := range dirNames {
+		if err := tarWriter.WriteHeader(&tar.Header{Name: dir, Typeflag: tar.TypeDir, Mode: 0o755}); err != nil {
+			t.Fatalf("write tar dir %s: %v", dir, err)
+		}
+	}
+	for _, name := range names {
+		body := []byte(files[name])
+		header := &tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(body))}
+		if err := tarWriter.WriteHeader(header); err != nil {
+			t.Fatalf("write tar header %s: %v", name, err)
+		}
+		if _, err := tarWriter.Write(body); err != nil {
+			t.Fatalf("write tar body %s: %v", name, err)
+		}
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatalf("close tar: %v", err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatalf("close gzip: %v", err)
+	}
+	return buffer.Bytes()
+}
+
+func zipFixture(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	zipWriter := zip.NewWriter(&buffer)
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		writer, err := zipWriter.Create(name)
+		if err != nil {
+			t.Fatalf("create zip entry %s: %v", name, err)
+		}
+		if _, err := writer.Write([]byte(files[name])); err != nil {
+			t.Fatalf("write zip entry %s: %v", name, err)
+		}
+	}
+	if err := zipWriter.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+	return buffer.Bytes()
 }
 
 func writeText(t *testing.T, path string, body string) {

@@ -24,10 +24,12 @@ type desiredResource struct {
 }
 
 type managedToolInstall struct {
-	Tool        release.ManagedTool
-	Entry       string
-	Artifact    release.ToolArtifact
-	CacheSHA256 string
+	Tool            release.ManagedTool
+	Entry           string
+	Artifact        release.ToolArtifact
+	CacheSHA256     string
+	Directory       bool
+	RequiredEntries []string
 }
 
 func workstationRoot(req Request) string {
@@ -47,6 +49,14 @@ func gitShimPath(req Request) string {
 
 func zshConfigPath(home string) string {
 	return filepath.Join(home, "config", "zsh", ".zshrc")
+}
+
+func zshPluginDeclarationPath(home string) string {
+	return filepath.Join(home, "config", "zsh", ".zsh_plugins.txt")
+}
+
+func antidoteSourceShimPath(home string) string {
+	return filepath.Join(home, "config", "zsh", "antidote.zsh")
 }
 
 func zshShimPath(req Request) string {
@@ -72,22 +82,36 @@ func githubAgentShellPath(home string) string {
 func componentDesiredResources(req Request, component ComponentID, secret *SecretReference, toolLock release.ToolLock, active map[ComponentID]bool) []desiredResource {
 	switch component {
 	case ComponentShell:
-		return []desiredResource{
-			{
+		resources := []desiredResource{}
+		if antidote := managedToolDirectoryResource(req, component, release.ManagedToolAntidote, toolLock, []string{"antidote.zsh", "functions"}); antidote.Path != "" {
+			resources = append(resources, antidote, desiredResource{
 				Component:    component,
-				Path:         zshConfigPath(req.Home),
+				Path:         zshPluginDeclarationPath(req.Home),
 				ResourceKind: ResourceManagedPath,
-				Content:      zshConfigContent(req, active[ComponentGitHubSSH], active[ComponentFNM]),
-				Summary:      "materialize centralized Zsh configuration",
-			},
-			{
+				Content:      zshPluginDeclarationContent(),
+				Summary:      "materialize managed Zsh plugin declaration",
+			}, desiredResource{
 				Component:    component,
-				Path:         zshShimPath(req),
-				ResourceKind: ResourceIntegrationShim,
-				Content:      "source \"${PLASTICINE_HOME:-$HOME/.plasticine}/config/zsh/.zshrc\"\n",
-				Summary:      "materialize minimal Zsh shim",
-			},
+				Path:         antidoteSourceShimPath(req.Home),
+				ResourceKind: ResourceManagedPath,
+				Content:      antidoteSourceShimContent(toolLock, req.ToolLockSHA256),
+				Summary:      "materialize stable Antidote source shim",
+			})
 		}
+		resources = append(resources, desiredResource{
+			Component:    component,
+			Path:         zshConfigPath(req.Home),
+			ResourceKind: ResourceManagedPath,
+			Content:      zshConfigContent(req, active[ComponentGitHubSSH], active[ComponentFNM]),
+			Summary:      "materialize centralized Zsh configuration",
+		}, desiredResource{
+			Component:    component,
+			Path:         zshShimPath(req),
+			ResourceKind: ResourceIntegrationShim,
+			Content:      "source \"${PLASTICINE_HOME:-$HOME/.plasticine}/config/zsh/.zshrc\"\n",
+			Summary:      "materialize minimal Zsh shim",
+		})
+		return compactDesiredResources(resources)
 	case ComponentGitConfig:
 		return []desiredResource{
 			{
@@ -189,6 +213,10 @@ func zshConfigContent(req Request, githubSSHActive bool, fnmActive bool) string 
 		"export PLASTICINE_HOME=\"${PLASTICINE_HOME:-$HOME/.plasticine}\"",
 		"export PATH=\"$PLASTICINE_HOME/bin:$PATH\"",
 		"export ANTIDOTE_HOME=\"$PLASTICINE_HOME/runtime/antidote\"",
+		"export ZDOTDIR=\"$ANTIDOTE_HOME/zsh\"",
+		"zstyle ':antidote:bundle' use-friendly-names 'yes'",
+		"zstyle ':antidote:bundle' file \"$ANTIDOTE_HOME/static.zsh\"",
+		"zstyle ':compinit' dumpfile \"$ANTIDOTE_HOME/.zcompdump\"",
 	}
 	if fnmActive {
 		lines = append(lines,
@@ -205,8 +233,37 @@ func zshConfigContent(req Request, githubSSHActive bool, fnmActive bool) string 
 			"fi",
 		)
 	}
-	lines = append(lines, "")
+	lines = append(lines,
+		"if [ -r \"$PLASTICINE_HOME/config/zsh/antidote.zsh\" ]; then",
+		"  . \"$PLASTICINE_HOME/config/zsh/antidote.zsh\"",
+		"  _plasticine_plugins=\"$PLASTICINE_HOME/config/zsh/.zsh_plugins.txt\"",
+		"  _plasticine_bundle=\"$ANTIDOTE_HOME/static.zsh\"",
+		"  if [ -r \"$_plasticine_plugins\" ]; then",
+		"    if [ ! -r \"$_plasticine_bundle\" ] || [ \"$_plasticine_plugins\" -nt \"$_plasticine_bundle\" ]; then",
+		"      mkdir -p \"$ANTIDOTE_HOME\" \"$ZDOTDIR\"",
+		"      antidote bundle < \"$_plasticine_plugins\" >| \"$_plasticine_bundle\"",
+		"    fi",
+		"    [ -r \"$_plasticine_bundle\" ] && . \"$_plasticine_bundle\"",
+		"  fi",
+		"  unset _plasticine_plugins _plasticine_bundle",
+		"fi",
+		"",
+	)
 	return strings.Join(lines, "\n")
+}
+
+func zshPluginDeclarationContent() string {
+	return strings.Join([]string{
+		"zsh-users/zsh-completions",
+		"zsh-users/zsh-autosuggestions",
+		"zsh-users/zsh-syntax-highlighting",
+		"",
+	}, "\n")
+}
+
+func antidoteSourceShimContent(toolLock release.ToolLock, fallbackSHA string) string {
+	version := managedToolVersionSegment(toolLock, release.ManagedToolAntidote, fallbackSHA)
+	return "source \"${PLASTICINE_HOME:-$HOME/.plasticine}/tools/antidote/" + version + "/antidote.zsh\"\n"
 }
 
 func gitConfigContent(githubSSHActive bool) string {
@@ -287,6 +344,42 @@ func managedToolResources(req Request, component ComponentID, tool release.Manag
 		})
 	}
 	return resources
+}
+
+func managedToolDirectoryResource(req Request, component ComponentID, tool release.ManagedTool, toolLock release.ToolLock, requiredEntries []string) desiredResource {
+	toolName := string(tool)
+	version := managedToolVersionSegment(toolLock, tool, req.ToolLockSHA256)
+	versionedRoot := filepath.Join(req.Home, "tools", toolName, version)
+	artifact, hasArtifact := managedToolArtifact(toolLock, tool, req.Target)
+	if !hasArtifact {
+		return desiredResource{}
+	}
+	resource := desiredResource{
+		Component:    component,
+		Path:         versionedRoot,
+		ResourceKind: ResourceManagedTool,
+		Content:      "managed tool " + toolName + " directory selected by Tool Lock\n",
+		Summary:      "install exact " + toolName + " directory payload selected by Tool Lock",
+	}
+	resource.ManagedTool = &managedToolInstall{
+		Tool:            tool,
+		Artifact:        artifact,
+		CacheSHA256:     artifact.SHA256,
+		Directory:       true,
+		RequiredEntries: append([]string(nil), requiredEntries...),
+	}
+	return resource
+}
+
+func compactDesiredResources(resources []desiredResource) []desiredResource {
+	compacted := resources[:0]
+	for _, resource := range resources {
+		if resource.Path == "" {
+			continue
+		}
+		compacted = append(compacted, resource)
+	}
+	return compacted
 }
 
 func managedToolArtifact(toolLock release.ToolLock, tool release.ManagedTool, target platform.ArtifactTarget) (release.ToolArtifact, bool) {

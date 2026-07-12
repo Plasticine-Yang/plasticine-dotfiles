@@ -99,6 +99,31 @@
           "sha256": "7a1d505fa5c8425b0391398a49efc747836fcfbb7df82d1cc5b2a048c5d79ccb"
         }
       }
+    },
+    "antidote": {
+      "version": "v1.9.10",
+      "targets": {
+        "darwin/amd64": {
+          "url": "https://github.com/mattmc3/antidote/archive/refs/tags/v1.9.10.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "4beb9074da75bfe44a502db61542c557af1a6206a3cdd6e36c3f0743d71417ec"
+        },
+        "darwin/arm64": {
+          "url": "https://github.com/mattmc3/antidote/archive/refs/tags/v1.9.10.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "4beb9074da75bfe44a502db61542c557af1a6206a3cdd6e36c3f0743d71417ec"
+        },
+        "linux/amd64": {
+          "url": "https://github.com/mattmc3/antidote/archive/refs/tags/v1.9.10.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "4beb9074da75bfe44a502db61542c557af1a6206a3cdd6e36c3f0743d71417ec"
+        },
+        "linux/arm64": {
+          "url": "https://github.com/mattmc3/antidote/archive/refs/tags/v1.9.10.tar.gz",
+          "artifact_type": "tar_gz",
+          "sha256": "4beb9074da75bfe44a502db61542c557af1a6206a3cdd6e36c3f0743d71417ec"
+        }
+      }
     }
   }
 }

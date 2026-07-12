@@ -23,10 +23,11 @@ const ChecksumManifestName = "checksums.txt"
 type ManagedTool string
 
 const (
-	ManagedToolNeovim  ManagedTool = "neovim"
-	ManagedToolLazygit ManagedTool = "lazygit"
-	ManagedToolFNM     ManagedTool = "fnm"
-	ManagedToolUV      ManagedTool = "uv"
+	ManagedToolNeovim   ManagedTool = "neovim"
+	ManagedToolLazygit  ManagedTool = "lazygit"
+	ManagedToolFNM      ManagedTool = "fnm"
+	ManagedToolUV       ManagedTool = "uv"
+	ManagedToolAntidote ManagedTool = "antidote"
 )
 
 type ArtifactType string
@@ -108,6 +109,7 @@ func managedTools() []ManagedTool {
 		ManagedToolLazygit,
 		ManagedToolFNM,
 		ManagedToolUV,
+		ManagedToolAntidote,
 	}
 }
 

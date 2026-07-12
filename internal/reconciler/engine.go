@@ -168,6 +168,14 @@ func (r Reconciler) buildPlan(ctx context.Context, req Request) (planSnapshot, e
 	resourceReq := req
 	resourceReq.ToolLockSHA256 = r.toolLockSHA256
 	for _, component := range sortedComponentsFromSet(snapshot.Active) {
+		if component == ComponentShell {
+			if version, ok := r.toolLock.Tools[release.ManagedToolAntidote]; ok {
+				if _, hasArtifact := version.Targets[req.Target]; !hasArtifact {
+					snapshot.block(BlockerUnsupportedTarget, fmt.Sprintf("Tool Lock is missing %s artifact for %s", release.ManagedToolAntidote, req.Target))
+					continue
+				}
+			}
+		}
 		if tool, ok := managedToolForComponent(component); ok {
 			if _, hasArtifact := managedToolArtifact(r.toolLock, tool, req.Target); !hasArtifact {
 				snapshot.block(BlockerUnsupportedTarget, fmt.Sprintf("Tool Lock is missing %s artifact for %s", tool, req.Target))
@@ -979,7 +987,28 @@ func materializeManagedTool(ctx context.Context, home string, resource desiredRe
 		return err
 	}
 	tempPath := resource.Path + ".tmp"
-	_ = os.Remove(tempPath)
+	_ = os.RemoveAll(tempPath)
+	if install.Directory {
+		switch install.Artifact.ArtifactType {
+		case release.ArtifactTypeTarGz:
+			if err := extractTarGzDirectory(cachePath, tempPath, install.RequiredEntries); err != nil {
+				_ = os.RemoveAll(tempPath)
+				return err
+			}
+		case release.ArtifactTypeZip:
+			if err := extractZipDirectory(cachePath, tempPath, install.RequiredEntries); err != nil {
+				_ = os.RemoveAll(tempPath)
+				return err
+			}
+		default:
+			return fmt.Errorf("unsupported managed tool directory artifact type %q", install.Artifact.ArtifactType)
+		}
+		if err := replaceDirectoryPayload(resource.Path, tempPath); err != nil {
+			_ = os.RemoveAll(tempPath)
+			return err
+		}
+		return nil
+	}
 	switch install.Artifact.ArtifactType {
 	case release.ArtifactTypeRawExecutable:
 		if err := copyFile(cachePath, tempPath, 0o755); err != nil {
@@ -997,6 +1026,254 @@ func materializeManagedTool(ctx context.Context, home string, resource desiredRe
 		return fmt.Errorf("unsupported managed tool artifact type %q", install.Artifact.ArtifactType)
 	}
 	return os.Rename(tempPath, resource.Path)
+}
+
+func extractTarGzDirectory(archivePath string, targetDir string, requiredEntries []string) error {
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return err
+	}
+	defer gzipReader.Close()
+	var entries []archiveEntry
+	reader := tar.NewReader(gzipReader)
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		entry, needsData, err := archiveEntryMetadata(archivePath, header.Name, header.FileInfo().Mode(), header.Typeflag == tar.TypeSymlink || header.Typeflag == tar.TypeLink)
+		if err != nil {
+			return err
+		}
+		if !needsData {
+			entries = append(entries, entry)
+			continue
+		}
+		data, err := io.ReadAll(reader)
+		if err != nil {
+			return err
+		}
+		entry.Data = data
+		entries = append(entries, entry)
+	}
+	return materializeDirectoryEntries(targetDir, entries, requiredEntries)
+}
+
+func extractZipDirectory(archivePath string, targetDir string, requiredEntries []string) error {
+	reader, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	entries := make([]archiveEntry, 0, len(reader.File))
+	for _, file := range reader.File {
+		mode := file.FileInfo().Mode()
+		entry, needsData, err := archiveEntryMetadata(archivePath, file.Name, mode, mode&os.ModeSymlink != 0)
+		if err != nil {
+			return err
+		}
+		if !needsData {
+			entries = append(entries, entry)
+			continue
+		}
+		source, err := file.Open()
+		if err != nil {
+			return err
+		}
+		data, readErr := io.ReadAll(source)
+		closeErr := source.Close()
+		if readErr != nil {
+			return readErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		entry.Data = data
+		entries = append(entries, entry)
+	}
+	return materializeDirectoryEntries(targetDir, entries, requiredEntries)
+}
+
+type archiveEntry struct {
+	Name      string
+	Mode      os.FileMode
+	Data      []byte
+	Directory bool
+}
+
+func archiveEntryMetadata(archivePath string, name string, mode os.FileMode, link bool) (archiveEntry, bool, error) {
+	if link {
+		return archiveEntry{}, false, fmt.Errorf("directory payload %s contains forbidden link %s", archivePath, name)
+	}
+	if mode.IsDir() {
+		return archiveEntry{Name: name, Mode: mode, Directory: true}, false, nil
+	}
+	if !mode.IsRegular() {
+		return archiveEntry{}, false, fmt.Errorf("directory payload %s contains unsupported entry %s", archivePath, name)
+	}
+	return archiveEntry{Name: name, Mode: mode}, true, nil
+}
+
+func materializeDirectoryEntries(targetDir string, entries []archiveEntry, requiredEntries []string) error {
+	if len(entries) == 0 {
+		return fmt.Errorf("directory payload is empty")
+	}
+	for _, entry := range entries {
+		if _, err := cleanArchivePath(entry.Name); err != nil {
+			return err
+		}
+	}
+	prefix := commonArchiveRoot(entries, requiredEntries)
+	regularFiles := 0
+	for _, entry := range entries {
+		name, ok := stripArchiveRoot(entry.Name, prefix)
+		if !ok || name == "" {
+			continue
+		}
+		clean, err := cleanArchivePath(name)
+		if err != nil {
+			return err
+		}
+		targetPath := filepath.Join(targetDir, clean)
+		if !strings.HasPrefix(targetPath, targetDir+string(os.PathSeparator)) && targetPath != targetDir {
+			return fmt.Errorf("directory payload entry escapes target: %s", entry.Name)
+		}
+		if entry.Directory {
+			if err := os.MkdirAll(targetPath, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
+		regularFiles++
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			return err
+		}
+		mode := entry.Mode.Perm()
+		if mode == 0 {
+			mode = 0o644
+		}
+		if err := os.WriteFile(targetPath, entry.Data, mode); err != nil {
+			return err
+		}
+	}
+	if regularFiles == 0 {
+		return fmt.Errorf("directory payload is empty")
+	}
+	for _, required := range requiredEntries {
+		if _, err := os.Lstat(filepath.Join(targetDir, filepath.Clean(required))); err != nil {
+			return fmt.Errorf("directory payload missing required entry %s", required)
+		}
+	}
+	return nil
+}
+
+func replaceDirectoryPayload(targetPath string, stagedPath string) error {
+	if _, err := os.Lstat(targetPath); os.IsNotExist(err) {
+		return os.Rename(stagedPath, targetPath)
+	} else if err != nil {
+		return err
+	}
+	backupPath := targetPath + ".old"
+	_ = os.RemoveAll(backupPath)
+	if err := os.Rename(targetPath, backupPath); err != nil {
+		return err
+	}
+	if err := os.Rename(stagedPath, targetPath); err != nil {
+		rollbackErr := os.Rename(backupPath, targetPath)
+		if rollbackErr != nil {
+			return fmt.Errorf("%w; rollback failed: %v", err, rollbackErr)
+		}
+		return err
+	}
+	if err := os.RemoveAll(backupPath); err != nil {
+		return err
+	}
+	return nil
+}
+
+func cleanArchivePath(name string) (string, error) {
+	slashName := filepath.ToSlash(name)
+	if strings.HasPrefix(slashName, "/") {
+		return "", fmt.Errorf("directory payload contains absolute path %s", name)
+	}
+	for _, part := range strings.Split(slashName, "/") {
+		if part == ".." {
+			return "", fmt.Errorf("directory payload contains path traversal %s", name)
+		}
+	}
+	clean := filepath.Clean(slashName)
+	if clean == "." || clean == "" || clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("directory payload contains path traversal %s", name)
+	}
+	return clean, nil
+}
+
+func commonArchiveRoot(entries []archiveEntry, requiredEntries []string) string {
+	required := map[string]bool{}
+	for _, entry := range requiredEntries {
+		required[filepath.ToSlash(filepath.Clean(entry))] = true
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Directory {
+			continue
+		}
+		clean, err := cleanArchivePath(entry.Name)
+		if err != nil {
+			return ""
+		}
+		names = append(names, filepath.ToSlash(clean))
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	for _, name := range names {
+		if required[name] {
+			return ""
+		}
+	}
+	root := ""
+	for _, name := range names {
+		first, _, ok := strings.Cut(name, "/")
+		if !ok {
+			return ""
+		}
+		if root == "" {
+			root = first
+			continue
+		}
+		if root != first {
+			return ""
+		}
+	}
+	return root
+}
+
+func stripArchiveRoot(name string, root string) (string, bool) {
+	clean, err := cleanArchivePath(name)
+	if err != nil {
+		return "", false
+	}
+	slashName := filepath.ToSlash(clean)
+	if root == "" {
+		return slashName, true
+	}
+	if slashName == root {
+		return "", true
+	}
+	prefix := root + "/"
+	if !strings.HasPrefix(slashName, prefix) {
+		return "", false
+	}
+	return strings.TrimPrefix(slashName, prefix), true
 }
 
 func ensureArtifactCache(ctx context.Context, home string, artifact release.ToolArtifact, client *http.Client) (string, error) {
@@ -1293,6 +1570,13 @@ func applyRemovalChange(change Change, state *State) error {
 		delete(state.Ownership, change.Path)
 		return nil
 	}
+	if change.ResourceKind == ResourceManagedTool {
+		if err := os.RemoveAll(change.Path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		delete(state.Ownership, change.Path)
+		return nil
+	}
 	if err := os.Remove(change.Path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -1575,6 +1859,13 @@ func maybeFileDigest(path string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	if info.IsDir() {
+		digest, err := directoryManifestDigest(path)
+		if err != nil {
+			return "", false
+		}
+		return digest, true
+	}
 	if info.Mode()&os.ModeSymlink != 0 {
 		target, err := os.Readlink(path)
 		if err != nil {
@@ -1587,6 +1878,48 @@ func maybeFileDigest(path string) (string, bool) {
 		return "", false
 	}
 	return digestBytes(data), true
+}
+
+func directoryManifestDigest(root string) (string, error) {
+	var lines []string
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == root {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		relative = filepath.ToSlash(relative)
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		mode := info.Mode()
+		switch {
+		case mode&os.ModeSymlink != 0:
+			return fmt.Errorf("directory manifest refuses symlink %s", path)
+		case entry.IsDir():
+			lines = append(lines, fmt.Sprintf("dir %s %04o", relative, mode.Perm()))
+		case mode.IsRegular():
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			lines = append(lines, fmt.Sprintf("file %s %04o %s", relative, mode.Perm(), digestBytes(data)))
+		default:
+			return fmt.Errorf("directory manifest refuses unsupported entry %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	sort.Strings(lines)
+	return digestString(strings.Join(lines, "\n")), nil
 }
 
 func fileDigest(path string) string {
