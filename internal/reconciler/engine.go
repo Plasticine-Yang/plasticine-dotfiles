@@ -1049,6 +1049,9 @@ func extractTarGzDirectory(archivePath string, targetDir string, requiredEntries
 		if err != nil {
 			return err
 		}
+		if isTarMetadataHeader(header.Typeflag) {
+			continue
+		}
 		entry, needsData, err := archiveEntryMetadata(archivePath, header.Name, header.FileInfo().Mode(), header.Typeflag == tar.TypeSymlink || header.Typeflag == tar.TypeLink)
 		if err != nil {
 			return err
@@ -1107,6 +1110,15 @@ type archiveEntry struct {
 	Mode      os.FileMode
 	Data      []byte
 	Directory bool
+}
+
+func isTarMetadataHeader(typeflag byte) bool {
+	switch typeflag {
+	case tar.TypeXHeader, tar.TypeXGlobalHeader, tar.TypeGNULongName, tar.TypeGNULongLink:
+		return true
+	default:
+		return false
+	}
 }
 
 func archiveEntryMetadata(archivePath string, name string, mode os.FileMode, link bool) (archiveEntry, bool, error) {

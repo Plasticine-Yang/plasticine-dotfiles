@@ -55,6 +55,10 @@ func zshPluginDeclarationPath(home string) string {
 	return filepath.Join(home, "config", "zsh", ".zsh_plugins.txt")
 }
 
+func zshPromptConfigPath(home string) string {
+	return filepath.Join(home, "config", "zsh", ".p10k.zsh")
+}
+
 func antidoteSourceShimPath(home string) string {
 	return filepath.Join(home, "config", "zsh", "antidote.zsh")
 }
@@ -90,6 +94,12 @@ func componentDesiredResources(req Request, component ComponentID, secret *Secre
 				ResourceKind: ResourceManagedPath,
 				Content:      zshPluginDeclarationContent(),
 				Summary:      "materialize managed Zsh plugin declaration",
+			}, desiredResource{
+				Component:    component,
+				Path:         zshPromptConfigPath(req.Home),
+				ResourceKind: ResourceManagedPath,
+				Content:      desiredstate.Powerlevel10kConfig(),
+				Summary:      "materialize managed Powerlevel10k prompt configuration",
 			}, desiredResource{
 				Component:    component,
 				Path:         antidoteSourceShimPath(req.Home),
@@ -238,14 +248,18 @@ func zshConfigContent(req Request, githubSSHActive bool, fnmActive bool) string 
 		"  . \"$PLASTICINE_HOME/config/zsh/antidote.zsh\"",
 		"  _plasticine_plugins=\"$PLASTICINE_HOME/config/zsh/.zsh_plugins.txt\"",
 		"  _plasticine_bundle=\"$ANTIDOTE_HOME/static.zsh\"",
+		"  _plasticine_p10k=\"$PLASTICINE_HOME/config/zsh/.p10k.zsh\"",
+		"  ZVM_VI_INSERT_ESCAPE_BINDKEY=jk # jk -> <Esc>",
+		"  ZVM_VI_EDITOR=nvim # vv -> nvim",
 		"  if [ -r \"$_plasticine_plugins\" ]; then",
 		"    if [ ! -r \"$_plasticine_bundle\" ] || [ \"$_plasticine_plugins\" -nt \"$_plasticine_bundle\" ]; then",
 		"      mkdir -p \"$ANTIDOTE_HOME\" \"$ZDOTDIR\"",
 		"      antidote bundle < \"$_plasticine_plugins\" >| \"$_plasticine_bundle\"",
 		"    fi",
 		"    [ -r \"$_plasticine_bundle\" ] && . \"$_plasticine_bundle\"",
+		"    [ -r \"$_plasticine_p10k\" ] && . \"$_plasticine_p10k\"",
 		"  fi",
-		"  unset _plasticine_plugins _plasticine_bundle",
+		"  unset _plasticine_plugins _plasticine_bundle _plasticine_p10k",
 		"fi",
 		"",
 	)
@@ -254,9 +268,23 @@ func zshConfigContent(req Request, githubSSHActive bool, fnmActive bool) string 
 
 func zshPluginDeclarationContent() string {
 	return strings.Join([]string{
+		"# Zsh Completions",
 		"zsh-users/zsh-completions",
-		"zsh-users/zsh-autosuggestions",
+		"",
+		"# Vi-mode",
+		"jeffreytse/zsh-vi-mode",
+		"",
+		"# Syntax Highlighting",
 		"zsh-users/zsh-syntax-highlighting",
+		"",
+		"# History Substring Search",
+		"zsh-users/zsh-history-substring-search",
+		"",
+		"# Autosuggestions",
+		"zsh-users/zsh-autosuggestions",
+		"",
+		"# Prompt Theme - Powerlevel10k",
+		"romkatv/powerlevel10k",
 		"",
 	}, "\n")
 }

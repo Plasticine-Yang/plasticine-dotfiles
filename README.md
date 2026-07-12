@@ -109,6 +109,7 @@ Tool Lock and uses it to bootstrap Zsh plugins. Plasticine owns these paths:
 - `~/.plasticine/tools/antidote/<version>`
 - `~/.plasticine/config/zsh/antidote.zsh`
 - `~/.plasticine/config/zsh/.zsh_plugins.txt`
+- `~/.plasticine/config/zsh/.p10k.zsh`
 - `~/.plasticine/config/zsh/.zshrc`
 
 Antidote's runtime output remains Tool-managed State under
