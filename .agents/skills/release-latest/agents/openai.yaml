@@ -1,0 +1,7 @@
+interface:
+  display_name: "Release Latest"
+  short_description: "Commit current changes and publish the next patch release"
+  default_prompt: "Use $release-latest to commit the current changes and publish the next patch release."
+
+policy:
+  allow_implicit_invocation: false
