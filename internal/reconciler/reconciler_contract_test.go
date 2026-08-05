@@ -1517,6 +1517,9 @@ func TestShellInstallsAntidoteDirectoryPayloadAndBootstrap(t *testing.T) {
 			t.Fatalf("zshrc missing %q:\n%s", want, zshrc)
 		}
 	}
+	if strings.Contains(zshrc, "ZDOTDIR") {
+		t.Fatalf("zshrc overrides descendant shell startup directory:\n%s", zshrc)
+	}
 	if strings.Index(zshrc, "ZVM_VI_INSERT_ESCAPE_BINDKEY=jk") > strings.Index(zshrc, "[ -r \"$_plasticine_bundle\" ] && . \"$_plasticine_bundle\"") {
 		t.Fatalf("vi-mode keybinding is configured after plugin bundle load:\n%s", zshrc)
 	}
