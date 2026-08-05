@@ -128,7 +128,7 @@ func requiredCapabilities(active []ComponentID, req Request) []Capability {
 		case ComponentNeovim, ComponentLazygit:
 			required[CapabilityGit] = true
 			required[CapabilityCA] = true
-		case ComponentFNM, ComponentUV:
+		case ComponentFNM, ComponentUV, ComponentZellij:
 			required[CapabilityCA] = true
 		}
 	}

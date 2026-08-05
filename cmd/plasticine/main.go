@@ -450,7 +450,7 @@ func desiredZshPath(target platform.ArtifactTarget) string {
 }
 
 func desiredStateID() string {
-	sum := sha256.Sum256([]byte("components:shell,git-config,github-ssh,neovim,lazygit,fnm,uv\n"))
+	sum := sha256.Sum256([]byte("components:shell,git-config,github-ssh,neovim,lazygit,fnm,uv,zellij\n"))
 	return hex.EncodeToString(sum[:])
 }
 

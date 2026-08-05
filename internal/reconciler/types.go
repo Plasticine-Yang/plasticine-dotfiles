@@ -14,6 +14,7 @@ const (
 	ComponentLazygit   ComponentID = "lazygit"
 	ComponentFNM       ComponentID = "fnm"
 	ComponentUV        ComponentID = "uv"
+	ComponentZellij    ComponentID = "zellij"
 )
 
 type ComponentStatus string
@@ -169,5 +170,6 @@ func defaultComponents() []ComponentID {
 		ComponentLazygit,
 		ComponentFNM,
 		ComponentUV,
+		ComponentZellij,
 	}
 }

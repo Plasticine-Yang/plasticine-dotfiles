@@ -121,6 +121,7 @@ func TestScopeSuspendsGitConfigWithoutObservingCompanyGit(t *testing.T) {
 		reconciler.ComponentLazygit,
 		reconciler.ComponentFNM,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	scoped, err := r.Apply(context.Background(), req)
 	if err != nil {
@@ -151,6 +152,7 @@ func TestScopeSuspendsGitConfigWithoutObservingCompanyGit(t *testing.T) {
 		reconciler.ComponentLazygit,
 		reconciler.ComponentFNM,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	reenable, err := r.Plan(context.Background(), req)
 	if err != nil {
@@ -296,6 +298,7 @@ func TestGitHubSSHSecretReferenceManagedBlockAndMacKeychain(t *testing.T) {
 		reconciler.ComponentLazygit,
 		reconciler.ComponentFNM,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	req.IncludeGitHubSSH = true
 	req.GitHubKeyPath = key
@@ -356,6 +359,7 @@ func TestGitHubSSHSecretReferenceCanBeSelectedInteractively(t *testing.T) {
 		reconciler.ComponentLazygit,
 		reconciler.ComponentFNM,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	req.LoginShellKnown = true
 	req.LoginShell = "/bin/zsh"
@@ -401,6 +405,7 @@ func TestGitHubSSHValidSecretReferenceDoesNotPromptAgain(t *testing.T) {
 		reconciler.ComponentLazygit,
 		reconciler.ComponentFNM,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	req.LoginShellKnown = true
 	req.LoginShell = "/bin/zsh"
@@ -456,6 +461,7 @@ func TestGitHubHTTPSRewriteRequiresGitConfigAndGitHubSSHActive(t *testing.T) {
 		reconciler.ComponentLazygit,
 		reconciler.ComponentFNM,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	withSSH.LoginShellKnown = true
 	withSSH.LoginShell = "/bin/zsh"
@@ -494,6 +500,7 @@ func TestLinuxGitHubSSHUsesSharedAgentSocket(t *testing.T) {
 		reconciler.ComponentLazygit,
 		reconciler.ComponentFNM,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	req.Capabilities = map[reconciler.Capability]bool{
 		reconciler.CapabilityGit:                true,
@@ -597,6 +604,7 @@ func TestLinuxGitHubSSHBlocksUnsupportedSharedAgentPlatform(t *testing.T) {
 		reconciler.ComponentLazygit,
 		reconciler.ComponentFNM,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	req.Capabilities = map[reconciler.Capability]bool{
 		reconciler.CapabilityGit:                true,
@@ -635,6 +643,7 @@ func TestLinuxGitHubSSHBlocksMissingSystemdUserSessionAsUnsupported(t *testing.T
 		reconciler.ComponentLazygit,
 		reconciler.ComponentFNM,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	req.Capabilities = map[reconciler.Capability]bool{
 		reconciler.CapabilityGit:                true,
@@ -676,6 +685,7 @@ func TestComponentOperationalFailureContinuesIndependentBranches(t *testing.T) {
 		reconciler.ComponentLazygit,
 		reconciler.ComponentFNM,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	req.Capabilities = map[reconciler.Capability]bool{
 		reconciler.CapabilityGit:                true,
@@ -735,6 +745,7 @@ func TestSystemDependenciesRequireIndependentAuthorization(t *testing.T) {
 		reconciler.ComponentLazygit,
 		reconciler.ComponentFNM,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	req.Target = platform.TargetLinuxAMD64
 	req.Host = platform.Host{
@@ -892,6 +903,7 @@ func TestShellCanSkipLoginShellChangeWhileKeepingDependentsActive(t *testing.T) 
 		reconciler.ComponentNeovim,
 		reconciler.ComponentLazygit,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	req.Capabilities = map[reconciler.Capability]bool{
 		reconciler.CapabilityGit: true,
@@ -950,6 +962,7 @@ func TestShellPlanIncludesLoginShellChangeWhenZshCapabilityIsMissing(t *testing.
 		reconciler.ComponentLazygit,
 		reconciler.ComponentFNM,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	req.Capabilities = map[reconciler.Capability]bool{
 		reconciler.CapabilityGit: true,
@@ -1002,6 +1015,7 @@ func TestLoginShellChangeWaitsForSuccessfulZshCapability(t *testing.T) {
 		reconciler.ComponentLazygit,
 		reconciler.ComponentFNM,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	req.Capabilities = map[reconciler.Capability]bool{
 		reconciler.CapabilityGit: true,
@@ -1091,6 +1105,7 @@ func TestLoginShellFailureSkipsDependentsAndContinuesIndependentWork(t *testing.
 		reconciler.ComponentNeovim,
 		reconciler.ComponentLazygit,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	req.Capabilities = map[reconciler.Capability]bool{
 		reconciler.CapabilityGit: true,
@@ -1154,6 +1169,7 @@ func TestShellResourceFailureSkipsDependentsAndContinuesIndependentWork(t *testi
 		reconciler.ComponentNeovim,
 		reconciler.ComponentLazygit,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	req.Capabilities = map[reconciler.Capability]bool{
 		reconciler.CapabilityGit: true,
@@ -1252,6 +1268,7 @@ func TestSystemDependencyFailureSkipsDependentComponentAndContinuesIndependentWo
 		reconciler.ComponentNeovim,
 		reconciler.ComponentLazygit,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	req.Target = platform.TargetLinuxAMD64
 	req.Host = platform.Host{
@@ -1325,6 +1342,7 @@ func TestMacOSCommandLineToolsLaunchLeavesDependentsAwaitingOwnerAction(t *testi
 		reconciler.ComponentLazygit,
 		reconciler.ComponentFNM,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	key := filepath.Join(req.Home, "id_ed25519")
 	generateSSHKey(t, key)
@@ -1931,6 +1949,7 @@ func TestFNMComponentIntegratesManagedShellEnvironment(t *testing.T) {
 		reconciler.ComponentNeovim,
 		reconciler.ComponentLazygit,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 	req.Yes = true
 
@@ -2031,6 +2050,7 @@ func TestUVComponentMaterializesUVAndUVXLaunchersWithRuntimeRelocation(t *testin
 		reconciler.ComponentNeovim,
 		reconciler.ComponentLazygit,
 		reconciler.ComponentFNM,
+		reconciler.ComponentZellij,
 	}
 	req.Components = []reconciler.ComponentID{reconciler.ComponentUV}
 	req.Yes = true
@@ -3014,6 +3034,7 @@ func TestComponentGraphBlocksMissingDependenciesAndScopeExpansion(t *testing.T) 
 		reconciler.ComponentNeovim,
 		reconciler.ComponentLazygit,
 		reconciler.ComponentUV,
+		reconciler.ComponentZellij,
 	}
 
 	plan, err := r.Plan(context.Background(), req)
@@ -3131,6 +3152,7 @@ func contractRequest(home string) reconciler.Request {
 			reconciler.ComponentLazygit,
 			reconciler.ComponentFNM,
 			reconciler.ComponentUV,
+			reconciler.ComponentZellij,
 		},
 		Host: platform.Host{
 			OS:      platform.OSDarwin,

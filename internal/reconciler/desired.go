@@ -112,7 +112,7 @@ func componentDesiredResources(req Request, component ComponentID, secret *Secre
 			Component:    component,
 			Path:         zshConfigPath(req.Home),
 			ResourceKind: ResourceManagedPath,
-			Content:      zshConfigContent(req, active[ComponentGitHubSSH], active[ComponentFNM]),
+			Content:      zshConfigContent(req, active[ComponentGitHubSSH], active[ComponentFNM], active[ComponentZellij]),
 			Summary:      "materialize centralized Zsh configuration",
 		}, desiredResource{
 			Component:    component,
@@ -147,6 +147,8 @@ func componentDesiredResources(req Request, component ComponentID, secret *Secre
 		return managedToolResources(req, component, release.ManagedToolFNM, []string{"fnm"}, toolLock)
 	case ComponentUV:
 		return managedToolResources(req, component, release.ManagedToolUV, []string{"uv", "uvx"}, toolLock)
+	case ComponentZellij:
+		return managedToolResources(req, component, release.ManagedToolZellij, []string{"zellij"}, toolLock)
 	case ComponentGitHubSSH:
 		resources := []desiredResource{
 			{
@@ -238,7 +240,7 @@ func neovimResources(req Request, toolLock release.ToolLock) []desiredResource {
 	return resources
 }
 
-func zshConfigContent(req Request, githubSSHActive bool, fnmActive bool) string {
+func zshConfigContent(req Request, githubSSHActive bool, fnmActive bool, zellijActive bool) string {
 	lines := []string{
 		"# Managed by Plasticine.",
 		"export PLASTICINE_HOME=\"${PLASTICINE_HOME:-$HOME/.plasticine}\"",
@@ -256,6 +258,9 @@ func zshConfigContent(req Request, githubSSHActive bool, fnmActive bool) string 
 			"  eval \"$(\"$PLASTICINE_HOME/bin/fnm\" env --use-on-cd --shell zsh)\"",
 			"fi",
 		)
+	}
+	if zellijActive {
+		lines = append(lines, "alias zp='zellij attach plasticine'")
 	}
 	if req.Target.OS == platform.OSLinux && githubSSHActive {
 		lines = append(lines,
@@ -450,6 +455,8 @@ func managedToolForComponent(component ComponentID) (release.ManagedTool, bool) 
 		return release.ManagedToolFNM, true
 	case ComponentUV:
 		return release.ManagedToolUV, true
+	case ComponentZellij:
+		return release.ManagedToolZellij, true
 	default:
 		return "", false
 	}

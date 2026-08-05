@@ -33,12 +33,12 @@ if [ "${PLASTICINE_EXPECT_VERSION:-}" ] || [ "${PLASTICINE_EXPECT_COMMIT:-}" ] |
 else
         printf '%s\n' "$version_output" | grep 'plasticine ' >/dev/null
 fi
-plan_output="$(PLASTICINE_WORKSTATION_ROOT="$home/workstation" "$binary" plan --home "$home" --exclude shell --exclude github-ssh --exclude neovim --exclude lazygit --exclude fnm --exclude uv)"
+plan_output="$(PLASTICINE_WORKSTATION_ROOT="$home/workstation" "$binary" plan --home "$home" --exclude shell --exclude github-ssh --exclude neovim --exclude lazygit --exclude fnm --exclude uv --exclude zellij)"
 printf '%s\n' "$plan_output" | grep '^desired_state: [0-9a-f][0-9a-f]*$' >/dev/null
 if [ -e "$home/state/reconciliation.json" ]; then
 	printf '%s\n' "plan wrote state in smoke home" >&2
 	exit 1
 fi
-PLASTICINE_WORKSTATION_ROOT="$home/workstation" "$binary" apply --home "$home" --exclude shell --exclude github-ssh --exclude neovim --exclude lazygit --exclude fnm --exclude uv --yes >/dev/null
+PLASTICINE_WORKSTATION_ROOT="$home/workstation" "$binary" apply --home "$home" --exclude shell --exclude github-ssh --exclude neovim --exclude lazygit --exclude fnm --exclude uv --exclude zellij --yes >/dev/null
 test -f "$home/state/reconciliation.json"
 PLASTICINE_WORKSTATION_ROOT="$home/workstation" "$binary" doctor --home "$home" >/dev/null

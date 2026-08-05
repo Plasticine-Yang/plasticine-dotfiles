@@ -28,6 +28,7 @@ const (
 	ManagedToolFNM      ManagedTool = "fnm"
 	ManagedToolUV       ManagedTool = "uv"
 	ManagedToolAntidote ManagedTool = "antidote"
+	ManagedToolZellij   ManagedTool = "zellij"
 )
 
 type ArtifactType string
@@ -110,6 +111,7 @@ func managedTools() []ManagedTool {
 		ManagedToolFNM,
 		ManagedToolUV,
 		ManagedToolAntidote,
+		ManagedToolZellij,
 	}
 }
 

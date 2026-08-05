@@ -35,6 +35,7 @@ func TestPlanApplyDoctorContractUsesOnlyObservableEffects(t *testing.T) {
 			reconciler.ComponentLazygit,
 			reconciler.ComponentFNM,
 			reconciler.ComponentUV,
+			reconciler.ComponentZellij,
 		},
 	}
 
