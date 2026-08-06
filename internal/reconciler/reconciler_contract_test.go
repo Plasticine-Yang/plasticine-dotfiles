@@ -376,7 +376,7 @@ func TestGitHubSSHSecretReferenceCanBeSelectedInteractively(t *testing.T) {
 	key := filepath.Join(req.Home, "id_ed25519")
 	generateSSHKey(t, key)
 	selected := false
-	req.GitHubKeySelector = func() (string, bool) {
+	req.GitHubKeySelector = func(context.Context) (string, bool) {
 		selected = true
 		return key, true
 	}
@@ -424,7 +424,7 @@ func TestGitHubSSHValidSecretReferenceDoesNotPromptAgain(t *testing.T) {
 
 	req.GitHubKeyPath = ""
 	req.Yes = false
-	req.GitHubKeySelector = func() (string, bool) {
+	req.GitHubKeySelector = func(context.Context) (string, bool) {
 		t.Fatal("valid persisted Secret Reference should not prompt again")
 		return "", false
 	}
@@ -1209,7 +1209,7 @@ func TestApplyAuthorizesTheImmutablePlanBeforeMutation(t *testing.T) {
 	r := contractReconciler()
 	req := contractRequest(t.TempDir())
 	authorized := false
-	req.Authorize = func(plan reconciler.Result) bool {
+	req.Authorize = func(_ context.Context, plan reconciler.Result) reconciler.AuthorizationDecision {
 		authorized = true
 		if plan.Outcome != reconciler.OutcomeChangesPlanned {
 			t.Fatalf("authorized plan outcome = %s, want changes planned", plan.Outcome)
@@ -1217,7 +1217,12 @@ func TestApplyAuthorizesTheImmutablePlanBeforeMutation(t *testing.T) {
 		if !hasChange(plan.Changes, reconciler.ComponentGitConfig, reconciler.ResourceManagedPath) {
 			t.Fatalf("authorized plan did not include git-config change: %#v", plan.Changes)
 		}
-		return true
+		return reconciler.AuthorizationDecision{
+			Approved:           true,
+			AllowSystemChanges: true,
+			AllowAdoption:      true,
+			AllowRetirements:   true,
+		}
 	}
 
 	applied, err := r.Apply(context.Background(), req)
@@ -1233,7 +1238,9 @@ func TestApplyAuthorizesTheImmutablePlanBeforeMutation(t *testing.T) {
 
 	deniedHome := t.TempDir()
 	deniedReq := contractRequest(deniedHome)
-	deniedReq.Authorize = func(reconciler.Result) bool { return false }
+	deniedReq.Authorize = func(context.Context, reconciler.Result) reconciler.AuthorizationDecision {
+		return reconciler.AuthorizationDecision{}
+	}
 	denied, err := r.Apply(context.Background(), deniedReq)
 	if err != nil {
 		t.Fatalf("denied apply: %v", err)
@@ -2448,9 +2455,9 @@ func TestRetirementBlocksStaleExternalEditsBeforeDeletion(t *testing.T) {
 	writeStateJSON(t, req.Home, state)
 
 	req.Yes = false
-	req.Authorize = func(reconciler.Result) bool {
+	req.Authorize = func(context.Context, reconciler.Result) reconciler.AuthorizationDecision {
 		writeText(t, retiredPath, "owner edit after plan")
-		return true
+		return reconciler.AuthorizationDecision{Approved: true, AllowRetirements: true}
 	}
 	result, err := r.Apply(context.Background(), req)
 	if err != nil {

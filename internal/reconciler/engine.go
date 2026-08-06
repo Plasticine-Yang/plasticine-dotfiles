@@ -152,7 +152,7 @@ func (r Reconciler) buildPlan(ctx context.Context, req Request) (planSnapshot, e
 		snapshot.planRequiredSystemChange(req)
 	}
 
-	secret, secretBlocker := resolveGitHubSecret(req, state, snapshot.Active[ComponentGitHubSSH])
+	secret, secretBlocker := resolveGitHubSecret(ctx, req, state, snapshot.Active[ComponentGitHubSSH])
 	if secretBlocker != nil {
 		snapshot.Result.Blockers = append(snapshot.Result.Blockers, *secretBlocker)
 	} else if secret != nil {
@@ -201,20 +201,36 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 	if result.Outcome == OutcomeBlocked || result.Outcome == OutcomeNoChange {
 		return result, nil
 	}
-	if !req.Yes && req.Authorize == nil {
+	decision := AuthorizationDecision{
+		Approved:           req.Yes,
+		AllowSystemChanges: req.Yes && req.AllowSystem,
+		AllowAdoption:      req.Yes && req.Adopt,
+		AllowRetirements:   req.Yes,
+	}
+	if !req.Yes && req.Authorize != nil {
+		decision = req.Authorize(ctx, cloneResult(result))
+	}
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
+	if !decision.Approved {
 		result.Outcome = OutcomeDenied
 		return result, nil
 	}
-	if !req.Yes && !req.Authorize(result) {
-		result.Outcome = OutcomeDenied
-		return result, nil
-	}
-	if snapshot.SystemChange && !req.AllowSystem {
+	if snapshot.SystemChange && !decision.AllowSystemChanges {
 		result.Outcome = OutcomeBlocked
 		result.Blockers = append(result.Blockers, Blocker{
 			Code:    BlockerSystemChangeAuthorization,
 			Message: "system changes require --allow-system",
 		})
+		return result, nil
+	}
+	if snapshot.Adopt && hasAdoptableConflicts(result.Conflicts) && !decision.AllowAdoption {
+		result.Outcome = OutcomeDenied
+		return result, nil
+	}
+	if len(result.Retirements) > 0 && !decision.AllowRetirements {
+		result.Outcome = OutcomeDenied
 		return result, nil
 	}
 
@@ -233,25 +249,39 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 		return Result{}, err
 	}
 	if snapshot.ScopeChanged {
+		scopeChange := changeByKind(result.Changes, ChangeScopeReplacement)
+		observeChange(req, scopeChange, ProgressStarted)
 		state.Scope.Excluded = append([]ComponentID(nil), snapshot.Result.Scope.Excluded...)
 		if err := writeState(req.Home, state); err != nil {
+			observeChange(req, scopeChange, ProgressFailed)
 			return Result{}, err
 		}
 		result.DurableEffects = appendUnique(result.DurableEffects, StatePath(req.Home))
+		observeChange(req, scopeChange, ProgressSucceeded)
 	}
 
 	for _, conflict := range result.Conflicts {
 		if !conflict.Adoptable {
 			continue
 		}
+		adoption := Change{
+			Component:    conflict.Component,
+			Kind:         ChangeAdoptConflict,
+			ResourceKind: ResourceManagedPath,
+			Path:         conflict.Path,
+			Summary:      "back up and adopt conflicting content",
+		}
+		observeChange(req, adoption, ProgressStarted)
 		backup, err := createBackup(req.Home, r.clock, conflict)
 		if err != nil {
+			observeChange(req, adoption, ProgressFailed)
 			return Result{}, err
 		}
 		if backup.Backup != "" {
 			state.Backups = append(state.Backups, backup)
 			result.DurableEffects = appendUnique(result.DurableEffects, backup.Backup)
 		}
+		observeChange(req, adoption, ProgressSucceeded)
 	}
 
 	for _, retirement := range result.Retirements {
@@ -286,6 +316,7 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 			cleanupChanges = append(cleanupChanges, change)
 			continue
 		case ChangeSystemDependency:
+			observeChange(req, change, ProgressStarted)
 			effects, err := r.applySystemDependency(ctx, req, change)
 			for _, effect := range effects {
 				result.DurableEffects = appendUnique(result.DurableEffects, effect)
@@ -305,12 +336,16 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 				if errors.Is(err, ErrOwnerActionRequired) {
 					code = BlockerOwnerActionRequired
 					awaitingOwnerAction = true
+					observeChange(req, change, ProgressAwaitingOwnerAction)
+				} else {
+					observeChange(req, change, ProgressFailed)
 				}
 				result.Blockers = append(result.Blockers, Blocker{Code: code, Message: err.Error()})
 				failedCapabilities = append(failedCapabilities, remainingCapabilities...)
 				continue
 			}
 			if len(remainingCapabilities) > 0 {
+				observeChange(req, change, ProgressFailed)
 				result.Outcome = OutcomePartial
 				result.Blockers = append(result.Blockers, Blocker{
 					Code:    BlockerOperationalFailure,
@@ -319,25 +354,33 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 				failedCapabilities = append(failedCapabilities, remainingCapabilities...)
 				continue
 			}
+			observeChange(req, change, ProgressSucceeded)
 			continue
 		case ChangeLoginShell:
 			if componentHasFailedCapability(change.Component, req, failedCapabilities) {
+				observeChange(req, change, ProgressSkipped)
 				continue
 			}
+			observeChange(req, change, ProgressStarted)
 			effects, err := applyLoginShellChange(ctx, req, change.Path)
 			for _, effect := range effects {
 				result.DurableEffects = appendUnique(result.DurableEffects, effect)
 			}
 			if err != nil {
+				observeChange(req, change, ProgressFailed)
 				result.Outcome = OutcomePartial
 				result.Blockers = append(result.Blockers, Blocker{Code: BlockerOperationalFailure, Message: err.Error()})
 				failedComponents[change.Component] = err.Error()
+			} else {
+				observeChange(req, change, ProgressSucceeded)
 			}
 			continue
 		case ChangeSecretReference:
+			observeChange(req, change, ProgressStarted)
 			if snapshot.Secret != nil {
 				state.SecretReferences[ComponentGitHubSSH] = *snapshot.Secret
 			}
+			observeChange(req, change, ProgressSucceeded)
 			continue
 		}
 		resourceChanges[change.Component] = append(resourceChanges[change.Component], change)
@@ -361,6 +404,13 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 			Status:    status,
 			Message:   message,
 		})
+		progressStatus := ProgressSkipped
+		if status == ComponentBlocked {
+			progressStatus = ProgressFailed
+		} else if status == ComponentAwaitingOwnerAction {
+			progressStatus = ProgressAwaitingOwnerAction
+		}
+		observeComponent(req, component, progressStatus, message)
 	}
 	blockedByComponent := componentBlockedComponents(snapshot.Active, failedComponents)
 	reportedComponentBlocks := map[ComponentID]bool{}
@@ -380,6 +430,11 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 			Status:    status,
 			Message:   message,
 		})
+		progressStatus := ProgressFailed
+		if status == ComponentSkipped {
+			progressStatus = ProgressSkipped
+		}
+		observeComponent(req, component, progressStatus, message)
 		reportedComponentBlocks[component] = true
 	}
 	for _, component := range orderedComponentsFromSet(componentChangeSet(resourceChanges)) {
@@ -399,14 +454,21 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 					Status:    status,
 					Message:   message,
 				})
+				progressStatus := ProgressFailed
+				if status == ComponentSkipped {
+					progressStatus = ProgressSkipped
+				}
+				observeComponent(req, component, progressStatus, message)
 				reportedComponentBlocks[component] = true
 			}
 			continue
 		}
 		changes := resourceChanges[component]
+		observeComponent(req, component, ProgressStarted, "")
 		componentPending := journalEntriesFor(changes)
 		state.PendingWork = append(state.PendingWork, componentPending...)
 		if err := writeState(req.Home, state); err != nil {
+			observeComponent(req, component, ProgressFailed, err.Error())
 			return Result{}, err
 		}
 		result.DurableEffects = appendUnique(result.DurableEffects, StatePath(req.Home))
@@ -420,31 +482,38 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 			failedComponents[component] = message
 			reportedComponentBlocks[component] = true
 			componentFailed = true
+			observeComponent(req, component, ProgressFailed, message)
 		}
 		for _, change := range changes {
 			resource, ok := snapshot.DesiredByPath[change.Path]
 			if !ok {
 				continue
 			}
+			observeChange(req, change, ProgressStarted)
 			if req.BeforeMutation != nil {
 				req.BeforeMutation(change)
 			}
 			if req.FailBeforeEffectPath == change.Path {
+				observeChange(req, change, ProgressFailed)
 				blockComponent(BlockerOperationalFailure, "failure injected before materializing "+change.Path)
 				break
 			}
 			if err := verifyPrecondition(change.Path, change.Precondition); err != nil {
+				observeChange(req, change, ProgressFailed)
+				observeComponent(req, component, ProgressFailed, err.Error())
 				result.Outcome = OutcomeBlocked
 				result.Blockers = append(result.Blockers, Blocker{Code: BlockerStalePlan, Message: err.Error()})
 				return result, nil
 			}
 			if err := writeResource(ctx, req.Home, resource, r.httpClient); err != nil {
+				observeChange(req, change, ProgressFailed)
 				blockComponent(BlockerOperationalFailure, err.Error())
 				break
 			}
 			if resource.ResourceKind == ResourceUserService {
 				effects, err := startUserService(ctx, req, resource.Path)
 				if err != nil {
+					observeChange(req, change, ProgressFailed)
 					blockComponent(BlockerOperationalFailure, err.Error())
 					break
 				}
@@ -452,6 +521,7 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 					result.DurableEffects = appendUnique(result.DurableEffects, effect)
 				}
 			}
+			observeChange(req, change, ProgressSucceeded)
 			componentOwnership[resource.Path] = Ownership{
 				Component:    resource.Component,
 				Path:         resource.Path,
@@ -472,9 +542,11 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 		}
 		state.PendingWork = removeJournalEntries(state.PendingWork, componentPending)
 		if err := writeState(req.Home, state); err != nil {
+			observeComponent(req, component, ProgressFailed, err.Error())
 			return Result{}, err
 		}
 		result.Components = append(result.Components, ComponentResult{Component: component, Status: ComponentSucceeded})
+		observeComponent(req, component, ProgressSucceeded, "")
 	}
 
 	if result.Outcome != OutcomePartial {
@@ -863,7 +935,7 @@ func (s *planSnapshot) change(resource desiredResource, kind ChangeKind, precond
 	})
 }
 
-func resolveGitHubSecret(req Request, state State, active bool) (*SecretReference, *Blocker) {
+func resolveGitHubSecret(ctx context.Context, req Request, state State, active bool) (*SecretReference, *Blocker) {
 	if !active {
 		return nil, nil
 	}
@@ -884,7 +956,10 @@ func resolveGitHubSecret(req Request, state State, active bool) (*SecretReferenc
 		existingErr = err
 	}
 	if req.GitHubKeySelector != nil {
-		selectedPath, selected := req.GitHubKeySelector()
+		selectedPath, selected := req.GitHubKeySelector(ctx)
+		if err := ctx.Err(); err != nil {
+			return nil, &Blocker{Code: BlockerOperationalFailure, Message: err.Error()}
+		}
 		if selected && strings.TrimSpace(selectedPath) != "" {
 			ref, err := validateSecretReference(selectedPath, "")
 			if err != nil {
@@ -897,6 +972,40 @@ func resolveGitHubSecret(req Request, state State, active bool) (*SecretReferenc
 		return nil, &Blocker{Code: BlockerSecretReferenceRequired, Message: existingErr.Error() + "; choose it explicitly again"}
 	}
 	return nil, &Blocker{Code: BlockerSecretReferenceRequired, Message: "github-ssh requires an explicit --github-key, an interactive key selection, or a valid persisted Secret Reference"}
+}
+
+func hasAdoptableConflicts(conflicts []Conflict) bool {
+	for _, conflict := range conflicts {
+		if conflict.Adoptable {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneResult(result Result) Result {
+	cloned := result
+	cloned.DurableEffects = append([]string(nil), result.DurableEffects...)
+	cloned.Blockers = append([]Blocker(nil), result.Blockers...)
+	cloned.Changes = make([]Change, len(result.Changes))
+	for index, change := range result.Changes {
+		cloned.Changes[index] = change
+		cloned.Changes[index].Capabilities = append([]Capability(nil), change.Capabilities...)
+	}
+	cloned.Conflicts = append([]Conflict(nil), result.Conflicts...)
+	cloned.Retirements = append([]Retirement(nil), result.Retirements...)
+	cloned.Scope = ScopeSummary{
+		Excluded:  append([]ComponentID(nil), result.Scope.Excluded...),
+		Active:    append([]ComponentID(nil), result.Scope.Active...),
+		Suspended: append([]ComponentID(nil), result.Scope.Suspended...),
+	}
+	cloned.Components = append([]ComponentResult(nil), result.Components...)
+	cloned.Checks = append([]Check(nil), result.Checks...)
+	if result.StateMigration != nil {
+		migration := *result.StateMigration
+		cloned.StateMigration = &migration
+	}
+	return cloned
 }
 
 func validateSecretReference(path string, expectedFingerprint string) (SecretReference, error) {
@@ -972,13 +1081,13 @@ func startUserService(ctx context.Context, req Request, servicePath string) ([]s
 		return req.UserServiceStarter(ctx, servicePath)
 	}
 	serviceName := filepath.Base(servicePath)
-	if err := exec.CommandContext(ctx, "systemctl", "--user", "link", servicePath).Run(); err != nil {
+	if err := runTerminalCommand(ctx, req, TerminalCommand{Name: "systemctl", Args: []string{"--user", "link", servicePath}}); err != nil {
 		return nil, err
 	}
-	if err := exec.CommandContext(ctx, "systemctl", "--user", "daemon-reload").Run(); err != nil {
+	if err := runTerminalCommand(ctx, req, TerminalCommand{Name: "systemctl", Args: []string{"--user", "daemon-reload"}}); err != nil {
 		return nil, err
 	}
-	if err := exec.CommandContext(ctx, "systemctl", "--user", "enable", "--now", serviceName).Run(); err != nil {
+	if err := runTerminalCommand(ctx, req, TerminalCommand{Name: "systemctl", Args: []string{"--user", "enable", "--now", serviceName}}); err != nil {
 		return nil, err
 	}
 	return []string{"systemctl --user link " + servicePath, "systemctl --user daemon-reload", "systemctl --user enable --now " + serviceName}, nil
@@ -988,19 +1097,23 @@ func applyLoginShellChange(ctx context.Context, req Request, desiredShell string
 	if req.ShellChangeExecutor != nil {
 		return req.ShellChangeExecutor(ctx, desiredShell)
 	}
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if err != nil {
-		return nil, fmt.Errorf("login shell change requires a controlling terminal: %w", err)
-	}
-	defer tty.Close()
-	command := exec.CommandContext(ctx, "chsh", "-s", desiredShell)
-	command.Stdin = tty
-	command.Stdout = tty
-	command.Stderr = tty
-	if err := command.Run(); err != nil {
+	if err := runTerminalCommand(ctx, req, TerminalCommand{
+		Name:             "chsh",
+		Args:             []string{"-s", desiredShell},
+		RequiresTerminal: true,
+	}); err != nil {
 		return nil, err
 	}
 	return []string{"chsh -s " + desiredShell}, nil
+}
+
+func changeByKind(changes []Change, kind ChangeKind) Change {
+	for _, change := range changes {
+		if change.Kind == kind {
+			return change
+		}
+	}
+	return Change{Kind: kind}
 }
 
 func materializeManagedTool(ctx context.Context, home string, resource desiredResource, client *http.Client) error {
@@ -1606,7 +1719,9 @@ func retirableResourceKind(kind ResourceKind) bool {
 }
 
 func executeRemovalChange(req Request, result *Result, state *State, change Change) (bool, error) {
+	observeChange(req, change, ProgressStarted)
 	if err := verifyPrecondition(change.Path, change.Precondition); err != nil {
+		observeChange(req, change, ProgressFailed)
 		result.Outcome = OutcomeBlocked
 		result.Blockers = append(result.Blockers, Blocker{Code: BlockerStalePlan, Message: err.Error()})
 		return true, nil
@@ -1614,6 +1729,7 @@ func executeRemovalChange(req Request, result *Result, state *State, change Chan
 	pending := journalEntriesFor([]Change{change})
 	state.PendingWork = append(state.PendingWork, pending...)
 	if err := writeState(req.Home, *state); err != nil {
+		observeChange(req, change, ProgressFailed)
 		return false, err
 	}
 	result.DurableEffects = appendUnique(result.DurableEffects, StatePath(req.Home))
@@ -1621,6 +1737,7 @@ func executeRemovalChange(req Request, result *Result, state *State, change Chan
 		req.BeforeMutation(change)
 	}
 	if err := verifyPrecondition(change.Path, change.Precondition); err != nil {
+		observeChange(req, change, ProgressFailed)
 		state.PendingWork = removeJournalEntries(state.PendingWork, pending)
 		if writeErr := writeState(req.Home, *state); writeErr != nil {
 			return false, writeErr
@@ -1630,6 +1747,7 @@ func executeRemovalChange(req Request, result *Result, state *State, change Chan
 		return true, nil
 	}
 	if req.FailBeforeEffectPath == change.Path {
+		observeChange(req, change, ProgressFailed)
 		result.Outcome = OutcomePartial
 		result.Blockers = append(result.Blockers, Blocker{
 			Code:    BlockerOperationalFailure,
@@ -1638,15 +1756,18 @@ func executeRemovalChange(req Request, result *Result, state *State, change Chan
 		return false, nil
 	}
 	if err := applyRemovalChange(change, state); err != nil {
+		observeChange(req, change, ProgressFailed)
 		result.Outcome = OutcomePartial
 		result.Blockers = append(result.Blockers, Blocker{Code: BlockerOperationalFailure, Message: err.Error()})
 		return false, nil
 	}
 	state.PendingWork = removeJournalEntries(state.PendingWork, pending)
 	if err := writeState(req.Home, *state); err != nil {
+		observeChange(req, change, ProgressFailed)
 		return false, err
 	}
 	result.DurableEffects = appendUnique(result.DurableEffects, change.Path)
+	observeChange(req, change, ProgressSucceeded)
 	return false, nil
 }
 
@@ -1891,12 +2012,12 @@ func systemBlockSet(blocked map[ComponentID]systemBlock) map[ComponentID]bool {
 }
 
 func componentDependencies(component ComponentID) []ComponentID {
-	switch component {
-	case ComponentFNM, ComponentGitHubSSH:
-		return []ComponentID{ComponentShell}
-	default:
-		return nil
+	for _, definition := range componentCatalog {
+		if definition.ID == component {
+			return definition.Dependencies
+		}
 	}
+	return nil
 }
 
 func componentDependents(dependency ComponentID) []ComponentID {

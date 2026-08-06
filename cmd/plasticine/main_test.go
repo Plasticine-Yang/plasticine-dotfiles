@@ -13,6 +13,7 @@ import (
 
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/reconciler"
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/release"
+	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/workstation"
 )
 
 func TestRenderResultGroupsComponentStatuses(t *testing.T) {
@@ -48,7 +49,7 @@ func TestUpgradeDownloadsLatestReleaseAndHandoffsToCandidateSelfInstall(t *testi
 	capture := filepath.Join(home, "candidate-args.txt")
 	candidate := []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$PLASTICINE_CAPTURE\"\n")
 	sum := sha256.Sum256(candidate)
-	target := currentTarget()
+	target := workstation.CurrentTarget()
 	binaryName := release.BinaryName(target)
 	var requests []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

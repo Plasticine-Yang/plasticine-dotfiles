@@ -29,12 +29,51 @@ setting enabled; the publication workflow also refuses duplicate tags or assets.
 The public command surface is intentionally small:
 
 ```sh
+plasticine
 plasticine version
 plasticine plan
 plasticine apply --yes
 plasticine doctor
 plasticine upgrade --yes
 ```
+
+Running `plasticine` without a subcommand opens the full-screen interactive
+Dashboard when both input and output are usable terminals. The Dashboard is
+deliberately idle: startup does not read Reconciliation State, build a Plan,
+perform network checks, mutate the Workstation, or check for upgrades. In a
+non-interactive environment or with `TERM=dumb`, use an explicit subcommand;
+the bare command prints guidance and exits with usage status 2.
+
+The first TUI release provides four screens:
+
+- **Dashboard** shows the Release, Artifact Target, and latest session result.
+- **Plan** reviews Components, risks, changes, Retirements, checks, and next
+  actions. Widths of 100 columns or more use a Component/detail split; narrower
+  supported terminals switch between list and detail.
+- **Components** keeps a persistent Workstation Scope draft separate from the
+  one-run Component filter and Run Settings.
+- **Doctor** groups unhealthy checks before healthy checks under Support,
+  Managed Resources, Network Diagnostics, and GitHub SSH.
+
+Global keys are `1`-`4` for screens, `p` for Plan, `a` for Apply, `d` for
+Doctor, `?` for help, and `q` to quit while idle. Lists and details support
+arrow keys, `j`/`k`, `Tab`, `Enter`, `Space`, and mouse-wheel scrolling. Ctrl-C
+requests safe cancellation of an active operation, waits for Reconciliation to
+return, restores the terminal, and exits 130.
+
+Apply builds its own exact immutable Plan and presents risk-specific
+authorization before mutation. Ordinary Apply, System Changes, adoption with
+Backup, and Retirements are confirmed independently when present. Commands
+that need the controlling terminal, such as `sudo apt`, `chsh`, or Apple's
+installer, temporarily suspend the full-screen renderer and resume it after the
+command returns. `upgrade` intentionally remains a separate subcommand.
+
+Workstation Scope changes are drafts until they have been reviewed through
+Plan and persisted by an authorized Apply. The one-run Component filter,
+`skip-login-shell`, and adoption intent affect only later operations in the
+current TUI session; they never become Workstation Scope. Dependency-invalid
+combinations are shown inline and remain subject to the Reconciler's final
+policy checks.
 
 `plan` is read-only. `apply` executes the internally generated plan and requires
 `--yes` for non-interactive authorization. Any planned System Change requires the
@@ -52,7 +91,8 @@ Default command output is human-readable and grouped by outcome, Components,
 risks, changes, durable effects, checks, and next actions. Interactive terminals
 use color when it helps scanning; redirected output stays plain. Use
 `--color=auto`, `--color=always`, or `--color=never` to override detection, and
-set `NO_COLOR=1` to disable ANSI color unconditionally.
+set `NO_COLOR=1` to disable color unconditionally. In the TUI, `NO_COLOR`
+retains only the terminal control sequences required for the alternate screen.
 
 Example `plan` output:
 

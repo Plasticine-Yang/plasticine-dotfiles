@@ -17,6 +17,33 @@ const (
 	ComponentZellij    ComponentID = "zellij"
 )
 
+type ComponentDefinition struct {
+	ID           ComponentID
+	Dependencies []ComponentID
+}
+
+var componentCatalog = []ComponentDefinition{
+	{ID: ComponentShell},
+	{ID: ComponentGitConfig},
+	{ID: ComponentGitHubSSH, Dependencies: []ComponentID{ComponentShell}},
+	{ID: ComponentNeovim},
+	{ID: ComponentLazygit},
+	{ID: ComponentFNM, Dependencies: []ComponentID{ComponentShell}},
+	{ID: ComponentUV},
+	{ID: ComponentZellij},
+}
+
+func ComponentCatalog() []ComponentDefinition {
+	catalog := make([]ComponentDefinition, 0, len(componentCatalog))
+	for _, component := range componentCatalog {
+		catalog = append(catalog, ComponentDefinition{
+			ID:           component.ID,
+			Dependencies: append([]ComponentID(nil), component.Dependencies...),
+		})
+	}
+	return catalog
+}
+
 type ComponentStatus string
 
 const (
@@ -53,6 +80,7 @@ const (
 	ChangeLoginShell         ChangeKind = "login-shell"
 	ChangeRetireResource     ChangeKind = "retire-resource"
 	ChangeCleanupManagedTool ChangeKind = "cleanup-managed-tool"
+	ChangeAdoptConflict      ChangeKind = "adopt-conflict"
 )
 
 type ResourceKind string
@@ -162,14 +190,9 @@ type State struct {
 }
 
 func defaultComponents() []ComponentID {
-	return []ComponentID{
-		ComponentShell,
-		ComponentGitConfig,
-		ComponentGitHubSSH,
-		ComponentNeovim,
-		ComponentLazygit,
-		ComponentFNM,
-		ComponentUV,
-		ComponentZellij,
+	components := make([]ComponentID, 0, len(componentCatalog))
+	for _, component := range componentCatalog {
+		components = append(components, component.ID)
 	}
+	return components
 }

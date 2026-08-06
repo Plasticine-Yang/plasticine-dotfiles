@@ -60,6 +60,50 @@ type Options struct {
 	Clock          func() time.Time
 }
 
+type AuthorizationDecision struct {
+	Approved           bool
+	AllowSystemChanges bool
+	AllowAdoption      bool
+	AllowRetirements   bool
+}
+
+type ProgressKind string
+
+const (
+	ProgressOperation ProgressKind = "operation"
+	ProgressComponent ProgressKind = "component"
+	ProgressChange    ProgressKind = "change"
+)
+
+type ProgressStatus string
+
+const (
+	ProgressStarted             ProgressStatus = "started"
+	ProgressSucceeded           ProgressStatus = "succeeded"
+	ProgressFailed              ProgressStatus = "failed"
+	ProgressSkipped             ProgressStatus = "skipped"
+	ProgressAwaitingOwnerAction ProgressStatus = "awaiting-owner-action"
+)
+
+type ProgressEvent struct {
+	Kind         ProgressKind
+	Status       ProgressStatus
+	Operation    string
+	Component    ComponentID
+	ChangeKind   ChangeKind
+	ResourceKind ResourceKind
+	Path         string
+	Summary      string
+}
+
+type TerminalCommand struct {
+	Name             string
+	Args             []string
+	RequiresTerminal bool
+}
+
+type TerminalCommandRunner func(context.Context, TerminalCommand) error
+
 type Reconciler struct {
 	desiredStateID string
 	toolLockSHA256 string
@@ -105,14 +149,16 @@ type Request struct {
 	Adopt                bool
 	IncludeGitHubSSH     bool
 	GitHubKeyPath        string
-	GitHubKeySelector    func() (string, bool)
+	GitHubKeySelector    func(context.Context) (string, bool)
 	LoginShell           string
 	LoginShellKnown      bool
 	ZshPath              string
 	ToolLockSHA256       string
 	Capabilities         map[Capability]bool
 	NetworkChecks        []Check
-	Authorize            func(Result) bool
+	Authorize            func(context.Context, Result) AuthorizationDecision
+	Progress             func(ProgressEvent)
+	TerminalRunner       TerminalCommandRunner
 	UserServiceStarter   func(context.Context, string) ([]string, error)
 	ShellChangeExecutor  func(context.Context, string) ([]string, error)
 	BeforeMutation       func(Change)
@@ -148,43 +194,59 @@ type Check struct {
 }
 
 func (r Reconciler) Plan(ctx context.Context, req Request) (Result, error) {
+	observeProgress(req, ProgressEvent{Kind: ProgressOperation, Status: ProgressStarted, Operation: "plan"})
 	release, blocked, err := acquireReconciliationLock(req.Home, sharedLock, req.SkipLock)
 	if err != nil || blocked != nil {
-		return lockResult(r, req, blocked), err
+		result := lockResult(r, req, blocked)
+		observeOperationResult(req, "plan", result, err)
+		return result, err
 	}
 	defer release()
 	snapshot, err := r.buildPlan(ctx, req)
 	if err != nil {
+		observeOperationResult(req, "plan", Result{}, err)
 		return Result{}, err
 	}
+	observeOperationResult(req, "plan", snapshot.Result, nil)
 	return snapshot.Result, nil
 }
 
 func (r Reconciler) Apply(ctx context.Context, req Request) (Result, error) {
+	observeProgress(req, ProgressEvent{Kind: ProgressOperation, Status: ProgressStarted, Operation: "apply"})
 	release, blocked, err := acquireReconciliationLock(req.Home, exclusiveLock, req.SkipLock)
 	if err != nil || blocked != nil {
-		return lockResult(r, req, blocked), err
+		result := lockResult(r, req, blocked)
+		observeOperationResult(req, "apply", result, err)
+		return result, err
 	}
 	defer release()
 	if req.Yes {
 		if err := recoverPendingWork(req.Home); err != nil {
+			observeOperationResult(req, "apply", Result{}, err)
 			return Result{}, err
 		}
 	}
 	snapshot, err := r.buildPlan(ctx, req)
 	if err != nil {
+		observeOperationResult(req, "apply", Result{}, err)
 		return Result{}, err
 	}
-	return r.executePlan(ctx, req, snapshot)
+	result, err := r.executePlan(ctx, req, snapshot)
+	observeOperationResult(req, "apply", result, err)
+	return result, err
 }
 
 func (r Reconciler) Doctor(ctx context.Context, req Request) (Result, error) {
+	observeProgress(req, ProgressEvent{Kind: ProgressOperation, Status: ProgressStarted, Operation: "doctor"})
 	if err := ctx.Err(); err != nil {
+		observeOperationResult(req, "doctor", Result{}, err)
 		return Result{}, err
 	}
 	release, blocked, err := acquireReconciliationLock(req.Home, sharedLock, req.SkipLock)
 	if err != nil || blocked != nil {
-		return lockResult(r, req, blocked), err
+		result := lockResult(r, req, blocked)
+		observeOperationResult(req, "doctor", result, err)
+		return result, err
 	}
 	defer release()
 	result := Result{
@@ -234,7 +296,61 @@ func (r Reconciler) Doctor(ctx context.Context, req Request) (Result, error) {
 			break
 		}
 	}
+	observeOperationResult(req, "doctor", result, nil)
 	return result, nil
+}
+
+func observeProgress(req Request, event ProgressEvent) {
+	if req.Progress == nil {
+		return
+	}
+	if event.ResourceKind == ResourceSecretReference || event.ChangeKind == ChangeSecretReference {
+		event.Path = ""
+		event.Summary = "update Secret Reference"
+	}
+	req.Progress(event)
+}
+
+func observeOperationResult(req Request, operation string, result Result, err error) {
+	status := ProgressSucceeded
+	if err != nil {
+		status = ProgressFailed
+	} else {
+		switch result.Outcome {
+		case OutcomeBlocked, OutcomePartial, OutcomeUnhealthy:
+			status = ProgressFailed
+		case OutcomeDenied:
+			status = ProgressSkipped
+		}
+	}
+	observeProgress(req, ProgressEvent{
+		Kind:      ProgressOperation,
+		Status:    status,
+		Operation: operation,
+	})
+}
+
+func observeChange(req Request, change Change, status ProgressStatus) {
+	observeProgress(req, ProgressEvent{
+		Kind:         ProgressChange,
+		Status:       status,
+		Operation:    "apply",
+		Component:    change.Component,
+		ChangeKind:   change.Kind,
+		ResourceKind: change.ResourceKind,
+		Path:         change.Path,
+		Summary:      strings.TrimSpace(change.Summary),
+	})
+}
+
+func observeComponent(req Request, component ComponentID, status ProgressStatus, summary string) {
+	observeProgress(req, ProgressEvent{
+		Kind:      ProgressComponent,
+		Status:    status,
+		Operation: "apply",
+		Component: component,
+		Summary:   strings.TrimSpace(summary),
+	})
 }
 
 func (r Reconciler) runOnlineDoctorChecks(ctx context.Context, req Request, loaded loadedState) []Check {

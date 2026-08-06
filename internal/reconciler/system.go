@@ -46,17 +46,29 @@ func (LocalSystemAdapter) ApplySystemDependencies(ctx context.Context, req Reque
 		if len(packages) == 0 {
 			return nil, nil
 		}
-		if err := exec.CommandContext(ctx, "sudo", "apt-get", "update").Run(); err != nil {
+		if err := runTerminalCommand(ctx, req, TerminalCommand{
+			Name:             "sudo",
+			Args:             []string{"apt-get", "update"},
+			RequiresTerminal: true,
+		}); err != nil {
 			return nil, err
 		}
 		args := append([]string{"apt-get", "install", "-y", "--no-install-recommends"}, packages...)
-		if err := exec.CommandContext(ctx, "sudo", args...).Run(); err != nil {
+		if err := runTerminalCommand(ctx, req, TerminalCommand{
+			Name:             "sudo",
+			Args:             args,
+			RequiresTerminal: true,
+		}); err != nil {
 			return nil, err
 		}
 		return []string{"apt-get update", "apt-get install --no-install-recommends " + strings.Join(packages, " ")}, nil
 	case platform.FamilyMacOS:
 		if containsCapability(missing, CapabilityAppleDevelopmentTools) {
-			if err := exec.CommandContext(ctx, "xcode-select", "--install").Run(); err != nil {
+			if err := runTerminalCommand(ctx, req, TerminalCommand{
+				Name:             "xcode-select",
+				Args:             []string{"--install"},
+				RequiresTerminal: true,
+			}); err != nil {
 				return nil, err
 			}
 			return []string{"xcode-select --install"}, fmt.Errorf("%w: complete Apple Command Line Tools installer and rerun apply", ErrOwnerActionRequired)
@@ -65,6 +77,29 @@ func (LocalSystemAdapter) ApplySystemDependencies(ctx context.Context, req Reque
 	default:
 		return nil, fmt.Errorf("unsupported system dependency changes on %s", req.Host.Family)
 	}
+}
+
+func runTerminalCommand(ctx context.Context, req Request, command TerminalCommand) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	command.Args = append([]string(nil), command.Args...)
+	if req.TerminalRunner != nil {
+		return req.TerminalRunner(ctx, command)
+	}
+	process := exec.CommandContext(ctx, command.Name, command.Args...)
+	if !command.RequiresTerminal {
+		return process.Run()
+	}
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("%s requires a controlling terminal: %w", command.Name, err)
+	}
+	defer tty.Close()
+	process.Stdin = tty
+	process.Stdout = tty
+	process.Stderr = tty
+	return process.Run()
 }
 
 func localCapabilityPresent(req Request, capability Capability) bool {

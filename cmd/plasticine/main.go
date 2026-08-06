@@ -11,17 +11,18 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
-	"runtime"
 	"strings"
 
-	plasticine "github.com/Plasticine-Yang/plasticine-dotfiles"
+	"github.com/charmbracelet/x/term"
+
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/candidate"
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/platform"
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/reconciler"
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/release"
+	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/tui"
 	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/version"
+	"github.com/Plasticine-Yang/plasticine-dotfiles/internal/workstation"
 )
 
 func main() {
@@ -30,8 +31,7 @@ func main() {
 
 func run(args []string) int {
 	if len(args) == 0 {
-		usage()
-		return 2
+		return runTUI()
 	}
 	switch args[0] {
 	case "version":
@@ -57,13 +57,48 @@ func run(args []string) int {
 	}
 }
 
+func runTUI() int {
+	if !usableInteractiveTerminal(os.Stdin, os.Stdout, os.Getenv("TERM")) {
+		fmt.Fprintln(os.Stderr, "interactive TUI requires a terminal; use an explicit subcommand")
+		usage()
+		return 2
+	}
+	runtime, err := workstation.New(workstation.Options{
+		WorkstationRoot: os.Getenv("PLASTICINE_WORKSTATION_ROOT"),
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	reason, err := tui.Run(context.Background(), runtime, tui.IO{
+		In:  os.Stdin,
+		Out: os.Stdout,
+		Err: os.Stderr,
+		Env: map[string]string{
+			"NO_COLOR": os.Getenv("NO_COLOR"),
+		},
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "TUI failed: %v\n", err)
+		return 1
+	}
+	return reason.Code()
+}
+
+func usableInteractiveTerminal(input *os.File, output *os.File, terminalType string) bool {
+	if strings.EqualFold(strings.TrimSpace(terminalType), "dumb") {
+		return false
+	}
+	return term.IsTerminal(input.Fd()) && term.IsTerminal(output.Fd())
+}
+
 func runUpgrade(applyArgs []string) int {
 	plasticineHome, err := reconciler.DefaultPlasticineHome()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "resolve home: %v\n", err)
 		return 1
 	}
-	target := currentTarget()
+	target := workstation.CurrentTarget()
 	if !supportedArtifactTarget(target) {
 		fmt.Fprintf(os.Stderr, "unsupported artifact target: %s\n", target)
 		return 1
@@ -263,63 +298,31 @@ func runReconcilerCommand(command string, args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	plasticineHome := *home
-	if plasticineHome == "" {
-		var err error
-		plasticineHome, err = reconciler.DefaultPlasticineHome()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "resolve home: %v\n", err)
-			return 1
-		}
-	}
-	workstationRoot := os.Getenv("PLASTICINE_WORKSTATION_ROOT")
-	if workstationRoot == "" {
-		var err error
-		workstationRoot, err = os.UserHomeDir()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "resolve workstation root: %v\n", err)
-			return 1
-		}
-	}
-	target := currentTarget()
-	host := currentHost(target)
-	toolLock, err := release.LoadToolLockBytes(plasticine.DefaultToolLockJSON)
+	runtime, err := workstation.New(workstation.Options{
+		Home:            *home,
+		WorkstationRoot: os.Getenv("PLASTICINE_WORKSTATION_ROOT"),
+	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "load embedded tool lock: %v\n", err)
+		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	loginShell, loginShellKnown := currentLoginShell()
-	zshPath := desiredZshPath(target)
-	r := reconciler.New(reconciler.Options{
-		DesiredStateID: desiredStateID(),
-		ToolLockSHA256: toolLockSHA256(),
-		ToolLock:       toolLock,
-		DiagnosticURLs: []string{"https://github.com"},
-		System:         reconciler.LocalSystemAdapter{},
-	})
-	req := reconciler.Request{
-		Home:             plasticineHome,
-		WorkstationRoot:  workstationRoot,
-		Target:           target,
-		Host:             host,
-		Yes:              *yes,
-		AllowSystem:      *allowSystem,
-		SkipLoginShell:   *skipLoginShell,
-		ReplaceScope:     excludes.set,
-		Exclude:          excludes.values,
-		Components:       components.values,
-		Adopt:            *adopt,
-		IncludeGitHubSSH: *githubKey != "",
-		GitHubKeyPath:    *githubKey,
-		LoginShell:       loginShell,
-		LoginShellKnown:  loginShellKnown,
-		ZshPath:          zshPath,
-	}
+	req := runtime.Request()
+	req.Yes = *yes
+	req.AllowSystem = *allowSystem
+	req.SkipLoginShell = *skipLoginShell
+	req.ReplaceScope = excludes.set
+	req.Exclude = excludes.values
+	req.Components = components.values
+	req.Adopt = *adopt
+	req.IncludeGitHubSSH = *githubKey != ""
+	req.GitHubKeyPath = *githubKey
 	if *githubKey == "" && !*yes && (command == "plan" || command == "apply") {
 		req.GitHubKeySelector = promptGitHubKeySelection
 	}
 	if command == "apply" && !*yes {
-		req.Authorize = promptApplyAuthorization
+		req.Authorize = func(ctx context.Context, result reconciler.Result) reconciler.AuthorizationDecision {
+			return promptApplyAuthorization(ctx, result, *allowSystem, *adopt)
+		}
 	}
 	var (
 		result reconciler.Result
@@ -327,11 +330,11 @@ func runReconcilerCommand(command string, args []string) int {
 	)
 	switch command {
 	case "plan":
-		result, runErr = r.Plan(context.Background(), req)
+		result, runErr = runtime.Reconciler.Plan(context.Background(), req)
 	case "apply":
-		result, runErr = r.Apply(context.Background(), req)
+		result, runErr = runtime.Reconciler.Apply(context.Background(), req)
 	case "doctor":
-		result, runErr = r.Doctor(context.Background(), req)
+		result, runErr = runtime.Reconciler.Doctor(context.Background(), req)
 	default:
 		return 2
 	}
@@ -352,133 +355,38 @@ func runReconcilerCommand(command string, args []string) int {
 	}
 }
 
-func currentTarget() platform.ArtifactTarget {
-	target, err := platform.ParseArtifactTarget(runtime.GOOS + "/" + runtime.GOARCH)
-	if err == nil {
-		return target
-	}
-	return platform.ArtifactTarget{OS: platform.OS(runtime.GOOS), Arch: platform.Arch(runtime.GOARCH)}
-}
-
-func currentHost(target platform.ArtifactTarget) platform.Host {
-	family := platform.Family(os.Getenv("PLASTICINE_HOST_FAMILY"))
-	version := os.Getenv("PLASTICINE_HOST_VERSION")
-	if family == "" {
-		if target.OS == platform.OSDarwin {
-			family = platform.FamilyMacOS
-			if version == "" {
-				version = "13.0"
-			}
-		} else {
-			family, version = linuxHostFamilyVersion(version)
-		}
-	}
-	return platform.Host{
-		OS:      target.OS,
-		Arch:    target.Arch,
-		Family:  family,
-		Version: version,
-	}
-}
-
-func linuxHostFamilyVersion(versionOverride string) (platform.Family, string) {
-	data, err := os.ReadFile("/etc/os-release")
-	if err != nil {
-		return platform.FamilyOtherLinux, versionOverride
-	}
-	values := map[string]string{}
-	for _, line := range strings.Split(string(data), "\n") {
-		key, value, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		values[key] = strings.Trim(value, `"`)
-	}
-	family := platform.FamilyOtherLinux
-	switch strings.ToLower(values["ID"]) {
-	case "debian":
-		family = platform.FamilyDebian
-	case "ubuntu":
-		family = platform.FamilyUbuntu
-	}
-	version := versionOverride
-	if version == "" {
-		version = values["VERSION_ID"]
-	}
-	return family, version
-}
-
-func currentLoginShell() (string, bool) {
-	currentUser, err := user.Current()
-	if err != nil {
-		return "", false
-	}
-	if runtime.GOOS == "darwin" {
-		output, err := exec.Command("dscl", ".", "-read", "/Users/"+currentUser.Username, "UserShell").Output()
-		if err == nil {
-			fields := strings.Fields(string(output))
-			if len(fields) > 0 {
-				return fields[len(fields)-1], true
-			}
-		}
-	}
-	data, err := os.ReadFile("/etc/passwd")
-	if err != nil {
-		return "", false
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		fields := strings.Split(line, ":")
-		if len(fields) < 7 {
-			continue
-		}
-		if fields[0] == currentUser.Username || fields[2] == currentUser.Uid {
-			return fields[6], true
-		}
-	}
-	return "", false
-}
-
-func desiredZshPath(target platform.ArtifactTarget) string {
-	switch target.OS {
-	case platform.OSDarwin:
-		return "/bin/zsh"
-	case platform.OSLinux:
-		return "/usr/bin/zsh"
-	default:
-		return ""
-	}
-}
-
-func desiredStateID() string {
-	sum := sha256.Sum256([]byte("components:shell,git-config,github-ssh,neovim,lazygit,fnm,uv,zellij\n"))
-	return hex.EncodeToString(sum[:])
-}
-
-func toolLockSHA256() string {
-	sum := sha256.Sum256(plasticine.DefaultToolLockJSON)
-	return hex.EncodeToString(sum[:])
-}
-
-func promptApplyAuthorization(result reconciler.Result) bool {
+func promptApplyAuthorization(ctx context.Context, result reconciler.Result, allowSystem bool, allowAdoption bool) reconciler.AuthorizationDecision {
 	printResultTo(os.Stdout, "apply-plan", result)
+	if err := ctx.Err(); err != nil {
+		return reconciler.AuthorizationDecision{}
+	}
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "apply requires --yes when no controlling terminal is available")
-		return false
+		return reconciler.AuthorizationDecision{}
 	}
 	defer tty.Close()
 
 	if _, err := fmt.Fprint(tty, "Apply this plan? Type yes to continue: "); err != nil {
-		return false
+		return reconciler.AuthorizationDecision{}
 	}
 	scanner := bufio.NewScanner(tty)
 	if !scanner.Scan() {
-		return false
+		return reconciler.AuthorizationDecision{}
 	}
-	return strings.EqualFold(strings.TrimSpace(scanner.Text()), "yes")
+	approved := strings.EqualFold(strings.TrimSpace(scanner.Text()), "yes")
+	return reconciler.AuthorizationDecision{
+		Approved:           approved,
+		AllowSystemChanges: approved && allowSystem,
+		AllowAdoption:      approved && allowAdoption,
+		AllowRetirements:   approved,
+	}
 }
 
-func promptGitHubKeySelection() (string, bool) {
+func promptGitHubKeySelection(ctx context.Context) (string, bool) {
+	if err := ctx.Err(); err != nil {
+		return "", false
+	}
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "github-ssh requires --github-key when no controlling terminal is available")
