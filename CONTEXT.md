@@ -76,6 +76,10 @@ _Avoid_: Privileged run
 A command-line tool whose installed version and configuration are part of the intended Workstation state declared by a Release.
 _Avoid_: Prerequisite, manually installed dependency
 
+**Self-managed Tool**:
+A command-line tool that Reconciliation bootstraps through its upstream installer when absent or unable to run and then leaves to own its executable and version lifecycle outside Desired State version and drift guarantees.
+_Avoid_: Managed Tool, System Dependency
+
 **System Dependency**:
 Operating-system software whose presence and minimum required capability are part of the Desired State, while its exact version remains owned by the native package manager.
 _Avoid_: Managed Tool, pinned system package
