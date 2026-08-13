@@ -119,6 +119,34 @@ func TestRenderResultGroupsRiskyChangePathAndNextAction(t *testing.T) {
 	}
 }
 
+func TestRenderResultShowsOpaqueExternalInstallerRisk(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	printResultTo(&output, "plan", reconciler.Result{
+		Outcome: reconciler.OutcomeChangesPlanned,
+		Changes: []reconciler.Change{{
+			Component:    reconciler.ComponentTraexSessionManager,
+			Kind:         reconciler.ChangeRunExternalInstaller,
+			ResourceKind: reconciler.ResourceSelfManagedTool,
+			Path:         "https://raw.githubusercontent.com/Plasticine-Yang/traex-session-manager/main/install.sh",
+			Summary:      "run opaque external script installer",
+		}},
+	})
+
+	text := output.String()
+	for _, want := range []string{
+		"external-installer: traex-session-manager",
+		"https://raw.githubusercontent.com/Plasticine-Yang/traex-session-manager/main/install.sh",
+		"opaque external script",
+		"run-external-installer/self-managed-tool",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("output missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestRenderResultAddsFailureNextActions(t *testing.T) {
 	t.Parallel()
 

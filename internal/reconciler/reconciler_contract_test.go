@@ -3163,6 +3163,7 @@ func contractRequest(home string) reconciler.Request {
 			reconciler.ComponentFNM,
 			reconciler.ComponentUV,
 			reconciler.ComponentZellij,
+			reconciler.ComponentTraexSessionManager,
 		},
 		Host: platform.Host{
 			OS:      platform.OSDarwin,

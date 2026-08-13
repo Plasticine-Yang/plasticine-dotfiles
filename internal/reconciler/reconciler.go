@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -51,13 +52,14 @@ const (
 )
 
 type Options struct {
-	DesiredStateID string
-	ToolLockSHA256 string
-	ToolLock       release.ToolLock
-	HTTPClient     *http.Client
-	DiagnosticURLs []string
-	System         SystemAdapter
-	Clock          func() time.Time
+	DesiredStateID  string
+	ToolLockSHA256  string
+	ToolLock        release.ToolLock
+	HTTPClient      *http.Client
+	DiagnosticURLs  []string
+	System          SystemAdapter
+	Clock           func() time.Time
+	InstallerRunner ExternalInstallerRunner
 }
 
 type AuthorizationDecision struct {
@@ -105,13 +107,14 @@ type TerminalCommand struct {
 type TerminalCommandRunner func(context.Context, TerminalCommand) error
 
 type Reconciler struct {
-	desiredStateID string
-	toolLockSHA256 string
-	toolLock       release.ToolLock
-	httpClient     *http.Client
-	diagnosticURLs []string
-	system         SystemAdapter
-	clock          func() time.Time
+	desiredStateID  string
+	toolLockSHA256  string
+	toolLock        release.ToolLock
+	httpClient      *http.Client
+	diagnosticURLs  []string
+	system          SystemAdapter
+	clock           func() time.Time
+	installerRunner ExternalInstallerRunner
 }
 
 func New(options Options) Reconciler {
@@ -124,13 +127,14 @@ func New(options Options) Reconciler {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 	return Reconciler{
-		desiredStateID: options.DesiredStateID,
-		toolLockSHA256: options.ToolLockSHA256,
-		toolLock:       options.ToolLock,
-		httpClient:     httpClient,
-		diagnosticURLs: append([]string(nil), options.DiagnosticURLs...),
-		system:         options.System,
-		clock:          clock,
+		desiredStateID:  options.DesiredStateID,
+		toolLockSHA256:  options.ToolLockSHA256,
+		toolLock:        options.ToolLock,
+		httpClient:      httpClient,
+		diagnosticURLs:  append([]string(nil), options.DiagnosticURLs...),
+		system:          options.System,
+		clock:           clock,
+		installerRunner: options.InstallerRunner,
 	}
 }
 
@@ -162,6 +166,8 @@ type Request struct {
 	UserServiceStarter   func(context.Context, string) ([]string, error)
 	ShellChangeExecutor  func(context.Context, string) ([]string, error)
 	BeforeMutation       func(Change)
+	InstallerStdout      io.Writer
+	InstallerStderr      io.Writer
 	FailBeforeEffectPath string
 	SkipLock             bool
 }
@@ -192,6 +198,16 @@ type Check struct {
 	Healthy bool
 	Message string
 }
+
+type ExternalInstallerCommand struct {
+	Component   ComponentID
+	ScriptPath  string
+	Environment map[string]string
+	Stdout      io.Writer
+	Stderr      io.Writer
+}
+
+type ExternalInstallerRunner func(context.Context, ExternalInstallerCommand) error
 
 func (r Reconciler) Plan(ctx context.Context, req Request) (Result, error) {
 	observeProgress(req, ProgressEvent{Kind: ProgressOperation, Status: ProgressStarted, Operation: "plan"})
@@ -280,6 +296,7 @@ func (r Reconciler) Doctor(ctx context.Context, req Request) (Result, error) {
 	} else {
 		result.Checks = append(result.Checks, Check{Name: "reconciliation-state", Healthy: false, Message: "state has not been applied"})
 	}
+	result.Checks = append(result.Checks, selfManagedDoctorChecks(ctx, req, loaded)...)
 	if req.NetworkChecks != nil {
 		for _, check := range req.NetworkChecks {
 			check.Message = redactCredentialURL(check.Message)

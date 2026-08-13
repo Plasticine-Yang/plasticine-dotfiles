@@ -160,6 +160,8 @@ func renderRisks(writer io.Writer, view resultview.View, style outputStyle) {
 		switch risk.Kind {
 		case resultview.RiskSystemChange:
 			fmt.Fprintf(writer, "- %s: %s %s\n", style.status(string(risk.Kind)), risk.Component, risk.Summary)
+		case resultview.RiskExternalInstaller:
+			fmt.Fprintf(writer, "- %s: %s url=%s %s\n", style.status(string(risk.Kind)), risk.Component, risk.Path, risk.Summary)
 		case resultview.RiskConflict:
 			fmt.Fprintf(writer, "- %s: %s adoptable=%t path=%s reason=%s\n", style.status(string(risk.Kind)), risk.Component, risk.Adoptable, risk.Path, risk.Summary)
 		case resultview.RiskRetirement:

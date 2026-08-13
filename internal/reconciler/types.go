@@ -7,14 +7,15 @@ const CurrentStateSchema = 2
 type ComponentID string
 
 const (
-	ComponentShell     ComponentID = "shell"
-	ComponentGitConfig ComponentID = "git-config"
-	ComponentGitHubSSH ComponentID = "github-ssh"
-	ComponentNeovim    ComponentID = "neovim"
-	ComponentLazygit   ComponentID = "lazygit"
-	ComponentFNM       ComponentID = "fnm"
-	ComponentUV        ComponentID = "uv"
-	ComponentZellij    ComponentID = "zellij"
+	ComponentShell               ComponentID = "shell"
+	ComponentGitConfig           ComponentID = "git-config"
+	ComponentGitHubSSH           ComponentID = "github-ssh"
+	ComponentNeovim              ComponentID = "neovim"
+	ComponentLazygit             ComponentID = "lazygit"
+	ComponentFNM                 ComponentID = "fnm"
+	ComponentUV                  ComponentID = "uv"
+	ComponentZellij              ComponentID = "zellij"
+	ComponentTraexSessionManager ComponentID = "traex-session-manager"
 )
 
 type ComponentDefinition struct {
@@ -31,6 +32,7 @@ var componentCatalog = []ComponentDefinition{
 	{ID: ComponentFNM, Dependencies: []ComponentID{ComponentShell}},
 	{ID: ComponentUV},
 	{ID: ComponentZellij},
+	{ID: ComponentTraexSessionManager},
 }
 
 func ComponentCatalog() []ComponentDefinition {
@@ -64,23 +66,27 @@ const (
 	CapabilityCA                    Capability = "ca-certificates"
 	CapabilityAppleDevelopmentTools Capability = "apple-development-tools"
 	CapabilitySystemdUserSession    Capability = "systemd-user-session"
+	CapabilityCurl                  Capability = "curl"
+	CapabilityTar                   Capability = "tar"
+	CapabilitySHA256Verifier        Capability = "sha256-verifier"
 )
 
 type ChangeKind string
 
 const (
-	ChangeCreateManagedPath  ChangeKind = "create-managed-path"
-	ChangeUpdateManagedPath  ChangeKind = "update-managed-path"
-	ChangeCreateManagedBlock ChangeKind = "create-managed-block"
-	ChangeInstallManagedTool ChangeKind = "install-managed-tool"
-	ChangeSystemDependency   ChangeKind = "system-dependency"
-	ChangeSecretReference    ChangeKind = "secret-reference"
-	ChangeStateMigration     ChangeKind = "state-migration"
-	ChangeScopeReplacement   ChangeKind = "scope-replacement"
-	ChangeLoginShell         ChangeKind = "login-shell"
-	ChangeRetireResource     ChangeKind = "retire-resource"
-	ChangeCleanupManagedTool ChangeKind = "cleanup-managed-tool"
-	ChangeAdoptConflict      ChangeKind = "adopt-conflict"
+	ChangeCreateManagedPath    ChangeKind = "create-managed-path"
+	ChangeUpdateManagedPath    ChangeKind = "update-managed-path"
+	ChangeCreateManagedBlock   ChangeKind = "create-managed-block"
+	ChangeInstallManagedTool   ChangeKind = "install-managed-tool"
+	ChangeSystemDependency     ChangeKind = "system-dependency"
+	ChangeSecretReference      ChangeKind = "secret-reference"
+	ChangeStateMigration       ChangeKind = "state-migration"
+	ChangeScopeReplacement     ChangeKind = "scope-replacement"
+	ChangeLoginShell           ChangeKind = "login-shell"
+	ChangeRetireResource       ChangeKind = "retire-resource"
+	ChangeCleanupManagedTool   ChangeKind = "cleanup-managed-tool"
+	ChangeAdoptConflict        ChangeKind = "adopt-conflict"
+	ChangeRunExternalInstaller ChangeKind = "run-external-installer"
 )
 
 type ResourceKind string
@@ -96,6 +102,7 @@ const (
 	ResourceIntegrationShim  ResourceKind = "integration-shim"
 	ResourceSymlink          ResourceKind = "symlink"
 	ResourceToolManagedState ResourceKind = "tool-managed-state"
+	ResourceSelfManagedTool  ResourceKind = "self-managed-tool"
 )
 
 type Change struct {

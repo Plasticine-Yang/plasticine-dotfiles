@@ -73,7 +73,7 @@ func (LocalSystemAdapter) ApplySystemDependencies(ctx context.Context, req Reque
 			}
 			return []string{"xcode-select --install"}, fmt.Errorf("%w: complete Apple Command Line Tools installer and rerun apply", ErrOwnerActionRequired)
 		}
-		return nil, fmt.Errorf("missing macOS capabilities require Owner action: %v", missing)
+		return nil, fmt.Errorf("%w: missing macOS capabilities require Owner action: %v", ErrOwnerActionRequired, missing)
 	default:
 		return nil, fmt.Errorf("unsupported system dependency changes on %s", req.Host.Family)
 	}
@@ -130,6 +130,12 @@ func localCapabilityPresent(req Request, capability Capability) bool {
 			return false
 		}
 		return exec.Command("systemctl", "--user", "show-environment").Run() == nil
+	case CapabilityCurl:
+		return commandExists("curl")
+	case CapabilityTar:
+		return commandExists("tar")
+	case CapabilitySHA256Verifier:
+		return commandExists("shasum") || commandExists("sha256sum")
 	default:
 		return false
 	}
@@ -165,6 +171,12 @@ func requiredCapabilities(active []ComponentID, req Request) []Capability {
 			required[CapabilityCA] = true
 		case ComponentFNM, ComponentUV, ComponentZellij:
 			required[CapabilityCA] = true
+		case ComponentTraexSessionManager:
+			if tool, ok := selfManagedToolFor(component); ok {
+				for _, capability := range tool.Prerequisites {
+					required[capability] = true
+				}
+			}
 		}
 	}
 	values := make([]Capability, 0, len(required))
@@ -187,6 +199,12 @@ func aptPackagesFor(capabilities []Capability) []string {
 			packages["openssh-client"] = true
 		case CapabilityCA:
 			packages["ca-certificates"] = true
+		case CapabilityCurl:
+			packages["curl"] = true
+		case CapabilityTar:
+			packages["tar"] = true
+		case CapabilitySHA256Verifier:
+			packages["coreutils"] = true
 		}
 	}
 	values := make([]string, 0, len(packages))

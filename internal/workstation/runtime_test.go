@@ -37,7 +37,7 @@ func TestDesiredStateIDMatchesStableComponentCatalog(t *testing.T) {
 	if got := workstation.DesiredStateID(); len(got) != 64 {
 		t.Fatalf("desired state ID length = %d, want 64: %q", len(got), got)
 	}
-	if got := workstation.DesiredStateID(); got != "558ce11d81bc4c664820748bbb9807a99f3cce2eac89b149b84dc87f2b480fea" {
+	if got := workstation.DesiredStateID(); got != "b366c8117f80ad8cdfa58c8ea29db345a80d4bc2ef00a25a8491e2e8ccfa8b91" {
 		t.Fatalf("desired state ID changed with runtime extraction: %s", got)
 	}
 	if got := workstation.ToolLockSHA256(); len(got) != 64 || strings.Trim(got, "0123456789abcdef") != "" {

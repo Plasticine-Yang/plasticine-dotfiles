@@ -27,10 +27,11 @@ type ComponentGroup struct {
 type RiskKind string
 
 const (
-	RiskSystemChange RiskKind = "system-change"
-	RiskConflict     RiskKind = "conflict"
-	RiskRetirement   RiskKind = "retirement"
-	RiskBlocker      RiskKind = "blocked"
+	RiskSystemChange      RiskKind = "system-change"
+	RiskConflict          RiskKind = "conflict"
+	RiskRetirement        RiskKind = "retirement"
+	RiskBlocker           RiskKind = "blocked"
+	RiskExternalInstaller RiskKind = "external-installer"
 )
 
 type Risk struct {
@@ -114,6 +115,14 @@ func projectRisks(result reconciler.Result) []Risk {
 		if change.SystemChange {
 			risks = append(risks, Risk{
 				Kind:      RiskSystemChange,
+				Component: change.Component,
+				Path:      change.Path,
+				Summary:   strings.TrimSpace(change.Summary),
+			})
+		}
+		if change.Kind == reconciler.ChangeRunExternalInstaller {
+			risks = append(risks, Risk{
+				Kind:      RiskExternalInstaller,
 				Component: change.Component,
 				Path:      change.Path,
 				Summary:   strings.TrimSpace(change.Summary),

@@ -36,6 +36,7 @@ func TestPlanApplyDoctorContractUsesOnlyObservableEffects(t *testing.T) {
 			reconciler.ComponentFNM,
 			reconciler.ComponentUV,
 			reconciler.ComponentZellij,
+			reconciler.ComponentTraexSessionManager,
 		},
 	}
 

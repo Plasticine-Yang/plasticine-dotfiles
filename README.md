@@ -168,6 +168,27 @@ a reviewed Release edit to `.zsh_plugins.txt`, not through a machine-local value
 override. The design rationale is documented in
 `docs/research/zsh-plugin-managers-and-shell-comparison.md` and ADR 0064.
 
+The default-enabled `traex-session-manager` Component is a Self-managed Tool,
+not a Managed Tool. When `~/.local/bin/tsm --version` cannot run, Plan shows
+the Release-declared HTTPS installer as an opaque external-script risk and
+checks its local `curl`, `tar`, and SHA-256 verification prerequisites. Apply
+uses ordinary confirmation or `--yes` for that installer; any missing Linux
+system packages still require the separate `--allow-system` authorization.
+
+After bootstrap, TSM owns its executable paths and version lifecycle. Update it
+explicitly with:
+
+```sh
+tsm self-update
+```
+
+Plasticine does not pin or compare the TSM version, inspect the
+`traex-session-manager` alias, record bootstrap history, adopt or back up TSM
+files, or roll back partial installer effects. Excluding the Component from
+Workstation Scope stops observation and repair without uninstalling it.
+Removing the Component from a future Release likewise preserves TSM-controlled
+files because they never enter Plasticine Ownership.
+
 ## Reference Configuration
 
 VS Code material under `reference/vscode` is retained only for manual copying.

@@ -142,6 +142,9 @@ func (r Reconciler) buildPlan(ctx context.Context, req Request) (planSnapshot, e
 
 	snapshot.validateComponentGraph()
 	snapshot.validatePlatformComponentSupport(req)
+	if err := snapshot.planSelfManagedTools(ctx, req); err != nil {
+		return planSnapshot{}, err
+	}
 	if err := snapshot.planSystemDependencies(ctx, req, r.system); err != nil {
 		return planSnapshot{}, err
 	}
@@ -382,6 +385,35 @@ func (r Reconciler) executePlan(ctx context.Context, req Request, snapshot planS
 			}
 			observeChange(req, change, ProgressSucceeded)
 			continue
+		case ChangeRunExternalInstaller:
+			if componentHasFailedCapability(change.Component, req, failedCapabilities) {
+				observeChange(req, change, ProgressSkipped)
+				continue
+			}
+			observeComponent(req, change.Component, ProgressStarted, "")
+			observeChange(req, change, ProgressStarted)
+			if req.BeforeMutation != nil {
+				req.BeforeMutation(change)
+			}
+			if err := r.applySelfManagedTool(ctx, req, change); err != nil {
+				message := err.Error()
+				observeChange(req, change, ProgressFailed)
+				observeComponent(req, change.Component, ProgressFailed, message)
+				if ctx.Err() != nil {
+					return Result{}, ctx.Err()
+				}
+				result.Outcome = OutcomePartial
+				result.Blockers = append(result.Blockers, Blocker{Code: BlockerOperationalFailure, Message: message})
+				failedComponents[change.Component] = message
+				continue
+			}
+			observeChange(req, change, ProgressSucceeded)
+			observeComponent(req, change.Component, ProgressSucceeded, "")
+			result.Components = append(result.Components, ComponentResult{
+				Component: change.Component,
+				Status:    ComponentSucceeded,
+			})
+			continue
 		}
 		resourceChanges[change.Component] = append(resourceChanges[change.Component], change)
 	}
@@ -612,7 +644,14 @@ func (s *planSnapshot) planRequiredSystemChange(req Request) {
 }
 
 func (s *planSnapshot) planSystemDependencies(ctx context.Context, req Request, system SystemAdapter) error {
-	missing, err := plannedMissingCapabilities(ctx, req, sortedComponentsFromSet(s.Active), system)
+	capabilityComponents := make(map[ComponentID]bool, len(s.Active))
+	for component := range s.Active {
+		if _, selfManaged := selfManagedToolFor(component); selfManaged && !s.selfManagedInstallerPlanned(component) {
+			continue
+		}
+		capabilityComponents[component] = true
+	}
+	missing, err := plannedMissingCapabilities(ctx, req, sortedComponentsFromSet(capabilityComponents), system)
 	if err != nil {
 		return err
 	}
@@ -1876,9 +1915,10 @@ func (r Reconciler) applySystemDependency(ctx context.Context, req Request, chan
 }
 
 func plannedMissingCapabilities(ctx context.Context, req Request, active []ComponentID, system SystemAdapter) ([]Capability, error) {
+	required := requiredCapabilities(active, req)
 	if req.Capabilities != nil {
 		var missing []Capability
-		for _, capability := range requiredCapabilities(active, req) {
+		for _, capability := range required {
 			if present, explicitlySet := req.Capabilities[capability]; explicitlySet && !present {
 				missing = append(missing, capability)
 			}
@@ -1888,7 +1928,11 @@ func plannedMissingCapabilities(ctx context.Context, req Request, active []Compo
 	if system == nil {
 		return nil, nil
 	}
-	return system.MissingCapabilities(ctx, req, active)
+	missing, err := system.MissingCapabilities(ctx, req, active)
+	if err != nil {
+		return nil, err
+	}
+	return intersectCapabilities(required, missing), nil
 }
 
 func capabilitiesSummary(capabilities []Capability) string {

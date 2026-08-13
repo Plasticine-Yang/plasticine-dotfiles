@@ -652,6 +652,13 @@ func authorizationRiskLines(result reconciler.Result, width int) []string {
 		if change.SystemChange {
 			lines = append(lines, "• System Change · "+truncateMiddle(change.Summary, width-18))
 		}
+		if change.Kind == reconciler.ChangeRunExternalInstaller {
+			lines = append(lines,
+				"• External Script · "+string(change.Component),
+				"  "+truncateMiddle(change.Path, width-2),
+				"  "+truncateMiddle(change.Summary, width-2),
+			)
+		}
 	}
 	for _, conflict := range result.Conflicts {
 		if conflict.Adoptable {

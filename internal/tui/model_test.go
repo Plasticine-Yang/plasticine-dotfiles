@@ -246,6 +246,51 @@ func TestAuthorizationRiskPaginationIsBounded(t *testing.T) {
 	}
 }
 
+func TestExternalInstallerRiskAndProgressAreVisible(t *testing.T) {
+	t.Parallel()
+
+	result := reconciler.Result{
+		Outcome: reconciler.OutcomeChangesPlanned,
+		Changes: []reconciler.Change{{
+			Component:    reconciler.ComponentTraexSessionManager,
+			Kind:         reconciler.ChangeRunExternalInstaller,
+			ResourceKind: reconciler.ResourceSelfManagedTool,
+			Path:         "https://raw.githubusercontent.com/Plasticine-Yang/traex-session-manager/main/install.sh",
+			Summary:      "run opaque external script installer",
+		}},
+	}
+	riskLines := strings.Join(authorizationRiskLines(result, 100), "\n")
+	for _, want := range []string{
+		"External Script",
+		"traex-session-manager",
+		"raw.githubusercontent.com",
+		"opaque external script",
+	} {
+		if !strings.Contains(riskLines, want) {
+			t.Fatalf("risk lines missing %q:\n%s", want, riskLines)
+		}
+	}
+
+	state := testModel(t, map[string]string{"NO_COLOR": "1"})
+	state.operation = "apply"
+	state.status = "Applying..."
+	state.appendProgress(reconciler.ProgressEvent{
+		Kind:         reconciler.ProgressChange,
+		Status:       reconciler.ProgressFailed,
+		Operation:    "apply",
+		Component:    reconciler.ComponentTraexSessionManager,
+		ChangeKind:   reconciler.ChangeRunExternalInstaller,
+		ResourceKind: reconciler.ResourceSelfManagedTool,
+		Summary:      "traex-session-manager installer timed out; rerun apply",
+	})
+	progress := state.progressContent(100)
+	for _, want := range []string{"traex-session-manager", "run-external-insta", "timed out", "rerun apply"} {
+		if !strings.Contains(progress, want) {
+			t.Fatalf("progress missing %q:\n%s", want, progress)
+		}
+	}
+}
+
 func TestOperationResultsAndCancellationUpdateScreens(t *testing.T) {
 	t.Parallel()
 

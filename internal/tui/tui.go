@@ -49,7 +49,7 @@ func Run(ctx context.Context, runtime workstation.Runtime, terminal IO) (ExitRea
 		terminal.Err = os.Stderr
 	}
 	states := captureTerminalStates(terminal.In, terminal.Out)
-	bridge := &operationBridge{ctx: ctx}
+	bridge := &operationBridge{ctx: ctx, out: terminal.Out, err: terminal.Err}
 	initialModel := newModel(runtime, terminal.Env, bridge)
 	program := tea.NewProgram(
 		initialModel,
@@ -117,6 +117,8 @@ func restoreTerminalStates(states []terminalState) error {
 
 type operationBridge struct {
 	ctx context.Context
+	out io.Writer
+	err io.Writer
 
 	mu        sync.Mutex
 	program   *tea.Program

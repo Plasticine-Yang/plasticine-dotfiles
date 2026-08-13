@@ -552,6 +552,8 @@ func (m *model) startApply() {
 	request.Authorize = m.bridge.authorize
 	request.GitHubKeySelector = m.bridge.selectGitHubKey
 	request.TerminalRunner = m.bridge.runTerminal
+	request.InstallerStdout = m.bridge.out
+	request.InstallerStderr = m.bridge.err
 	request.Progress = func(event reconciler.ProgressEvent) {
 		m.bridge.send(progressMsg(event))
 	}
