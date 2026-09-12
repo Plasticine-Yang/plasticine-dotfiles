@@ -210,6 +210,8 @@ send " "
 after 200
 send "\033\[B"
 after 200
+send "\033\[B"
+after 200
 send " "
 after 200
 send "\r"

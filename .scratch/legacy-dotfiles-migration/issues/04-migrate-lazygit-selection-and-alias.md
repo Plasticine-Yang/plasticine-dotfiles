@@ -1,6 +1,6 @@
 # 04 — Migrate Lazygit selection and alias composition
 
-Status: ready-for-agent
+Status: done
 
 ## What to build
 

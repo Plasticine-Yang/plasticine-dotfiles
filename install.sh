@@ -23,7 +23,7 @@ Interactive mode:
   install.sh
 
 Non-interactive mode:
-  install.sh -y [--github-ssh --github-ssh-key <path>] [--shell]
+  install.sh -y [--github-ssh --github-ssh-key <path>] [--lazygit] [--shell]
 
 Options:
   -y, --yes                       Run without prompts and apply changes
@@ -31,6 +31,7 @@ Options:
       --github-ssh-key <path>     Private key to copy to ~/.ssh/id_github
       --github-ssh-test           Test GitHub SSH after applying
       --replace-github-ssh-key    Allow replacement of a different existing key
+      --lazygit                   Configure the alias for an existing healthy Lazygit
       --shell                     Configure Zsh, install missing reviewed tools, and attempt chsh last
   -h, --help                      Show this help
 EOF
@@ -63,6 +64,7 @@ github_ssh_key=''
 github_ssh_test=0
 replace_github_ssh_key=0
 shell=0
+lazygit=0
 
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -77,6 +79,7 @@ while [ "$#" -gt 0 ]; do
         --github-ssh-test) github_ssh_test=1 ;;
         --replace-github-ssh-key) replace_github_ssh_key=1 ;;
         --shell) shell=1 ;;
+        --lazygit) lazygit=1 ;;
         -h|--help) usage; exit 0 ;;
         *) error "Unknown option: $1"; usage >&2; exit 2 ;;
     esac
@@ -108,7 +111,7 @@ done
 if [ "$yes" -eq 0 ]; then
     if [ "$github_ssh" -eq 1 ] || [ -n "$github_ssh_key" ] ||
        [ "$github_ssh_test" -eq 1 ] || [ "$replace_github_ssh_key" -eq 1 ] ||
-       [ "$shell" -eq 1 ]; then
+       [ "$shell" -eq 1 ] || [ "$lazygit" -eq 1 ]; then
         error 'Tool options require -y; run without options for interactive selection.'
         exit 2
     fi
@@ -216,6 +219,9 @@ if [ "$yes" -eq 1 ]; then
     if [ "$shell" -eq 1 ]; then
         tools="${tools:+$tools }shell"
     fi
+    if [ "$lazygit" -eq 1 ]; then
+        tools="${tools:+$tools }lazygit"
+    fi
     export PLASTICINE_TOOLS="$tools"
     export PLASTICINE_GITHUB_SSH_TEST=$github_ssh_test
     export PLASTICINE_REPLACE_GITHUB_SSH_KEY=$replace_github_ssh_key
@@ -255,9 +261,34 @@ chmod 600 "$config_file"
 set -- -S "$source_dir" -D "$destination_dir" -c "$config_file" --persistent-state "$state_file"
 
 shell_selected=0
+lazygit_selected=0
 shell_antidote_route=''
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"shell"/); exit } END { exit !found }' "$config_file"; then
     shell_selected=1
+fi
+if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"lazygit"/); exit } END { exit !found }' "$config_file"; then
+    lazygit_selected=1
+fi
+
+# Validate every selected Integration Block namespace before probing or
+# preparing any selected tool. The same rendered module is run again by
+# chezmoi immediately before apply to close the confirmation-time race.
+if [ "$shell_selected" -eq 1 ] || [ "$lazygit_selected" -eq 1 ]; then
+    "$chezmoi_bin" "$@" execute-template \
+        < "$source_dir/.chezmoiscripts/run_before_01_validate_zshrc_integrations.sh.tmpl" | /bin/sh
+fi
+
+if [ "$lazygit_selected" -eq 1 ]; then
+    lazygit_bin=$(command -v lazygit 2>/dev/null || true)
+    if [ -z "$lazygit_bin" ]; then
+        error 'lazygit: executable not found; install Lazygit, ensure it is on PATH, then retry.'
+        exit 1
+    fi
+    if ! "$lazygit_bin" --version >/dev/null 2>&1; then
+        error "lazygit: existing executable is unhealthy and was left untouched: $lazygit_bin; repair it, then retry."
+        exit 1
+    fi
+    log "Using existing Lazygit: $lazygit_bin"
 fi
 
 if [ "$shell_selected" -eq 1 ]; then

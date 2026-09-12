@@ -20,8 +20,10 @@ plasticine-demo/**
 .ssh
 .ssh/**
 {{ end }}
-{{ if not (has "shell" .tools) }}
+{{ if and (not (has "shell" .tools)) (not (has "lazygit" .tools)) }}
 .zshrc
+{{ end }}
+{{ if not (has "shell" .tools) }}
 .zsh_plugins.txt
 .p10k.zsh
 .plasticine

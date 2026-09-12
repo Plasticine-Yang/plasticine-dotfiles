@@ -378,9 +378,8 @@ fi
 /bin/sh -n "$repo_dir/private_dot_ssh/modify_private_config"
 /bin/sh -n "$repo_dir/install.sh"
 /bin/sh -n "$repo_dir/lib/shell-bootstrap.sh"
-# The shared composer template is rendered into the `.zshrc` source modifier and
-# the shell `.chezmoiscripts`, so it must parse as POSIX shell on its own.
-/bin/sh -n "$repo_dir/.chezmoitemplates/shell-zshrc-block"
+# The shared composer has selection-dependent template branches; rendered
+# consumers above are syntax-checked instead of the unrendered template.
 for repository_script in "$repo_dir"/scripts/*.sh; do
     /bin/sh -n "$repository_script"
 done
@@ -391,7 +390,6 @@ if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "$repo_dir/private_dot_ssh/modify_private_config"
     shellcheck "$repo_dir/install.sh"
     shellcheck "$repo_dir/lib/shell-bootstrap.sh"
-    shellcheck "$repo_dir/.chezmoitemplates/shell-zshrc-block"
     shellcheck "$repo_dir"/scripts/*.sh
     shellcheck "$repo_dir"/tests/*.sh
 fi
