@@ -89,6 +89,8 @@ PLASTICINE_DOTFILES_REPO_URL="$PWD" ./install.sh
 
 已有的 `lazygit` 只要通过 `lazygit --version` 健康检查，就保留当前版本和安装归属，不升级、不替换。缺失时，Plasticine 在 apply 阶段从 `jesseduffield/lazygit` 的最新 GitHub Release 下载当前 macOS/Linux、`x86_64`/`arm64` 对应的归档及同一 Release 的 `checksums.txt`，验证 SHA-256 后只提取 `lazygit`，以 `0755` 原子发布到 `~/.local/bin/lazygit`。该校验和与归档处于同一 GitHub Release 信任边界，不是独立签名。此路线不调用 Homebrew、APT、`sudo`、`go install` 或第三方安装器，也不需要凭据或终端提示。
 
+下载、Release 元数据、校验、解压、发布或安装后健康检查失败时不会改用其他安装路线，也不会应用别名。已经成功发布的健康工具会保留；修复网络、上游资源或本机文件系统问题后重跑同一命令即可从观测到的健康状态继续。
+
 `--lazygit` 只在 Owner 控制的 `~/.zshrc` 中维护以下区块，并与 `shell` 区块共用同一个组合与备份流程：
 
 ```zsh
@@ -177,11 +179,12 @@ CHEZMOI_BIN=/path/to/chezmoi ./tests/integration.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/installer.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/shell.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/lazygit.sh
+CHEZMOI_BIN=/path/to/chezmoi ./tests/lazygit-runtime.sh
 ./tests/shell-runtime.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/release.sh
 ```
 
-`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、登录 shell 切换与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/shell-runtime.sh` 用真实的 Zsh 在临时 HOME 中启动交互式和非交互式 shell，验证受管片段的运行时行为，因此需要本机存在 `zsh`。
+`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、登录 shell 切换与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/lazygit-runtime.sh` 用真实 Zsh 证明 `lg` 的调用、Owner 后置覆盖、组合顺序和收敛；`tests/shell-runtime.sh` 用真实 Zsh 在临时 HOME 中启动交互式和非交互式 shell，验证受管片段的运行时行为。两个 runtime 套件都需要本机存在 `zsh`。
 
 ## 发布
 
