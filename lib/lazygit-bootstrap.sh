@@ -260,10 +260,12 @@ plasticine_lazygit_prepare() {
         plasticine_lazygit_error 'atomic no-clobber publication failed; the destination was left untouched.'
         return 1
     }
+    # Publication is complete. Do not retain a second link, and never unlink
+    # the published pathname after this point: POSIX cannot make a later
+    # identity check plus unlink atomic against an Owner replacement.
     rm -f "$lazygit_stage"
     if ! plasticine_lazygit_health "$lazygit_target"; then
-        rm -f "$lazygit_target"
-        plasticine_lazygit_error 'published Lazygit failed its --version health check and was removed; no configuration applied.'
+        plasticine_lazygit_error "the executable retained at $lazygit_target failed its post-publication --version health check; repair the Owner file, or remove it if it is the failed publication, before rerunning. No configuration applied."
         return 1
     fi
     lazygit_bin=$lazygit_target

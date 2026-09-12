@@ -3,7 +3,7 @@
 {{- end -}}
 {{- $nonInteractive := eq (env "PLASTICINE_NONINTERACTIVE") "1" -}}
 {{- $allowedTools := list "github-ssh" "lazygit" "shell" -}}
-{{- $zshIntegrations := list "shell" "lazygit" -}}
+{{- $zshIntegrations := splitList "\n" (trim (includeTemplate "zsh-integration-catalog" .)) -}}
 {{- $shellTargets := list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh" -}}
 {{- $tools := list -}}
 {{- if $nonInteractive -}}
@@ -19,7 +19,11 @@
 {{- else -}}
 {{- $tools = promptMultichoice "选择要处理的工具（空格切换，回车确认；不选则跳过）" $allowedTools -}}
 {{- end -}}
-{{- if or (has "shell" $tools) (has "lazygit" $tools) -}}
+{{- $plasticineZshIntegrationSelected := false -}}
+{{- range $integration := $zshIntegrations -}}
+{{- if has $integration $tools -}}{{- $plasticineZshIntegrationSelected = true -}}{{- end -}}
+{{- end -}}
+{{- if $plasticineZshIntegrationSelected -}}
 {{- $zshrcInfo := lstat (joinPath .chezmoi.destDir ".zshrc") -}}
 {{- if and $zshrcInfo (ne $zshrcInfo.type "file") -}}
 {{- fail "~/.zshrc 必须是普通文件，不能是符号链接、目录或其他非普通文件。" -}}
@@ -97,7 +101,6 @@
 {{- end -}}
 [data]
     tools = {{ $tools | default (list) | toJson }}
-    plasticineZshIntegrations = {{ $zshIntegrations | toJson }}
     plasticineShellTargets = {{ $shellTargets | toJson }}
     githubSSHKeyPath = {{ $key | toJson }}
     githubSSHKeyFingerprint = {{ $sourceFingerprint | toJson }}
