@@ -186,6 +186,35 @@ for unsupported in FreeBSD:x86_64 Linux:riscv64; do
     test ! -e "$unsupported_home/.local" || fail 'unsupported target caused effects'
 done
 
+# The complete release path uses the exact reviewed asset on every supported
+# OS/architecture spelling, verifies it, extracts only `lazygit`, and publishes
+# it with executable mode. These fixtures never reach the network.
+for platform in Darwin:x86_64:darwin:x86_64 Darwin:arm64:darwin:arm64 Linux:amd64:linux:x86_64 Linux:aarch64:linux:arm64; do
+    old_ifs=$IFS; IFS=:; set -- $platform; IFS=$old_ifs
+    fixture_os=$1; fixture_arch=$2; expected_os=$3; expected_arch=$4
+    route_matrix=$test_root/route-matrix-$fixture_os-$fixture_arch
+    mkdir -p "$route_matrix/home"; : > "$route_matrix/calls"
+    (
+        # Deliberately scoped to this fixture subshell.
+        # shellcheck disable=SC2030
+        PATH=$release_bin:$protect_bin:/usr/bin:/bin
+        PLASTICINE_LAZYGIT_OS=$fixture_os; PLASTICINE_LAZYGIT_ARCH=$fixture_arch
+        PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture; PLASTICINE_TEST_RELEASE_CALLS=$route_matrix/calls
+        export PATH PLASTICINE_LAZYGIT_OS PLASTICINE_LAZYGIT_ARCH PLASTICINE_TEST_RELEASE_FIXTURE PLASTICINE_TEST_RELEASE_CALLS
+        # shellcheck disable=SC1091
+        . "$repo_dir/lib/lazygit-bootstrap.sh"
+        plasticine_lazygit_plan "$route_matrix/home"
+        plasticine_lazygit_prepare
+    ) || fail "release path failed for $fixture_os/$fixture_arch"
+    expected_asset=lazygit_1.2.3_${expected_os}_${expected_arch}.tar.gz
+    grep -Fxq "https://github.com/jesseduffield/lazygit/releases/download/v1.2.3/$expected_asset" "$route_matrix/calls" ||
+        fail "wrong release asset requested for $fixture_os/$fixture_arch"
+    test -x "$route_matrix/home/.local/bin/lazygit" || fail "release was not published for $fixture_os/$fixture_arch"
+    cmp -s "$release_fixture/payload/lazygit" "$route_matrix/home/.local/bin/lazygit" ||
+        fail "published member was not the exact lazygit payload for $fixture_os/$fixture_arch"
+    test "$(file_mode "$route_matrix/home/.local/bin/lazygit")" = 755 || fail "published mode was not 0755 for $fixture_os/$fixture_arch"
+done
+
 # Invalid checksum evidence never publishes a binary or applies the alias.
 for checksum_case in missing duplicate malformed mismatch; do
     checksum_fixture=$test_root/checksum-$checksum_case-fixture
@@ -260,9 +289,18 @@ unset PLASTICINE_TEST_LAZYGIT_UNHEALTHY
 grep -Fq 'left untouched' "$unhealthy/err"
 test ! -e "$unhealthy/home/.zshrc"
 
-# Lazygit-only preserves arbitrary bytes, never probes shell state, and restores mode.
+# Lazygit-only preserves arbitrary bytes and unmanaged native/legacy state, never
+# probes shell state, and restores mode.
 single=$test_root/single; mkdir -p "$single/home"
 printf 'owner\015\012\303\251\000\377tail' > "$single/home/.zshrc"
+mkdir -p "$single/home/.config/lazygit" "$single/home/.cache/lazygit" \
+    "$single/home/project/.git" "$single/home/.plasticine-dotfiles/runtime"
+printf 'native config\n' > "$single/home/.config/lazygit/config.yml"
+printf 'cache and log\n' > "$single/home/.cache/lazygit/lazygit.log"
+printf 'repository state\n' > "$single/home/project/.git/lazygit-state"
+printf 'legacy state\n' > "$single/home/.plasticine-dotfiles/runtime/lazygit"
+unmanaged_before=$(find "$single/home/.config/lazygit" "$single/home/.cache/lazygit" \
+    "$single/home/project" "$single/home/.plasticine-dotfiles" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{print $1}')
 cp "$single/home/.zshrc" "$single/before"; chmod 640 "$single/home/.zshrc"
 run_installer "$single" -y --lazygit >/dev/null
 cat "$lazygit_block" > "$single/expected"; cat "$single/before" >> "$single/expected"
@@ -278,6 +316,25 @@ run_installer "$single" -y --lazygit >/dev/null
 after_hash=$(find "$single/home" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{print $1}')
 test "$before_hash" = "$after_hash" || fail 'satisfied rerun changed files'
 test "$(find "$single/home/.plasticine/backups/integration-blocks" -name '.zshrc.plasticine-backup-*' | wc -l | tr -d ' ')" = 1 || fail 'rerun created backup'
+unmanaged_after=$(find "$single/home/.config/lazygit" "$single/home/.cache/lazygit" \
+    "$single/home/project" "$single/home/.plasticine-dotfiles" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{print $1}')
+test "$unmanaged_before" = "$unmanaged_after" || fail 'selected apply or satisfied rerun changed unmanaged Lazygit/legacy state'
+test ! -e "$single/home/.plasticine/backups/lazygit" || fail 'unmanaged Lazygit state was backed up'
+
+# An unselected apply must not observe even an unhealthy Lazygit executable and
+# leaves all native and legacy state byte-identical.
+unselected=$test_root/unselected; mkdir -p "$unselected/home/.config/lazygit" "$unselected/home/.cache/lazygit" "$unselected/home/project/.git" "$unselected/home/.plasticine-dotfiles"
+printf 'config\n' > "$unselected/home/.config/lazygit/config.yml"
+printf 'cache\n' > "$unselected/home/.cache/lazygit/log"
+printf 'repo\n' > "$unselected/home/project/.git/state"
+printf 'legacy\n' > "$unselected/home/.plasticine-dotfiles/state"
+unselected_before=$(find "$unselected/home" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{print $1}')
+rm -f "$test_root/lazygit-probes"
+PLASTICINE_TEST_LAZYGIT_UNHEALTHY=1 run_installer "$unselected" -y >/dev/null
+unset PLASTICINE_TEST_LAZYGIT_UNHEALTHY
+unselected_after=$(find "$unselected/home" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{print $1}')
+test "$unselected_before" = "$unselected_after" || fail 'unselected apply changed Lazygit or legacy state'
+test ! -e "$test_root/lazygit-probes" || fail 'unselected apply probed Lazygit'
 
 # Existing blocks stay in place; missing selected blocks prepend in catalog order.
 compose=$test_root/compose; mkdir -p "$compose/home"
