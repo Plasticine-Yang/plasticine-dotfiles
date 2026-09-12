@@ -1,6 +1,6 @@
 # 05 — Bootstrap missing Lazygit
 
-Status: ready-for-agent
+Status: done
 
 Blocked by: 04
 
