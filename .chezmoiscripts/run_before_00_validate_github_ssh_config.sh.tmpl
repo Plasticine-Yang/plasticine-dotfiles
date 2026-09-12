@@ -1,0 +1,38 @@
+{{- if has "github-ssh" .tools -}}
+#!/bin/sh
+set -eu
+
+config_file={{ template "shell-quote" (joinPath .chezmoi.destDir ".ssh" "config") }}
+ssh_dir={{ template "shell-quote" (joinPath .chezmoi.destDir ".ssh") }}
+config_dir=$ssh_dir/config.d
+begin_marker='# BEGIN plasticine-dotfiles github-ssh'
+end_marker='# END plasticine-dotfiles github-ssh'
+
+if [ -L "$ssh_dir" ] || { [ -e "$ssh_dir" ] && [ ! -d "$ssh_dir" ]; }; then
+    printf '%s\n' 'SSH 目录必须是普通目录，不能是符号链接。' >&2
+    exit 1
+fi
+if [ -L "$config_dir" ] || { [ -e "$config_dir" ] && [ ! -d "$config_dir" ]; }; then
+    printf '%s\n' 'SSH config.d 必须是普通目录，不能是符号链接。' >&2
+    exit 1
+fi
+if [ -L "$config_file" ] || { [ -e "$config_file" ] && [ ! -f "$config_file" ]; }; then
+    printf '%s\n' 'SSH config 必须是普通文件，不能是符号链接。' >&2
+    exit 1
+fi
+
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-ssh-config.XXXXXX")
+trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
+input_file=$work_dir/input
+stripped_file=$work_dir/stripped
+existing_effective_file=$work_dir/existing-effective
+default_effective_file=$work_dir/default-effective
+
+if [ -f "$config_file" ]; then
+    cp "$config_file" "$input_file"
+else
+    : > "$input_file"
+fi
+
+{{ template "github-ssh-config-validation" . }}
+{{- end }}

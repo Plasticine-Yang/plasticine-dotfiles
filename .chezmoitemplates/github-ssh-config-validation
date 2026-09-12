@@ -1,0 +1,40 @@
+awk -v begin="$begin_marker" -v end="$end_marker" '
+    $0 == begin {
+        if (inside || seen) exit 20
+        inside = 1
+        seen = 1
+        next
+    }
+    $0 == end {
+        if (!inside) exit 21
+        inside = 0
+        next
+    }
+    !inside { print }
+    END {
+        if (inside) exit 22
+    }
+' "$input_file" > "$stripped_file" || {
+    printf '%s\n' 'GitHub SSH 托管区块损坏或重复，请先手动修复 ~/.ssh/config。' >&2
+    exit 1
+}
+
+if ! ssh -G -F /dev/null github.com > "$default_effective_file" 2>/dev/null ||
+   ! ssh -G -F "$stripped_file" github.com > "$existing_effective_file" 2>/dev/null; then
+    printf '%s\n' '现有 ~/.ssh/config 无法被 OpenSSH 解析，未进行修改。' >&2
+    exit 1
+fi
+
+default_user=$(awk '$1 == "user" { print $2; exit }' "$default_effective_file")
+existing_user=$(awk '$1 == "user" { print $2; exit }' "$existing_effective_file")
+default_host=$(awk '$1 == "hostname" { print $2; exit }' "$default_effective_file")
+existing_host=$(awk '$1 == "hostname" { print $2; exit }' "$existing_effective_file")
+default_identities=$(awk '$1 == "identityfile" { print $2 }' "$default_effective_file")
+existing_identities=$(awk '$1 == "identityfile" { print $2 }' "$existing_effective_file")
+
+if { [ "$existing_user" != "$default_user" ] && [ "$existing_user" != git ]; } ||
+   [ "$existing_host" != "$default_host" ] ||
+   [ "$existing_identities" != "$default_identities" ]; then
+    printf '%s\n' '已有 SSH 规则会改变 github.com 的用户、主机或私钥，未进行修改。' >&2
+    exit 1
+fi

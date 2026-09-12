@@ -1,0 +1,7 @@
+README.md
+tests
+tests/**
+{{ if not (has "github-ssh" .tools) }}
+.ssh
+.ssh/**
+{{ end }}

@@ -1,0 +1,30 @@
+{{- if has "github-ssh" .tools -}}
+#!/bin/sh
+set -eu
+
+config_file={{ template "shell-quote" (joinPath .chezmoi.destDir ".ssh" "config") }}
+ssh_dir={{ template "shell-quote" (joinPath .chezmoi.destDir ".ssh") }}
+config_dir=$ssh_dir/config.d
+begin_marker='# BEGIN plasticine-dotfiles github-ssh'
+
+if [ -L "$ssh_dir" ] || { [ -e "$ssh_dir" ] && [ ! -d "$ssh_dir" ]; }; then
+    printf '%s\n' 'SSH 目录必须是普通目录，不能是符号链接。' >&2
+    exit 1
+fi
+if [ -L "$config_dir" ] || { [ -e "$config_dir" ] && [ ! -d "$config_dir" ]; }; then
+    printf '%s\n' 'SSH config.d 必须是普通目录，不能是符号链接。' >&2
+    exit 1
+fi
+if [ -L "$config_file" ] || { [ -e "$config_file" ] && [ ! -f "$config_file" ]; }; then
+    printf '%s\n' 'SSH config 必须是普通文件，不能是符号链接。' >&2
+    exit 1
+fi
+
+if [ -f "$config_file" ] && ! grep -Fqx "$begin_marker" "$config_file"; then
+    backup_file=$config_file.plasticine-backup-before-managed
+    if [ ! -e "$backup_file" ]; then
+        cp -p "$config_file" "$backup_file"
+        chmod 600 "$backup_file"
+    fi
+fi
+{{- end }}

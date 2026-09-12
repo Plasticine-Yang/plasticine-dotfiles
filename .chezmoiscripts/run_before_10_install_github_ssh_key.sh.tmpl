@@ -1,0 +1,84 @@
+{{- if has "github-ssh" .tools -}}
+#!/bin/sh
+set -eu
+
+source_key={{ template "shell-quote" .githubSSHKeyPath }}
+expected_source_fingerprint={{ template "shell-quote" .githubSSHKeyFingerprint }}
+approved_target_fingerprint={{ template "shell-quote" .githubSSHReplaceFingerprint }}
+ssh_dir={{ template "shell-quote" (joinPath .chezmoi.destDir ".ssh") }}
+target_key=$ssh_dir/id_github
+
+if [ -L "$target_key" ] || { [ -e "$target_key" ] && [ ! -f "$target_key" ]; }; then
+    printf '目标私钥不是普通文件：%s\n' "$target_key" >&2
+    exit 1
+fi
+if [ -f "$target_key" ]; then
+    target_fingerprint=$(ssh-keygen -lf "$target_key" | awk '{ print $2 }')
+    if [ "$target_fingerprint" = "$expected_source_fingerprint" ]; then
+        chmod 600 "$target_key"
+        exit 0
+    fi
+fi
+if [ ! -f "$source_key" ] || [ -L "$source_key" ]; then
+    printf '私钥必须是普通文件且不能是符号链接：%s\n' "$source_key" >&2
+    exit 1
+fi
+if [ ! -s "$source_key" ]; then
+    printf '私钥文件不能为空：%s\n' "$source_key" >&2
+    exit 1
+fi
+IFS= read -r first_line < "$source_key" || true
+case $first_line in
+    '-----BEGIN '*'PRIVATE KEY-----') ;;
+    *)
+        printf '指定文件不是受支持的 SSH 私钥：%s\n' "$source_key" >&2
+        exit 1
+        ;;
+esac
+source_fingerprint=$(ssh-keygen -lf "$source_key" | awk '{ print $2 }')
+if [ "$source_fingerprint" != "$expected_source_fingerprint" ]; then
+    printf '私钥在确认后发生变化，请重新运行 chezmoi init：%s\n' "$source_key" >&2
+    exit 1
+fi
+
+umask 077
+mkdir -p "$ssh_dir" "$ssh_dir/config.d"
+chmod 700 "$ssh_dir" "$ssh_dir/config.d"
+
+if [ -f "$target_key" ]; then
+    if cmp -s "$source_key" "$target_key"; then
+        chmod 600 "$target_key"
+        exit 0
+    fi
+    target_fingerprint=$(ssh-keygen -lf "$target_key" | awk '{ print $2 }')
+    if [ -z "$approved_target_fingerprint" ] || [ "$target_fingerprint" != "$approved_target_fingerprint" ]; then
+        printf '目标私钥未经确认或确认后发生变化，请重新运行 chezmoi init：%s\n' "$target_key" >&2
+        exit 1
+    fi
+fi
+
+temporary_key=$(mktemp "$ssh_dir/.id_github.XXXXXX")
+trap 'rm -f "${temporary_key:-}"' EXIT HUP INT TERM
+cp "$source_key" "$temporary_key"
+chmod 600 "$temporary_key"
+copied_fingerprint=$(ssh-keygen -lf "$temporary_key" | awk '{ print $2 }')
+if [ "$copied_fingerprint" != "$expected_source_fingerprint" ]; then
+    printf '%s\n' '复制私钥时源文件发生变化，未替换目标私钥。' >&2
+    exit 1
+fi
+
+if [ -f "$target_key" ]; then
+    timestamp=$(date '+%Y%m%d%H%M%S')
+    backup_key=$target_key.plasticine-backup-$timestamp
+    suffix=0
+    while [ -e "$backup_key" ]; do
+        suffix=$((suffix + 1))
+        backup_key=$target_key.plasticine-backup-$timestamp-$suffix
+    done
+    cp -p "$target_key" "$backup_key"
+    chmod 600 "$backup_key"
+fi
+
+mv -f "$temporary_key" "$target_key"
+trap - EXIT HUP INT TERM
+{{- end }}

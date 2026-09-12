@@ -1,0 +1,51 @@
+{{- if not (has .chezmoi.os (list "darwin" "linux")) -}}
+{{- fail "仅支持 macOS 和 Linux。" -}}
+{{- end -}}
+{{- $tools := promptMultichoice "选择要处理的工具（空格切换，回车确认；不选则跳过）" (list "github-ssh") -}}
+{{- $key := "" -}}
+{{- $sourceFingerprint := "" -}}
+{{- $replaceFingerprint := "" -}}
+{{- $test := false -}}
+{{- if has "github-ssh" $tools -}}
+{{- $key = promptString "GitHub SSH 私钥路径（绝对路径或 ~/ 开头）" -}}
+{{- if hasPrefix "~/" $key -}}
+{{- $key = joinPath .chezmoi.homeDir (trimPrefix "~/" $key) -}}
+{{- end -}}
+{{- if or (not (hasPrefix "/" $key)) (contains "\n" $key) (contains "\r" $key) (contains "\x00" $key) -}}
+{{- fail "请输入绝对路径或 ~/ 开头的私钥路径，路径不能包含换行符。" -}}
+{{- end -}}
+{{- $info := lstat $key -}}
+{{- if not $info -}}
+{{- fail (printf "私钥文件不存在：%s" $key) -}}
+{{- else if ne $info.type "file" -}}
+{{- fail "私钥必须是普通文件，不能是目录或符号链接。" -}}
+{{- end -}}
+{{- $firstLine := trim (output "head" "-n" "1" $key) -}}
+{{- if not (regexMatch "^-----BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY-----$" $firstLine) -}}
+{{- fail "指定文件不是受支持的 SSH 私钥。" -}}
+{{- end -}}
+{{- $fingerprintOutput := output "ssh-keygen" "-lf" $key -}}
+{{- $sourceFingerprint = index (splitList " " $fingerprintOutput) 1 -}}
+{{- $targetKey := joinPath .chezmoi.destDir ".ssh" "id_github" -}}
+{{- $targetInfo := lstat $targetKey -}}
+{{- if and $targetInfo (ne $targetInfo.type "file") -}}
+{{- fail "~/.ssh/id_github 必须是普通文件，不能是目录或符号链接。" -}}
+{{- end -}}
+{{- if and $targetInfo (ne (clean $key) (clean $targetKey)) -}}
+{{- $targetFingerprintOutput := output "ssh-keygen" "-lf" $targetKey -}}
+{{- $targetFingerprint := index (splitList " " $targetFingerprintOutput) 1 -}}
+{{- if ne $sourceFingerprint $targetFingerprint -}}
+{{- if not (promptBool (printf "~/.ssh/id_github 已存在（%s），是否替换为 %s" $targetFingerprint $sourceFingerprint) false) -}}
+{{- fail "已取消替换 GitHub SSH 私钥。" -}}
+{{- end -}}
+{{- $replaceFingerprint = $targetFingerprint -}}
+{{- end -}}
+{{- end -}}
+{{- $test = promptBool "配置完成后测试 GitHub SSH 连接" false -}}
+{{- end -}}
+[data]
+    tools = {{ $tools | default (list) | toJson }}
+    githubSSHKeyPath = {{ $key | toJson }}
+    githubSSHKeyFingerprint = {{ $sourceFingerprint | toJson }}
+    githubSSHReplaceFingerprint = {{ $replaceFingerprint | toJson }}
+    githubSSHTest = {{ $test }}

@@ -1,0 +1,20 @@
+{{- if and (has "github-ssh" .tools) .githubSSHTest -}}
+#!/bin/sh
+set -u
+
+output=$(ssh -T -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new git@github.com 2>&1)
+status=$?
+case $output in
+    *"successfully authenticated"*)
+        printf '%s\n' "$output"
+        exit 0
+        ;;
+    *)
+        printf '%s\n' "$output" >&2
+        if [ "$status" -eq 0 ]; then
+            status=1
+        fi
+        exit "$status"
+        ;;
+esac
+{{- end }}

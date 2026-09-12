@@ -1,0 +1,6 @@
+.DS_Store
+*.pem
+*.key
+id_*
+.ssh/
+private_dot_ssh/private_id_*
