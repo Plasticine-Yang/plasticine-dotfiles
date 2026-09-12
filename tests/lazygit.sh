@@ -2,7 +2,19 @@
 set -eu
 
 repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
-chezmoi_bin=${CHEZMOI_BIN:-$(command -v chezmoi)}
+chezmoi_command=${CHEZMOI_BIN:-chezmoi}
+case $chezmoi_command in
+    */*) chezmoi_bin=$chezmoi_command ;;
+    *) chezmoi_bin=$(command -v "$chezmoi_command" 2>/dev/null || true) ;;
+esac
+[ -n "$chezmoi_bin" ] && [ -x "$chezmoi_bin" ] || {
+    printf '%s\n' 'lazygit tests require an executable CHEZMOI_BIN or chezmoi on PATH.' >&2
+    exit 1
+}
+case $chezmoi_bin in
+    /*) ;;
+    *) chezmoi_bin=$(cd -- "$(dirname -- "$chezmoi_bin")" && pwd -P)/${chezmoi_bin##*/} ;;
+esac
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-lazygit-test.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 
