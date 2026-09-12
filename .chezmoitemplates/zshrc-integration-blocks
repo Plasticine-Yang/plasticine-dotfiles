@@ -1,6 +1,8 @@
 # shellcheck shell=sh
 # Shared implementation for selected Integration Blocks in Owner-controlled
-# .zshrc. The catalog order is shell, then lazygit.
+# .zshrc. This rendered catalog is the single ordering source for scanning,
+# replacement and insertion.
+plasticine_integration_catalog='{{ range $integration := (index . "plasticineZshIntegrations" | default (list "shell" "lazygit")) }}{{ if has $integration $.tools }}{{ $integration }} {{ end }}{{ end }}'
 plasticine_integration_emit() {
     case $1 in
         shell)
@@ -31,7 +33,7 @@ plasticine_integration_scan() {
     plasticine_scan_input=$1
     plasticine_scan_output=$2
     { LC_ALL=C od -An -v -tu1 "$plasticine_scan_input" || printf 'PLASTICINE_READ_ERROR\n'; } |
-        LC_ALL=C awk -v selected='{{ if has "shell" .tools }} shell{{ end }}{{ if has "lazygit" .tools }} lazygit{{ end }}' '
+        LC_ALL=C awk -v selected="$plasticine_integration_catalog" '
             function is_selected(name,    i) {
                 for (i = 1; i <= count; i++) if (names[i] == name) return 1
                 return 0
@@ -112,32 +114,24 @@ plasticine_integration_compose() {
         return 1
     fi
     cat "$plasticine_compose_input" > "$plasticine_compose_dir/current"
-{{ if has "shell" .tools }}
-    plasticine_integration_replace "$plasticine_compose_dir/current" "$plasticine_compose_dir/next" shell "$plasticine_compose_offsets" || { rm -rf "$plasticine_compose_dir"; return 1; }
-    mv "$plasticine_compose_dir/next" "$plasticine_compose_dir/current"
-{{ end }}
-{{ if has "lazygit" .tools }}
-    # Rescan because replacing an earlier block may change later byte offsets.
-    plasticine_integration_scan "$plasticine_compose_dir/current" "$plasticine_compose_dir/current-offsets" || { rm -rf "$plasticine_compose_dir"; return 1; }
-    plasticine_integration_replace "$plasticine_compose_dir/current" "$plasticine_compose_dir/next" lazygit "$plasticine_compose_dir/current-offsets" || { rm -rf "$plasticine_compose_dir"; return 1; }
-    mv "$plasticine_compose_dir/next" "$plasticine_compose_dir/current"
-{{ end }}
-    # Missing blocks are prepended in reverse catalog order so their final order
-    # is deterministic without moving valid existing blocks.
-{{ if has "lazygit" .tools }}
-    if awk '$1 == "lazygit" && $2 == -1 { found=1 } END { exit !found }' "$plasticine_compose_offsets"; then
-        plasticine_integration_emit lazygit > "$plasticine_compose_dir/next"
-        cat "$plasticine_compose_dir/current" >> "$plasticine_compose_dir/next"
+    for plasticine_compose_feature in $plasticine_integration_catalog; do
+        # Rescan after every replacement because its byte length may change the
+        # offsets of later blocks.
+        plasticine_integration_scan "$plasticine_compose_dir/current" "$plasticine_compose_dir/current-offsets" || { rm -rf "$plasticine_compose_dir"; return 1; }
+        plasticine_integration_replace "$plasticine_compose_dir/current" "$plasticine_compose_dir/next" "$plasticine_compose_feature" "$plasticine_compose_dir/current-offsets" || { rm -rf "$plasticine_compose_dir"; return 1; }
+        mv "$plasticine_compose_dir/next" "$plasticine_compose_dir/current"
+    done
+    # Build one prefix in catalog order. Existing blocks retain their locations.
+    : > "$plasticine_compose_dir/prefix"
+    for plasticine_compose_feature in $plasticine_integration_catalog; do
+        if awk -v feature="$plasticine_compose_feature" '$1 == feature && $2 == -1 { found=1 } END { exit !found }' "$plasticine_compose_offsets"; then
+            plasticine_integration_emit "$plasticine_compose_feature" >> "$plasticine_compose_dir/prefix"
+        fi
+    done
+    if [ -s "$plasticine_compose_dir/prefix" ]; then
+        cat "$plasticine_compose_dir/prefix" "$plasticine_compose_dir/current" > "$plasticine_compose_dir/next"
         mv "$plasticine_compose_dir/next" "$plasticine_compose_dir/current"
     fi
-{{ end }}
-{{ if has "shell" .tools }}
-    if awk '$1 == "shell" && $2 == -1 { found=1 } END { exit !found }' "$plasticine_compose_offsets"; then
-        plasticine_integration_emit shell > "$plasticine_compose_dir/next"
-        cat "$plasticine_compose_dir/current" >> "$plasticine_compose_dir/next"
-        mv "$plasticine_compose_dir/next" "$plasticine_compose_dir/current"
-    fi
-{{ end }}
     cat "$plasticine_compose_dir/current" > "$plasticine_compose_output"
     rm -rf "$plasticine_compose_dir"
 }

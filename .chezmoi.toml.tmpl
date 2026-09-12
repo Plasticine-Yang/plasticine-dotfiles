@@ -3,6 +3,8 @@
 {{- end -}}
 {{- $nonInteractive := eq (env "PLASTICINE_NONINTERACTIVE") "1" -}}
 {{- $allowedTools := list "github-ssh" "lazygit" "shell" -}}
+{{- $zshIntegrations := list "shell" "lazygit" -}}
+{{- $shellTargets := list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh" -}}
 {{- $tools := list -}}
 {{- if $nonInteractive -}}
 {{- range $requestedTool := splitList " " (trim (env "PLASTICINE_TOOLS")) -}}
@@ -31,7 +33,7 @@
 {{- fail (printf "shell: ~/%s 必须是普通目录，不能是符号链接或其他非目录。" $parent) -}}
 {{- end -}}
 {{- end -}}
-{{- range $target := list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh" -}}
+{{- range $target := $shellTargets -}}
 {{- $info := lstat (joinPath $destDir $target) -}}
 {{- if and $info (ne $info.type "file") -}}
 {{- fail (printf "shell: ~/%s 必须是普通文件，不能是符号链接、目录或其他非普通文件。" $target) -}}
@@ -95,6 +97,8 @@
 {{- end -}}
 [data]
     tools = {{ $tools | default (list) | toJson }}
+    plasticineZshIntegrations = {{ $zshIntegrations | toJson }}
+    plasticineShellTargets = {{ $shellTargets | toJson }}
     githubSSHKeyPath = {{ $key | toJson }}
     githubSSHKeyFingerprint = {{ $sourceFingerprint | toJson }}
     githubSSHReplaceFingerprint = {{ $replaceFingerprint | toJson }}

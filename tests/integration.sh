@@ -338,6 +338,19 @@ lazygit_shell_before=$(shasum -a 256 "$lazygit_shell_dir/home/.zshrc" | awk '{pr
 apply "$lazygit_shell_dir"
 test "$lazygit_shell_before" = "$(shasum -a 256 "$lazygit_shell_dir/home/.zshrc" | awk '{print $1}')"
 
+# A Lazygit dry run renders the shared composer but performs no destination
+# writes, backups, or tool preparation.
+lazygit_dry_dir=$test_root/lazygit-dry
+mkdir -p "$lazygit_dry_dir/home"
+printf '%s\n' '[data]' 'tools = ["lazygit"]' 'githubSSHKeyPath = ""' \
+    'githubSSHKeyFingerprint = ""' 'githubSSHReplaceFingerprint = ""' \
+    'githubSSHTest = false' > "$lazygit_dry_dir/chezmoi.toml"
+printf '%s\n' owner > "$lazygit_dry_dir/home/.zshrc"
+cp "$lazygit_dry_dir/home/.zshrc" "$lazygit_dry_dir/before"
+apply "$lazygit_dry_dir" --dry-run
+cmp -s "$lazygit_dry_dir/before" "$lazygit_dry_dir/home/.zshrc"
+test ! -e "$lazygit_dry_dir/home/.plasticine"
+
 lazygit_ssh_dir=$test_root/lazygit-ssh
 mkdir -p "$lazygit_ssh_dir/home/.ssh"; chmod 700 "$lazygit_ssh_dir/home/.ssh"
 cat > "$lazygit_ssh_dir/chezmoi.toml" <<EOF
@@ -453,6 +466,18 @@ for source_script in "$repo_dir"/.chezmoiscripts/*.tmpl; do
             fi
         fi
     done
+done
+for config_file in "$lint_dir/shell-chezmoi.toml" "$lint_dir/all-chezmoi.toml"; do
+    rendered_composer=$lint_dir/composer-$(basename "$config_file" .toml)
+    "$chezmoi_bin" \
+        -S "$repo_dir" \
+        -D "$lint_dir/home" \
+        -c "$config_file" \
+        execute-template < "$repo_dir/.chezmoitemplates/zshrc-integration-blocks" > "$rendered_composer"
+    /bin/sh -n "$rendered_composer"
+    if command -v shellcheck >/dev/null 2>&1; then
+        shellcheck "$rendered_composer"
+    fi
 done
 "$chezmoi_bin" \
     -S "$repo_dir" \
