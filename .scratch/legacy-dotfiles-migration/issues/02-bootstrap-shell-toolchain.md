@@ -1,6 +1,6 @@
 # 02 — Bootstrap the shell toolchain and login shell
 
-Status: ready-for-agent
+Status: done
 
 Blocked by: 01
 
@@ -25,3 +25,12 @@ Extend the `shell` feature from configuring healthy existing tools to preparing 
 - Tests use fake package managers, network commands, privilege commands, account databases, and `chsh`; they must never mutate the developer's real machine.
 
 ## Comments
+
+Shipped missing-tool bootstrap and native `chsh` without changing ticket 01's configuration ownership seam.
+
+- `lib/shell-bootstrap.sh` plans reviewed routes, prints preview, installs only missing tools, and attempts `chsh` last.
+- `install.sh` previews the selected route (network, package-manager, privilege, installer opacity, proposed `chsh`) before confirmation. `--yes` skips Plasticine confirmation only.
+- `.chezmoiscripts/run_before_01_*` still validates destinations before tool mutation; `run_before_20_*` prepares tools then configuration; `run_after_85_*` transitions the login shell after files are usable.
+- macOS uses system Zsh + Homebrew Antidote (official Homebrew bootstrap if brew is missing). Debian/Ubuntu uses existing healthy Zsh or `sudo apt-get update` / `sudo apt-get install -y --no-upgrade`. Linux Antidote uses `~/.antidote` or `git clone --depth=1`. Powerlevel10k is `antidote bundle romkatv/powerlevel10k kind:clone`.
+- Unhealthy existing Zsh/Antidote/Git/Homebrew/Powerlevel10k fail without owner switches. Failed `chsh` keeps tools and configuration.
+- Tests in `tests/shell.sh` cover bootstrap routes with fake apt/sudo/brew/git/chsh/dscl/getent; `tests/installer.sh` and `tests/integration.sh` stay green.

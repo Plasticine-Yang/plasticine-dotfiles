@@ -28,9 +28,50 @@ git -C "$work_repo" -c user.name=test -c user.email=test@example.com commit -qm 
 origin_repo=$test_root/origin.git
 git clone -q --bare "$work_repo" "$origin_repo"
 
+protect_bin=$test_root/protect-bin
+mkdir -p "$protect_bin"
+protect_prefix=$test_root/protect-prefix/antidote
+cat > "$protect_bin/brew" <<EOF
+#!/bin/sh
+case "\$*" in
+    --version) exit 0 ;;
+    '--prefix antidote')
+        printf '%s\\n' '$protect_prefix'
+        exit 0
+        ;;
+    *)
+        printf '%s\\n' "plasticine tests: host brew blocked: \$*" >&2
+        exit 99
+        ;;
+esac
+EOF
+for blocked in apt-get sudo chsh; do
+    cat > "$protect_bin/$blocked" <<EOF
+#!/bin/sh
+printf '%s\\n' 'plasticine tests: host $blocked blocked' >&2
+exit 99
+EOF
+done
+cat > "$protect_bin/dscl" <<'EOF'
+#!/bin/sh
+printf 'UserShell: /bin/zsh\n'
+EOF
+cat > "$protect_bin/getent" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = passwd ] || exit 99
+printf 'owner:x:%s:%s:Owner:%s:/bin/zsh\n' "$(id -u)" "$(id -u)" "${HOME:-/tmp}"
+EOF
+cat > "$protect_bin/xcode-select" <<'EOF'
+#!/bin/sh
+[ "$*" = -p ] || exit 99
+exit 0
+EOF
+chmod +x "$protect_bin"/*
+
 run_installer() {
     scenario_dir=$1
     shift
+    PATH=$protect_bin:$PATH \
     PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
     PLASTICINE_DOTFILES_REPO_URL=$origin_repo \
     PLASTICINE_CHEZMOI_SOURCE_DIR=$scenario_dir/data/chezmoi \
@@ -135,6 +176,7 @@ if command -v expect >/dev/null 2>&1; then
     export PLASTICINE_TEST_ORIGIN="$origin_repo"
     export PLASTICINE_TEST_SCENARIO="$interactive_dir"
     export PLASTICINE_TEST_KEY="$interactive_key"
+    export PLASTICINE_TEST_PROTECT="$protect_bin"
     expect <<'EOF'
 set timeout 20
 set scenario $env(PLASTICINE_TEST_SCENARIO)
@@ -144,6 +186,7 @@ set env(PLASTICINE_CHEZMOI_SOURCE_DIR) $scenario/data/chezmoi
 set env(PLASTICINE_CHEZMOI_CONFIG_FILE) $scenario/config/chezmoi.toml
 set env(PLASTICINE_CHEZMOI_STATE_FILE) $scenario/config/chezmoistate.boltdb
 set env(PLASTICINE_CHEZMOI_DEST_DIR) $scenario/home
+set env(PATH) "$env(PLASTICINE_TEST_PROTECT):$env(PATH)"
 spawn $env(PLASTICINE_TEST_INSTALLER)
 expect "选择要处理的工具"
 after 300

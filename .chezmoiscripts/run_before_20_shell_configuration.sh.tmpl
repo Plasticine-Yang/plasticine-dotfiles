@@ -38,52 +38,11 @@ else
 fi
 plasticine_shell_compose "$work_dir/current" > "$work_dir/candidate"
 
-shell_os=$(uname -s)
-shell_zsh=$(command -v zsh 2>/dev/null || true)
-if [ -z "$shell_zsh" ] && [ "$shell_os" = Darwin ] && [ -x /bin/zsh ]; then
-    shell_zsh=/bin/zsh
-fi
-[ -n "$shell_zsh" ] || {
-    shell_error '未找到可用的 Zsh；请先安装或修复 Zsh 后重试（自动安装将在后续版本提供）。'
-    exit 1
-}
-"$shell_zsh" --version >/dev/null 2>&1 || {
-    shell_error 'Zsh 已存在但不可用；请修复其现有安装，未进行任何替换。'
-    exit 1
-}
-
-shell_antidote=''
-if [ -f "$dest_dir/.antidote/antidote.zsh" ]; then
-    shell_antidote=$dest_dir/.antidote/antidote.zsh
-elif [ "$shell_os" = Darwin ]; then
-    shell_brew=$(command -v brew 2>/dev/null || true)
-    if [ -z "$shell_brew" ]; then
-        case $(uname -m 2>/dev/null) in
-            arm64|aarch64)
-                [ -x /opt/homebrew/bin/brew ] && shell_brew=/opt/homebrew/bin/brew
-                ;;
-            *)
-                [ -x /usr/local/bin/brew ] && shell_brew=/usr/local/bin/brew
-                ;;
-        esac
-    fi
-    if [ -n "$shell_brew" ]; then
-        shell_prefix=$(HOMEBREW_NO_ANALYTICS=1 "$shell_brew" --prefix antidote 2>/dev/null || true)
-        case $shell_prefix in
-            /*)
-                [ -f "$shell_prefix/share/antidote/antidote.zsh" ] &&
-                    shell_antidote=$shell_prefix/share/antidote/antidote.zsh
-                ;;
-        esac
-    fi
-fi
-[ -n "$shell_antidote" ] || {
-    shell_error '未找到 Antidote；请在 macOS 上使用 Homebrew，或在受支持的 Linux 上使用官方 Git checkout 安装后重试。'
-    exit 1
-}
-# shellcheck disable=SC2016
-"$shell_zsh" -f -c '. "$1" && shift && antidote "$@"' plasticine-shell "$shell_antidote" --version >/dev/null 2>&1 || {
-    shell_error 'Antidote 已存在但不可用；请修复其原生安装，未进行任何替换。'
+# shellcheck disable=SC1091
+. "$source_dir/lib/shell-bootstrap.sh"
+plasticine_shell_plan "$dest_dir" || exit 1
+plasticine_shell_prepare || {
+    shell_error 'official route failed; no fallback or dependent configuration applied.'
     exit 1
 }
 

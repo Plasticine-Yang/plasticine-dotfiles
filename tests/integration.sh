@@ -14,6 +14,71 @@ fi
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-dotfiles-test.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 
+protect_bin=$test_root/protect-bin
+mkdir -p "$protect_bin"
+cat > "$protect_bin/chsh" <<'EOF'
+#!/bin/sh
+printf '%s\n' 'plasticine tests: host chsh blocked' >&2
+exit 99
+EOF
+cat > "$protect_bin/dscl" <<'EOF'
+#!/bin/sh
+login=$(command -v zsh 2>/dev/null || true)
+[ -n "$login" ] || login=/bin/zsh
+printf 'UserShell: %s\n' "$login"
+EOF
+cat > "$protect_bin/getent" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = passwd ] || exit 99
+login=$(command -v zsh 2>/dev/null || true)
+[ -n "$login" ] || login=/bin/zsh
+printf 'owner:x:%s:%s:Owner:%s:%s\n' "$(id -u)" "$(id -u)" "${HOME:-/tmp}" "$login"
+EOF
+cat > "$protect_bin/sudo" <<'EOF'
+#!/bin/sh
+printf '%s\n' 'plasticine tests: host sudo blocked' >&2
+exit 99
+EOF
+chmod +x "$protect_bin"/*
+
+linux_os_release=$test_root/os-release
+printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_os_release"
+
+write_antidote() {
+    mkdir -p "$1/.antidote"
+    mkdir -p "$1/.cache/antidote/github.com/romkatv/powerlevel10k"
+    printf '%s\n' ':' > "$1/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
+    cat > "$1/.antidote/antidote.zsh" <<'EOF'
+antidote() {
+    case $1 in
+        --version)
+            print -r -- 'integration test antidote'
+            return 0
+            ;;
+        path)
+            if [[ $2 == romkatv/powerlevel10k &&
+                -f $HOME/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme ]]; then
+                print -r -- "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k"
+                return 0
+            fi
+            return 1
+            ;;
+        bundle)
+            if [[ $* == 'bundle romkatv/powerlevel10k kind:clone' ]]; then
+                mkdir -p "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k"
+                print -r -- ':' > "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
+                return 0
+            fi
+            return 1
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+EOF
+}
+
 write_config() {
     config_path=$1
     key_path=$2
@@ -32,7 +97,12 @@ EOF
 apply() {
     scenario_dir=$1
     shift
-    "$chezmoi_bin" \
+    PATH=$protect_bin:$PATH \
+    PLASTICINE_CHEZMOI_DEST_DIR=$scenario_dir/home \
+    PLASTICINE_SHELL_OS=Linux \
+    PLASTICINE_SHELL_ARCH=arm64 \
+    PLASTICINE_SHELL_OS_RELEASE=$linux_os_release \
+        "$chezmoi_bin" \
         -S "$repo_dir" \
         -D "$scenario_dir/home" \
         -c "$scenario_dir/chezmoi.toml" \
@@ -136,20 +206,8 @@ test ! -e "$skip_dir/home/.p10k.zsh"
 test ! -e "$skip_dir/home/.plasticine"
 
 shell_dir=$test_root/shell
-mkdir -p "$shell_dir/home/.antidote"
-cat > "$shell_dir/home/.antidote/antidote.zsh" <<'EOF'
-antidote() {
-    case $1 in
-        --version)
-            print -r -- 'integration test antidote'
-            return 0
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-EOF
+mkdir -p "$shell_dir/home"
+write_antidote "$shell_dir/home"
 cat > "$shell_dir/chezmoi.toml" <<'EOF'
 [data]
 tools = ["shell"]
@@ -177,8 +235,8 @@ cmp -s "$repo_dir/dot_plasticine/zsh/shared.zsh" "$shell_dir/home/.plasticine/zs
 apply "$shell_dir"
 
 malformed_dir=$test_root/malformed
-mkdir -p "$malformed_dir/home/.antidote"
-cp "$shell_dir/home/.antidote/antidote.zsh" "$malformed_dir/home/.antidote/antidote.zsh"
+mkdir -p "$malformed_dir/home"
+write_antidote "$malformed_dir/home"
 cp "$shell_dir/chezmoi.toml" "$malformed_dir/chezmoi.toml"
 cat "$shell_dir/expected-block" "$shell_dir/expected-block" > "$malformed_dir/home/.zshrc"
 cp "$malformed_dir/home/.zshrc" "$malformed_dir/before"
@@ -190,8 +248,8 @@ cmp -s "$malformed_dir/before" "$malformed_dir/home/.zshrc"
 test ! -e "$malformed_dir/home/.zsh_plugins.txt"
 
 combined_malformed_dir=$test_root/combined-malformed
-mkdir -p "$combined_malformed_dir/home/.antidote" "$combined_malformed_dir/home/.ssh"
-cp "$shell_dir/home/.antidote/antidote.zsh" "$combined_malformed_dir/home/.antidote/antidote.zsh"
+mkdir -p "$combined_malformed_dir/home/.ssh"
+write_antidote "$combined_malformed_dir/home"
 cat > "$combined_malformed_dir/chezmoi.toml" <<EOF
 [data]
 tools = ["github-ssh","shell"]
@@ -248,8 +306,12 @@ if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "$lint_dir/modify_dot_zshrc"
 fi
 /bin/sh -n "$repo_dir/private_dot_ssh/modify_private_config"
+/bin/sh -n "$repo_dir/install.sh"
+/bin/sh -n "$repo_dir/lib/shell-bootstrap.sh"
 if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "$repo_dir/private_dot_ssh/modify_private_config"
+    shellcheck "$repo_dir/install.sh"
+    shellcheck "$repo_dir/lib/shell-bootstrap.sh"
 fi
 if command -v zsh >/dev/null 2>&1; then
     zsh -n "$repo_dir/dot_plasticine/zsh/shared.zsh"

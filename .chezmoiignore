@@ -2,6 +2,16 @@ README.md
 install.sh
 tests
 tests/**
+lib
+lib/**
+AGENTS.md
+docs
+docs/**
+.scratch
+.scratch/**
+skills-lock.json
+plasticine-demo
+plasticine-demo/**
 {{ if not (has "github-ssh" .tools) }}
 .ssh
 .ssh/**

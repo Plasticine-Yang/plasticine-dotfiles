@@ -28,7 +28,7 @@ Options:
       --github-ssh-key <path>     Private key to copy to ~/.ssh/id_github
       --github-ssh-test           Test GitHub SSH after applying
       --replace-github-ssh-key    Allow replacement of a different existing key
-      --shell                     Configure the Zsh environment
+      --shell                     Configure Zsh, install missing reviewed tools, and attempt chsh last
   -h, --help                      Show this help
 EOF
 }
@@ -226,6 +226,29 @@ chmod 600 "$config_file"
 
 set -- -S "$source_dir" -D "$destination_dir" -c "$config_file" --persistent-state "$state_file"
 
+shell_selected=0
+shell_antidote_route=''
+if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"shell"/); exit } END { exit !found }' "$config_file"; then
+    shell_selected=1
+fi
+
+if [ "$shell_selected" -eq 1 ]; then
+    [ -f "$source_dir/lib/shell-bootstrap.sh" ] || {
+        error 'The source repository does not contain lib/shell-bootstrap.sh.'
+        exit 1
+    }
+    # shellcheck disable=SC1091
+    . "$source_dir/lib/shell-bootstrap.sh"
+    plasticine_shell_plan "$destination_dir" || exit 1
+    log 'Previewing shell toolchain...'
+    plasticine_shell_preview
+    if [ "$shell_antidote_route" = brew-bootstrap ] && [ "$yes" -eq 1 ] &&
+        ! plasticine_shell_terminal; then
+        error 'shell: Homebrew bootstrap needs a native terminal; install Homebrew interactively, then retry. --yes cannot supply credentials.'
+        exit 1
+    fi
+fi
+
 log 'Previewing changes...'
 "$chezmoi_bin" "$@" --no-pager diff
 
@@ -236,6 +259,12 @@ if [ "$yes" -eq 0 ]; then
         y|Y|yes|YES|Yes) ;;
         *) log 'Cancelled; no changes were applied.'; exit 0 ;;
     esac
+fi
+
+if [ "$shell_selected" -eq 1 ] && [ "$shell_antidote_route" = brew-bootstrap ] &&
+    ! plasticine_shell_terminal; then
+    error 'shell: Homebrew bootstrap needs a native terminal; install Homebrew interactively, then retry. --yes cannot supply credentials.'
+    exit 1
 fi
 
 log 'Applying changes...'
