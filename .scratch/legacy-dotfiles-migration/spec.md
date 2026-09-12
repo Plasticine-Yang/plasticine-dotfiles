@@ -85,6 +85,17 @@ The shared Zsh fragment may contain guarded activation for an already installed 
 
 Future capability migrations add new tickets to this directory after their scope is agreed.
 
+## Progress
+
+The `shell` increment is complete: tickets 01, 02, and 03 are `done`, and every completion criterion below is covered by the repository's test suites and documentation.
+
+- Verification lives in `tests/shell.sh` (installer-side selection, tool preparation, login-shell transition, runtime-state isolation, rerun convergence), `tests/shell-runtime.sh` (real-Zsh runtime behavior of the managed fragment in a disposable HOME), `tests/installer.sh`, and `tests/integration.sh` (composition, dry runs, non-interactive requirements, cancellation, syntax checks). `tests/shell-runtime.sh` and `tests/shell.sh` require a real `zsh`.
+- Runtime reports: successful shells reach a usable Zsh, Antidote, Powerlevel10k, and the managed configuration; every optional layer (Antidote, managed declaration, Owner declaration, completions, Powerlevel10k preferences, `fnm` activation) degrades to an interactive-only warning without aborting later Owner `.zshrc` content.
+- `fnm` is only activated, never installed, updated or relocated; a failing `fnm env --shell zsh` is not evaluated.
+- Antidote-owned runtime state (bundles, plugin checkouts, caches, completion dumps, compiled files) and `~/.zsh_plugins.local.txt` are neither tracked, replaced, backed up, nor removed.
+
+Everything else in "Out of scope for this increment" remains future work, including removing `~/.plasticine-dotfiles` or any legacy-managed resource, which requires a separate explicit migration design.
+
 ## Completion criteria for the current increment
 
 - Interactive selection and `-y --shell` both select exactly the `shell` feature.

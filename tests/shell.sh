@@ -528,6 +528,77 @@ test "$(file_mode "$rerun_dir/home/.zsh_plugins.txt")" = 600 ||
 backup_count=$(find "$rerun_dir/home/.plasticine/backups/shell" -type f | wc -l | tr -d ' ')
 test "$backup_count" -eq 2 || fail "rerun backup count after retry is $backup_count"
 
+# Antidote-owned runtime state, generated bundles, completion dumps, compiled
+# files and the Owner plugin list are never tracked, replaced, backed up or
+# removed by the feature.
+runtime_state_dir=$test_root/runtime-state
+runtime_home=$runtime_state_dir/home
+mkdir -p "$runtime_home/.cache/antidote/github.com/zsh-users/zsh-autosuggestions"
+write_antidote "$runtime_home"
+printf '%s\n' 'owner/plugin' > "$runtime_home/.zsh_plugins.local.txt"
+printf '%s\n' 'generated managed bundle' > "$runtime_home/.zsh_plugins.zsh"
+printf '%s\n' 'generated Owner bundle' > "$runtime_home/.zsh_plugins.local.zsh"
+printf '%s\n' 'compiled managed bundle' > "$runtime_home/.zsh_plugins.zsh.zwc"
+printf '%s\n' 'completion dump' > "$runtime_home/.zcompdump"
+printf '%s\n' 'compiled completion dump' > "$runtime_home/.zcompdump.zwc"
+printf '%s\n' 'plugin checkout' \
+    > "$runtime_home/.cache/antidote/github.com/zsh-users/zsh-autosuggestions/zsh-autosuggestions.zsh"
+printf '%s\n' 'compiled plugin' \
+    > "$runtime_home/.cache/antidote/github.com/zsh-users/zsh-autosuggestions/zsh-autosuggestions.zsh.zwc"
+
+# Only the tool-owned artifacts are compared: the feature's own whole-file
+# targets are expected to appear.
+runtime_owned_files() {
+    find "$runtime_home/.cache" \
+        "$runtime_home/.zsh_plugins.zsh" \
+        "$runtime_home/.zsh_plugins.local.zsh" \
+        "$runtime_home/.zsh_plugins.local.txt" \
+        "$runtime_home/.zcompdump" \
+        "$runtime_home/.zcompdump.zwc" \
+        "$runtime_home/.zsh_plugins.zsh.zwc" \
+        -type f -exec shasum -a 256 {} + | LC_ALL=C sort
+}
+
+runtime_owned_files > "$runtime_state_dir/files-before"
+if ! run_linux_installer "$runtime_state_dir" -y --shell \
+    >"$runtime_state_dir/stdout" 2>"$runtime_state_dir/stderr"; then
+    cat "$runtime_state_dir/stdout" >&2
+    cat "$runtime_state_dir/stderr" >&2
+    fail 'runtime-state apply failed'
+fi
+runtime_owned_files > "$runtime_state_dir/files-after"
+if ! diff -u "$runtime_state_dir/files-before" "$runtime_state_dir/files-after" \
+    > "$runtime_state_dir/files-diff"; then
+    cat "$runtime_state_dir/files-diff" >&2
+    fail 'the feature changed, replaced or removed Antidote runtime state'
+fi
+cmp -s "$block_file" "$runtime_home/.zshrc" || fail 'runtime-state apply did not write .zshrc.'
+if [ -e "$runtime_home/.plasticine/backups/shell" ]; then
+    find "$runtime_home/.plasticine/backups/shell" -type f >&2
+    fail 'the feature backed up Antidote-owned runtime state or the Owner plugin list'
+fi
+"$chezmoi_bin" \
+    -S "$runtime_state_dir/data/chezmoi" \
+    -D "$runtime_home" \
+    -c "$runtime_state_dir/config/chezmoi.toml" \
+    --persistent-state "$runtime_state_dir/config/chezmoistate.boltdb" \
+    managed --include=files --path-style=absolute > "$runtime_state_dir/managed"
+for runtime_owned in \
+    .zsh_plugins.zsh .zsh_plugins.local.zsh .zsh_plugins.local.txt .zcompdump \
+    .zcompdump.zwc .zsh_plugins.zsh.zwc .cache/antidote; do
+    if grep -Fq "$runtime_home/$runtime_owned" "$runtime_state_dir/managed"; then
+        cat "$runtime_state_dir/managed" >&2
+        fail "the feature tracks tool-owned state: $runtime_owned"
+    fi
+done
+run_linux_installer "$runtime_state_dir" -y --shell >/dev/null || fail 'runtime-state rerun failed.'
+runtime_owned_files > "$runtime_state_dir/files-rerun"
+if ! diff -u "$runtime_state_dir/files-after" "$runtime_state_dir/files-rerun" \
+    > "$runtime_state_dir/rerun-diff"; then
+    cat "$runtime_state_dir/rerun-diff" >&2
+    fail 'a rerun changed Antidote runtime state'
+fi
+
 write_bootstrap_bin() {
     fake_bin=$1
     mkdir -p "$fake_bin"
@@ -789,7 +860,8 @@ fi
 grep -Fq already-present "$linux_fresh/rerun-stdout" || fail 'healthy rerun preview missing already-present.'
 grep -Fq 'no chsh call' "$linux_fresh/rerun-stdout" || fail 'healthy rerun preview still proposed chsh.'
 
-# Denied chsh keeps usable files; a later rerun retries only the transition.
+# Partial chsh failure: the configuration is applied and usable, the transition
+# is denied, and a later rerun retries only the transition.
 linux_chsh_fail=$test_root/linux-chsh-fail
 mkdir -p "$linux_chsh_fail/home"
 write_bootstrap_bin "$linux_chsh_fail/fake-bin"
@@ -1000,6 +1072,8 @@ expect_config "$linux_merged" 'merged-usr'
 # Reviewed Debian/Ubuntu versions and architectures; others fail preflight.
 for distro_spec in 'debian 13 arm64 0' 'ubuntu 24.04 aarch64 0' 'ubuntu 26.04 arm64 0' \
     'debian 12 arm64 1' 'ubuntu 22.04 x86_64 1' 'fedora 43 arm64 0' 'debian 13 mips 1'; do
+    # Intentional word splitting of the spec table.
+    # shellcheck disable=SC2086
     set -- $distro_spec
     linux_plat=$test_root/linux-plat-$1-$2-$3
     mkdir -p "$linux_plat/home"
@@ -1177,6 +1251,8 @@ done
 
 # macOS floors, Intel/newer best-effort labels, and unknown platforms.
 for mac_spec in '13.0 arm64 1' '14.0 x86_64 0' '26.0 arm64 0'; do
+    # Intentional word splitting of the spec table.
+    # shellcheck disable=SC2086
     set -- $mac_spec
     macos_plat=$test_root/macos-plat-$1-$2
     mkdir -p "$macos_plat/home"

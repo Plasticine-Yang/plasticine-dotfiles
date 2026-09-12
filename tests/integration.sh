@@ -94,7 +94,9 @@ githubSSHTest = false
 EOF
 }
 
-apply() {
+# Every chezmoi invocation for a scenario shares the same source, destination,
+# config, state and platform seams.
+chezmoi_scenario() {
     scenario_dir=$1
     shift
     PATH=$protect_bin:$PATH \
@@ -107,7 +109,22 @@ apply() {
         -D "$scenario_dir/home" \
         -c "$scenario_dir/chezmoi.toml" \
         --persistent-state "$scenario_dir/state.boltdb" \
-        apply --no-tty "$@"
+        "$@"
+}
+
+apply() {
+    scenario_dir=$1
+    shift
+    chezmoi_scenario "$scenario_dir" apply --no-tty "$@"
+}
+
+# The same preview the installer shows before its final confirmation. Chezmoi
+# reports `run_` scripts as pending on every invocation, so callers that care
+# about destination convergence exclude them explicitly.
+preview() {
+    scenario_dir=$1
+    shift
+    chezmoi_scenario "$scenario_dir" diff --no-pager "$@"
 }
 
 success_dir=$test_root/success
@@ -216,6 +233,18 @@ githubSSHKeyFingerprint = ""
 githubSSHReplaceFingerprint = ""
 githubSSHTest = false
 EOF
+# The preview covers the shell changes before anything is written, and a dry
+# apply writes nothing at all.
+preview "$shell_dir" > "$shell_dir/preview"
+for expected_preview in .zshrc .zsh_plugins.txt .p10k.zsh .plasticine/zsh/shared.zsh; do
+    grep -Fq "$expected_preview" "$shell_dir/preview" ||
+        { cat "$shell_dir/preview" >&2; printf '%s\n' "shell 预览未包含 $expected_preview。" >&2; exit 1; }
+done
+apply "$shell_dir" --dry-run
+test ! -e "$shell_dir/home/.zshrc"
+test ! -e "$shell_dir/home/.zsh_plugins.txt"
+test ! -e "$shell_dir/home/.p10k.zsh"
+test ! -e "$shell_dir/home/.plasticine"
 apply "$shell_dir"
 cat > "$shell_dir/expected-block" <<'EOF'
 # >>> Plasticine shell >>>
@@ -233,6 +262,47 @@ cmp -s "$repo_dir/dot_zsh_plugins.txt" "$shell_dir/home/.zsh_plugins.txt"
 cmp -s "$repo_dir/dot_p10k.zsh" "$shell_dir/home/.p10k.zsh"
 cmp -s "$repo_dir/dot_plasticine/zsh/shared.zsh" "$shell_dir/home/.plasticine/zsh/shared.zsh"
 apply "$shell_dir"
+# A satisfied destination stays converged, including under a dry rerun.
+shell_before=$(find "$shell_dir/home" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{ print $1 }')
+preview_output=$(preview "$shell_dir" --exclude=scripts)
+if [ -n "$(printf '%s' "$preview_output" | tr -d '[:space:]')" ]; then
+    printf '%s\n' "$preview_output" >&2
+    printf '%s\n' '已满足的 shell 目标仍报告待应用的变更。' >&2
+    exit 1
+fi
+apply "$shell_dir" --dry-run
+shell_after=$(find "$shell_dir/home" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{ print $1 }')
+test "$shell_before" = "$shell_after"
+test ! -e "$shell_dir/home/.plasticine/backups"
+
+# shell and github-ssh compose without either feature overwriting the other.
+combined_dir=$test_root/combined
+mkdir -p "$combined_dir/home/.ssh"
+chmod 700 "$combined_dir/home/.ssh"
+write_antidote "$combined_dir/home"
+combined_key=$combined_dir/combined-key
+ssh-keygen -q -t ed25519 -N '' -C plasticine-combined -f "$combined_key"
+combined_fingerprint=$(ssh-keygen -lf "$combined_key" | awk '{ print $2 }')
+cat > "$combined_dir/chezmoi.toml" <<EOF
+[data]
+tools = ["github-ssh","shell"]
+githubSSHKeyPath = "$combined_key"
+githubSSHKeyFingerprint = "$combined_fingerprint"
+githubSSHReplaceFingerprint = ""
+githubSSHTest = false
+EOF
+apply "$combined_dir"
+cmp -s "$combined_key" "$combined_dir/home/.ssh/id_github"
+test -f "$combined_dir/home/.ssh/config.d/00-plasticine-github.conf"
+test "$(grep -Fc '# BEGIN plasticine-dotfiles github-ssh' "$combined_dir/home/.ssh/config")" -eq 1
+cmp -s "$shell_dir/expected-block" "$combined_dir/home/.zshrc"
+cmp -s "$repo_dir/dot_zsh_plugins.txt" "$combined_dir/home/.zsh_plugins.txt"
+cmp -s "$repo_dir/dot_p10k.zsh" "$combined_dir/home/.p10k.zsh"
+cmp -s "$repo_dir/dot_plasticine/zsh/shared.zsh" "$combined_dir/home/.plasticine/zsh/shared.zsh"
+apply "$combined_dir"
+test "$(grep -Fc '# BEGIN plasticine-dotfiles github-ssh' "$combined_dir/home/.ssh/config")" -eq 1
+cmp -s "$combined_key" "$combined_dir/home/.ssh/id_github"
+cmp -s "$shell_dir/expected-block" "$combined_dir/home/.zshrc"
 
 malformed_dir=$test_root/malformed
 mkdir -p "$malformed_dir/home"
@@ -308,10 +378,18 @@ fi
 /bin/sh -n "$repo_dir/private_dot_ssh/modify_private_config"
 /bin/sh -n "$repo_dir/install.sh"
 /bin/sh -n "$repo_dir/lib/shell-bootstrap.sh"
+# The shared composer template is rendered into the `.zshrc` source modifier and
+# the shell `.chezmoiscripts`, so it must parse as POSIX shell on its own.
+/bin/sh -n "$repo_dir/.chezmoitemplates/shell-zshrc-block"
+for test_script in "$repo_dir"/tests/*.sh; do
+    /bin/sh -n "$test_script"
+done
 if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "$repo_dir/private_dot_ssh/modify_private_config"
     shellcheck "$repo_dir/install.sh"
     shellcheck "$repo_dir/lib/shell-bootstrap.sh"
+    shellcheck "$repo_dir/.chezmoitemplates/shell-zshrc-block"
+    shellcheck "$repo_dir"/tests/*.sh
 fi
 if command -v zsh >/dev/null 2>&1; then
     zsh -n "$repo_dir/dot_plasticine/zsh/shared.zsh"

@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # Shared composer for the independently marked Plasticine shell block in the
 # Owner-controlled .zshrc. Emits the canonical block and replaces at most one
 # valid selected block byte-for-byte, without interpreting outside content.

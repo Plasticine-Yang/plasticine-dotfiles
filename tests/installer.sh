@@ -211,9 +211,16 @@ catch wait result
 exit [lindex $result 3]
 EOF
     grep -Fq 'tools = ["github-ssh","shell"]' "$interactive_dir/config/chezmoi.toml"
+    # Cancelling the final confirmation applies nothing from either selected tool
+    # and never moves on to the shell toolchain or the login-shell transition.
     test ! -e "$interactive_dir/home/.ssh/id_github"
+    test ! -e "$interactive_dir/home/.ssh/config.d"
     test ! -e "$interactive_dir/home/.zshrc"
+    test ! -e "$interactive_dir/home/.zsh_plugins.txt"
+    test ! -e "$interactive_dir/home/.p10k.zsh"
     test ! -e "$interactive_dir/home/.plasticine"
+else
+    printf '%s\n' 'installer tests: expect 不可用，跳过交互式选择与取消验证。' >&2
 fi
 
 printf '%s\n' 'installer tests passed'
