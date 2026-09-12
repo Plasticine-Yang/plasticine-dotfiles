@@ -89,6 +89,8 @@ test -f "$empty_dir/config/chezmoi.toml"
 grep -Fq 'tools = []' "$empty_dir/config/chezmoi.toml"
 test ! -e "$empty_dir/home/.ssh"
 test ! -e "$empty_dir/home/install.sh"
+test ! -e "$empty_dir/home/scripts"
+test ! -e "$empty_dir/home/.github"
 
 new_work=$test_root/new-work
 git clone -q "$origin_repo" "$new_work"

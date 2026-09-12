@@ -154,6 +154,15 @@ CHEZMOI_BIN=/path/to/chezmoi ./tests/integration.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/installer.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/shell.sh
 ./tests/shell-runtime.sh
+CHEZMOI_BIN=/path/to/chezmoi ./tests/release.sh
 ```
 
 `tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、登录 shell 切换与运行时状态隔离；`tests/shell-runtime.sh` 用真实的 Zsh 在临时 HOME 中启动交互式和非交互式 shell，验证受管片段的运行时行为，因此需要本机存在 `zsh`。
+
+## 发布
+
+本仓库使用独立的 SemVer 版本线，从 `v0.1.0` 开始。日常提交和 Pull Request 会在 Ubuntu 与 macOS 上执行完整测试；稳定版本只能从 GitHub Actions 的 `Release` workflow 手动触发，并输入 `vMAJOR.MINOR.PATCH` 格式的版本号。
+
+发布流程验证触发时的 `main` commit，生成 `install.sh` 和 `SHA256SUMS`，先创建 draft Release，核对 tag、commit 与附件后再发布。发布版安装器固定到该 Release 的完整 commit；因此历史 Release 的安装内容不会随 `main` 推进而改变，而 `/releases/latest/download/install.sh` 始终选择最新稳定版本。
+
+发布前应在仓库设置中将 `CI / Test (ubuntu-24.04)` 和 `CI / Test (macos-14)` 配置为 `main` 的 required checks，并启用 GitHub immutable releases。CI 和 Release workflow 中使用的第三方 Actions 固定到完整 commit，由 Dependabot 每月提出更新。

@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-14
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      CHEZMOI_VERSION: 2.72.1
+
+    steps:
+      - name: Check out the tested revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends expect shellcheck zsh
+          else
+            brew install shellcheck
+          fi
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) chezmoi_asset=chezmoi-linux-amd64 ;;
+            Darwin-x86_64) chezmoi_asset=chezmoi-darwin-amd64 ;;
+            Darwin-arm64) chezmoi_asset=chezmoi-darwin-arm64 ;;
+            *) echo 'Unsupported CI runner architecture.' >&2; exit 1 ;;
+          esac
+
+          release_url=https://github.com/twpayne/chezmoi/releases/download/v${CHEZMOI_VERSION}
+          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/chezmoi-download"
+          cd "$RUNNER_TEMP/chezmoi-download"
+          curl --proto '=https' --proto-redir '=https' -fsSLO \
+            "$release_url/$chezmoi_asset"
+          curl --proto '=https' --proto-redir '=https' -fsSLO \
+            "$release_url/chezmoi_${CHEZMOI_VERSION}_checksums.txt"
+          grep "  $chezmoi_asset\$" "chezmoi_${CHEZMOI_VERSION}_checksums.txt" \
+            > selected-checksum.txt
+          shasum -a 256 -c selected-checksum.txt
+          install -m 755 "$chezmoi_asset" "$RUNNER_TEMP/bin/chezmoi"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Verify required tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v chezmoi shellcheck zsh expect
+          chezmoi --version
+          shellcheck --version
+          zsh --version
+
+      - name: Check the working tree
+        run: git diff --check
+
+      - name: Run integration tests
+        run: CHEZMOI_BIN=chezmoi ./tests/integration.sh
+
+      - name: Run installer tests
+        run: CHEZMOI_BIN=chezmoi ./tests/installer.sh
+
+      - name: Run shell tests
+        run: CHEZMOI_BIN=chezmoi ./tests/shell.sh
+
+      - name: Run shell runtime tests
+        run: ./tests/shell-runtime.sh
+
+      - name: Run release pipeline tests
+        run: CHEZMOI_BIN=chezmoi ./tests/release.sh

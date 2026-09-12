@@ -1,0 +1,125 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable SemVer tag, for example v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish ${{ inputs.version }}
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+      RELEASE_SHA: ${{ github.sha }}
+      CHEZMOI_VERSION: 2.72.1
+
+    steps:
+      - name: Check out the release revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Validate the release request
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]] || {
+            echo 'Releases must be dispatched from main.' >&2
+            exit 1
+          }
+          [[ "$VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo 'Version must be a stable tag such as v0.1.0.' >&2
+            exit 1
+          }
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_SHA" ]]
+          remote_main=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          [[ "$remote_main" == "$RELEASE_SHA" ]] || {
+            echo 'main advanced after this release run was dispatched; start a new run.' >&2
+            exit 1
+          }
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "Tag already exists: $VERSION" >&2
+            exit 1
+          fi
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists: $VERSION" >&2
+            exit 1
+          fi
+          latest=$(gh release list --repo "$GITHUB_REPOSITORY" \
+            --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // empty')
+          if [[ -n "$latest" && "$(printf '%s\n%s\n' "$latest" "$VERSION" | sort -V | tail -1)" != "$VERSION" ]]; then
+            echo "Version $VERSION must be newer than $latest." >&2
+            exit 1
+          fi
+
+      - name: Install pinned chezmoi
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset=chezmoi-linux-amd64
+          release_url=https://github.com/twpayne/chezmoi/releases/download/v${CHEZMOI_VERSION}
+          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/chezmoi-download"
+          cd "$RUNNER_TEMP/chezmoi-download"
+          curl --proto '=https' --proto-redir '=https' -fsSLO "$release_url/$asset"
+          curl --proto '=https' --proto-redir '=https' -fsSLO \
+            "$release_url/chezmoi_${CHEZMOI_VERSION}_checksums.txt"
+          grep "  $asset\$" "chezmoi_${CHEZMOI_VERSION}_checksums.txt" > selected-checksum.txt
+          shasum -a 256 -c selected-checksum.txt
+          install -m 755 "$asset" "$RUNNER_TEMP/bin/chezmoi"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Build and verify release assets
+        run: |
+          ./scripts/build-release.sh "$RELEASE_SHA" dist
+          CHEZMOI_BIN=chezmoi ./scripts/verify-release.sh dist "$RELEASE_SHA" "$GITHUB_WORKSPACE"
+
+      - name: Create the draft Release and upload assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$VERSION" dist/install.sh dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$RELEASE_SHA" \
+            --title "$VERSION" \
+            --generate-notes \
+            --draft
+
+      - name: Verify and publish the Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_json=$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,tagName,targetCommitish,assets)
+          [[ "$(jq -r .isDraft <<<"$release_json")" == true ]]
+          [[ "$(jq -r .tagName <<<"$release_json")" == "$VERSION" ]]
+          [[ "$(jq -r .targetCommitish <<<"$release_json")" == "$RELEASE_SHA" ]]
+          [[ "$(jq -r '.assets | length' <<<"$release_json")" == 2 ]]
+          diff -u \
+            <(printf '%s\n' SHA256SUMS install.sh) \
+            <(jq -r '.assets[].name' <<<"$release_json" | sort)
+          expected_digest=sha256:$(awk '$2 == "install.sh" { print $1 }' dist/SHA256SUMS)
+          actual_digest=$(jq -r '.assets[] | select(.name == "install.sh") | .digest' <<<"$release_json")
+          [[ "$actual_digest" == "$expected_digest" ]]
+          gh release edit "$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" --jq .object.sha)
+          [[ "$tag_sha" == "$RELEASE_SHA" ]]

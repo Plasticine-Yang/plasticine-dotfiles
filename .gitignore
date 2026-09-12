@@ -4,3 +4,4 @@
 id_*
 .ssh/
 private_dot_ssh/private_id_*
+dist/

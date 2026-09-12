@@ -7,6 +7,10 @@ lib/**
 AGENTS.md
 docs
 docs/**
+.github
+.github/**
+scripts
+scripts/**
 .scratch
 .scratch/**
 skills-lock.json

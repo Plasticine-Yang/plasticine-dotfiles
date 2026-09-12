@@ -3,6 +3,9 @@ set -eu
 
 readonly_repo_url='https://github.com/Plasticine-Yang/plasticine-dotfiles.git'
 readonly_chezmoi_version='v2.72.1'
+# Empty in the source checkout. scripts/build-release.sh replaces this exact
+# assignment with the full commit published by a GitHub Release.
+readonly_repo_revision=''
 
 error() {
     printf 'plasticine-dotfiles: %s\n' "$1" >&2
@@ -167,13 +170,32 @@ if [ -e "$source_dir" ]; then
         error "Existing chezmoi source has local changes: $source_dir"
         exit 1
     }
-    log 'Updating chezmoi source...'
-    git -C "$source_dir" pull --ff-only
+    if [ -n "$readonly_repo_revision" ]; then
+        log "Selecting released chezmoi source: $readonly_repo_revision"
+        if ! git -C "$source_dir" cat-file -e "$readonly_repo_revision^{commit}" 2>/dev/null; then
+            git -C "$source_dir" fetch --no-tags origin "$readonly_repo_revision"
+        fi
+        [ "$(git -C "$source_dir" rev-parse "$readonly_repo_revision^{commit}")" = "$readonly_repo_revision" ] || {
+            error "Release revision did not resolve to the expected commit: $readonly_repo_revision"
+            exit 1
+        }
+        git -C "$source_dir" checkout --detach "$readonly_repo_revision"
+    else
+        log 'Updating chezmoi source...'
+        git -C "$source_dir" pull --ff-only
+    fi
 else
     source_parent=$(dirname "$source_dir")
     mkdir -p "$source_parent"
     log 'Cloning chezmoi source...'
     git clone -- "$repo_url" "$source_dir"
+    if [ -n "$readonly_repo_revision" ]; then
+        [ "$(git -C "$source_dir" rev-parse "$readonly_repo_revision^{commit}")" = "$readonly_repo_revision" ] || {
+            error "Release revision is unavailable from the repository: $readonly_repo_revision"
+            exit 1
+        }
+        git -C "$source_dir" checkout --detach "$readonly_repo_revision"
+    fi
 fi
 
 if [ "$yes" -eq 1 ]; then
