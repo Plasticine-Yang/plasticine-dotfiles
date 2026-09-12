@@ -1,6 +1,6 @@
 # 01 — Migrate shell selection and configuration
 
-Status: ready-for-agent
+Status: done
 
 ## What to build
 
@@ -29,3 +29,5 @@ Add `shell` to the current installer's explicit selection interface and reproduc
 - Existing composition precedent: `private_dot_ssh/modify_private_config` in this repository
 
 ## Comments
+
+Implemented in `feat(shell)`: `--shell` selection and tool set, healthy-Zsh/Antidote prerequisite checks, whole-file targets `~/.plasticine/zsh/shared.zsh`, `~/.zsh_plugins.txt`, `~/.p10k.zsh`, the `.zshrc` source modifier, backups and mode preservation, and disposable-HOME coverage in `tests/shell.sh` plus extended installer/integration suites.

@@ -1,0 +1,48 @@
+{{- if has "shell" .tools -}}
+#!/bin/sh
+set -eu
+
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+zshrc=$dest_dir/.zshrc
+plugins=$dest_dir/.zsh_plugins.txt
+p10k=$dest_dir/.p10k.zsh
+shared=$dest_dir/.plasticine/zsh/shared.zsh
+plasticine_dir=$dest_dir/.plasticine
+
+{{ template "shell-zshrc-block" . }}
+
+shell_error() {
+    printf 'plasticine-dotfiles: shell: %s\n' "$1" >&2
+}
+
+for command_name in uname od awk dd cmp stat mktemp mkdir chmod rm cat; do
+    command -v "$command_name" >/dev/null 2>&1 || {
+        shell_error "缺少本地命令：$command_name"
+        exit 1
+    }
+done
+
+for shell_target in "$zshrc" "$plugins" "$p10k" "$shared"; do
+    if [ -L "$shell_target" ] || { [ -e "$shell_target" ] && [ ! -f "$shell_target" ]; }; then
+        shell_error "配置目标必须是普通文件，不能是符号链接、目录或其他非普通文件：~/${shell_target#"$dest_dir"/}"
+        exit 1
+    fi
+done
+for shell_parent in "$plasticine_dir" "$plasticine_dir/zsh"; do
+    if [ -L "$shell_parent" ] || { [ -e "$shell_parent" ] && [ ! -d "$shell_parent" ]; }; then
+        shell_error "配置目录必须是普通目录，不能是符号链接：~/${shell_parent#"$dest_dir"/}"
+        exit 1
+    fi
+done
+
+# Compose against the Owner file before any effect: malformed markers must fail
+# the whole apply, including when another selected Feature would mutate first.
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-shell.XXXXXX")
+trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
+if [ -f "$zshrc" ]; then
+    cat "$zshrc" > "$work_dir/current"
+else
+    : > "$work_dir/current"
+fi
+plasticine_shell_compose "$work_dir/current" > "$work_dir/candidate"
+{{- end }}

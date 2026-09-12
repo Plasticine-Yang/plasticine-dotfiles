@@ -1,0 +1,14 @@
+{{- if has "shell" .tools -}}
+#!/bin/sh
+set -eu
+
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+pending_modes=$dest_dir/.plasticine/backups/shell/pending-modes
+
+[ -f "$pending_modes" ] || exit 0
+while IFS=' ' read -r shell_mode shell_relative; do
+    [ -n "$shell_mode" ] || continue
+    chmod "$shell_mode" "$dest_dir/$shell_relative"
+done < "$pending_modes"
+rm -f "$pending_modes"
+{{- end }}

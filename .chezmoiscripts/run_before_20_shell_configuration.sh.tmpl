@@ -1,0 +1,131 @@
+{{- if has "shell" .tools -}}
+#!/bin/sh
+set -eu
+
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
+
+zshrc=$dest_dir/.zshrc
+plugins=$dest_dir/.zsh_plugins.txt
+p10k=$dest_dir/.p10k.zsh
+shared=$dest_dir/.plasticine/zsh/shared.zsh
+plasticine_dir=$dest_dir/.plasticine
+backup_dir=$plasticine_dir/backups/shell
+pending_modes=$backup_dir/pending-modes
+
+{{ template "shell-zshrc-block" . }}
+
+shell_error() {
+    printf 'plasticine-dotfiles: shell: %s\n' "$1" >&2
+}
+
+# A previous apply may have failed after recording modes; restore them before
+# recording this run's modes so Owner modes survive retries.
+if [ -f "$pending_modes" ]; then
+    while IFS=' ' read -r shell_mode shell_relative; do
+        [ -n "$shell_mode" ] || continue
+        chmod "$shell_mode" "$dest_dir/$shell_relative" 2>/dev/null || true
+    done < "$pending_modes"
+    rm -f "$pending_modes"
+fi
+
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-shell.XXXXXX")
+trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
+if [ -f "$zshrc" ]; then
+    cat "$zshrc" > "$work_dir/current"
+else
+    : > "$work_dir/current"
+fi
+plasticine_shell_compose "$work_dir/current" > "$work_dir/candidate"
+
+shell_os=$(uname -s)
+shell_zsh=$(command -v zsh 2>/dev/null || true)
+if [ -z "$shell_zsh" ] && [ "$shell_os" = Darwin ] && [ -x /bin/zsh ]; then
+    shell_zsh=/bin/zsh
+fi
+[ -n "$shell_zsh" ] || {
+    shell_error '未找到可用的 Zsh；请先安装或修复 Zsh 后重试（自动安装将在后续版本提供）。'
+    exit 1
+}
+"$shell_zsh" --version >/dev/null 2>&1 || {
+    shell_error 'Zsh 已存在但不可用；请修复其现有安装，未进行任何替换。'
+    exit 1
+}
+
+shell_antidote=''
+if [ -f "$dest_dir/.antidote/antidote.zsh" ]; then
+    shell_antidote=$dest_dir/.antidote/antidote.zsh
+elif [ "$shell_os" = Darwin ]; then
+    shell_brew=$(command -v brew 2>/dev/null || true)
+    if [ -z "$shell_brew" ]; then
+        case $(uname -m 2>/dev/null) in
+            arm64|aarch64)
+                [ -x /opt/homebrew/bin/brew ] && shell_brew=/opt/homebrew/bin/brew
+                ;;
+            *)
+                [ -x /usr/local/bin/brew ] && shell_brew=/usr/local/bin/brew
+                ;;
+        esac
+    fi
+    if [ -n "$shell_brew" ]; then
+        shell_prefix=$(HOMEBREW_NO_ANALYTICS=1 "$shell_brew" --prefix antidote 2>/dev/null || true)
+        case $shell_prefix in
+            /*)
+                [ -f "$shell_prefix/share/antidote/antidote.zsh" ] &&
+                    shell_antidote=$shell_prefix/share/antidote/antidote.zsh
+                ;;
+        esac
+    fi
+fi
+[ -n "$shell_antidote" ] || {
+    shell_error '未找到 Antidote；请在 macOS 上使用 Homebrew，或在受支持的 Linux 上使用官方 Git checkout 安装后重试。'
+    exit 1
+}
+# shellcheck disable=SC2016
+"$shell_zsh" -f -c '. "$1" && shift && antidote "$@"' plasticine-shell "$shell_antidote" --version >/dev/null 2>&1 || {
+    shell_error 'Antidote 已存在但不可用；请修复其原生安装，未进行任何替换。'
+    exit 1
+}
+
+plasticine_shell_backup() {
+    umask 077
+    mkdir -p "$backup_dir"
+    chmod 700 "$plasticine_dir/backups" "$backup_dir"
+    shell_backup_file=$(mktemp "$backup_dir/${1##*/}.plasticine-backup-XXXXXXXX") || return 1
+    cat "$1" > "$shell_backup_file"
+    chmod 600 "$shell_backup_file"
+}
+
+plasticine_shell_backup_if_changed() {
+    if [ -f "$1" ] && ! cmp -s "$2" "$1"; then
+        plasticine_shell_backup "$1"
+    fi
+}
+
+plasticine_shell_backup_if_changed "$zshrc" "$work_dir/candidate"
+plasticine_shell_backup_if_changed "$plugins" "$source_dir/dot_zsh_plugins.txt"
+plasticine_shell_backup_if_changed "$p10k" "$source_dir/dot_p10k.zsh"
+plasticine_shell_backup_if_changed "$shared" "$source_dir/dot_plasticine/zsh/shared.zsh"
+
+# chezmoi owns the file modes derived from the source tree. Record any Owner
+# mode and normalize before apply; the matching run_after script restores it.
+umask 077
+: > "$work_dir/modes"
+for shell_target in "$zshrc" "$plugins" "$p10k" "$shared"; do
+    if [ -f "$shell_target" ]; then
+        shell_mode=$(stat -c '%a' "$shell_target" 2>/dev/null || stat -f '%Lp' "$shell_target") || {
+            shell_error "无法读取文件权限：~/${shell_target#"$dest_dir"/}"
+            exit 1
+        }
+        if [ "$shell_mode" != 644 ]; then
+            printf '%s %s\n' "$shell_mode" "${shell_target#"$dest_dir"/}" >> "$work_dir/modes"
+            chmod 644 "$shell_target"
+        fi
+    fi
+done
+if [ -s "$work_dir/modes" ]; then
+    mkdir -p "$backup_dir"
+    chmod 700 "$plasticine_dir/backups" "$backup_dir"
+    cat "$work_dir/modes" > "$pending_modes"
+fi
+{{- end }}

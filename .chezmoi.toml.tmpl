@@ -2,16 +2,35 @@
 {{- fail "仅支持 macOS 和 Linux。" -}}
 {{- end -}}
 {{- $nonInteractive := eq (env "PLASTICINE_NONINTERACTIVE") "1" -}}
+{{- $allowedTools := list "github-ssh" "shell" -}}
 {{- $tools := list -}}
 {{- if $nonInteractive -}}
-{{- $requestedTools := env "PLASTICINE_TOOLS" -}}
-{{- if eq $requestedTools "github-ssh" -}}
-{{- $tools = list "github-ssh" -}}
-{{- else if ne $requestedTools "" -}}
-{{- fail (printf "不支持的工具列表：%s" $requestedTools) -}}
+{{- range $requestedTool := splitList " " (trim (env "PLASTICINE_TOOLS")) -}}
+{{- if ne $requestedTool "" -}}
+{{- if not (has $requestedTool $allowedTools) -}}
+{{- fail (printf "不支持的工具：%s" $requestedTool) -}}
 {{- end -}}
+{{- $tools = append $tools $requestedTool -}}
+{{- end -}}
+{{- end -}}
+{{- $tools = uniq $tools | sortAlpha -}}
 {{- else -}}
-{{- $tools = promptMultichoice "选择要处理的工具（空格切换，回车确认；不选则跳过）" (list "github-ssh") -}}
+{{- $tools = promptMultichoice "选择要处理的工具（空格切换，回车确认；不选则跳过）" $allowedTools -}}
+{{- end -}}
+{{- if has "shell" $tools -}}
+{{- $destDir := .chezmoi.destDir -}}
+{{- range $parent := list ".plasticine" ".plasticine/zsh" -}}
+{{- $info := lstat (joinPath $destDir $parent) -}}
+{{- if and $info (ne $info.type "dir") -}}
+{{- fail (printf "shell: ~/%s 必须是普通目录，不能是符号链接或其他非目录。" $parent) -}}
+{{- end -}}
+{{- end -}}
+{{- range $target := list ".zshrc" ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh" -}}
+{{- $info := lstat (joinPath $destDir $target) -}}
+{{- if and $info (ne $info.type "file") -}}
+{{- fail (printf "shell: ~/%s 必须是普通文件，不能是符号链接、目录或其他非普通文件。" $target) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- $key := "" -}}
 {{- $sourceFingerprint := "" -}}

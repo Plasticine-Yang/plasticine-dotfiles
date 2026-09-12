@@ -1,0 +1,17 @@
+# Zsh Completions (contribute fpath before shared.zsh runs compinit)
+zsh-users/zsh-completions kind:fpath path:src
+
+# Vi-mode
+jeffreytse/zsh-vi-mode
+
+# Syntax Highlighting
+zsh-users/zsh-syntax-highlighting
+
+# History Substring Search
+zsh-users/zsh-history-substring-search
+
+# Autosuggestions
+zsh-users/zsh-autosuggestions
+
+# Prompt Theme - Powerlevel10k
+romkatv/powerlevel10k

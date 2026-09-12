@@ -6,3 +6,10 @@ tests/**
 .ssh
 .ssh/**
 {{ end }}
+{{ if not (has "shell" .tools) }}
+.zshrc
+.zsh_plugins.txt
+.p10k.zsh
+.plasticine
+.plasticine/**
+{{ end }}

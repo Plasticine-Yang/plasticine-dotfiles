@@ -117,6 +117,7 @@ test "$(ssh-keygen -lf "$backup_key" | awk '{ print $2 }')" = "$old_fingerprint"
 skip_dir=$test_root/skip
 mkdir -p "$skip_dir/home/.ssh"
 printf 'preserve-me\n' > "$skip_dir/home/.ssh/config"
+printf 'preserve-shell\n' > "$skip_dir/home/.zshrc"
 cat > "$skip_dir/chezmoi.toml" <<'EOF'
 [data]
 tools = []
@@ -129,27 +130,130 @@ apply "$skip_dir"
 test "$(cat "$skip_dir/home/.ssh/config")" = preserve-me
 test ! -e "$skip_dir/home/.ssh/id_github"
 test ! -e "$skip_dir/home/.ssh/config.d"
+test "$(cat "$skip_dir/home/.zshrc")" = preserve-shell
+test ! -e "$skip_dir/home/.zsh_plugins.txt"
+test ! -e "$skip_dir/home/.p10k.zsh"
+test ! -e "$skip_dir/home/.plasticine"
+
+shell_dir=$test_root/shell
+mkdir -p "$shell_dir/home/.antidote"
+cat > "$shell_dir/home/.antidote/antidote.zsh" <<'EOF'
+antidote() {
+    case $1 in
+        --version)
+            print -r -- 'integration test antidote'
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+EOF
+cat > "$shell_dir/chezmoi.toml" <<'EOF'
+[data]
+tools = ["shell"]
+githubSSHKeyPath = ""
+githubSSHKeyFingerprint = ""
+githubSSHReplaceFingerprint = ""
+githubSSHTest = false
+EOF
+apply "$shell_dir"
+cat > "$shell_dir/expected-block" <<'EOF'
+# >>> Plasticine shell >>>
+if [ -r "$HOME/.plasticine/zsh/shared.zsh" ]; then
+    if ! . "$HOME/.plasticine/zsh/shared.zsh"; then
+        if [[ -o interactive ]]; then
+            print -ru2 -- "plasticine: shared shell configuration unavailable"
+        fi
+    fi
+fi
+# <<< Plasticine shell <<<
+EOF
+cmp -s "$shell_dir/expected-block" "$shell_dir/home/.zshrc"
+cmp -s "$repo_dir/dot_zsh_plugins.txt" "$shell_dir/home/.zsh_plugins.txt"
+cmp -s "$repo_dir/dot_p10k.zsh" "$shell_dir/home/.p10k.zsh"
+cmp -s "$repo_dir/dot_plasticine/zsh/shared.zsh" "$shell_dir/home/.plasticine/zsh/shared.zsh"
+apply "$shell_dir"
+
+malformed_dir=$test_root/malformed
+mkdir -p "$malformed_dir/home/.antidote"
+cp "$shell_dir/home/.antidote/antidote.zsh" "$malformed_dir/home/.antidote/antidote.zsh"
+cp "$shell_dir/chezmoi.toml" "$malformed_dir/chezmoi.toml"
+cat "$shell_dir/expected-block" "$shell_dir/expected-block" > "$malformed_dir/home/.zshrc"
+cp "$malformed_dir/home/.zshrc" "$malformed_dir/before"
+if apply "$malformed_dir" >/dev/null 2>&1; then
+    printf '%s\n' '损坏的 shell 区块未被拒绝。' >&2
+    exit 1
+fi
+cmp -s "$malformed_dir/before" "$malformed_dir/home/.zshrc"
+test ! -e "$malformed_dir/home/.zsh_plugins.txt"
+
+combined_malformed_dir=$test_root/combined-malformed
+mkdir -p "$combined_malformed_dir/home/.antidote" "$combined_malformed_dir/home/.ssh"
+cp "$shell_dir/home/.antidote/antidote.zsh" "$combined_malformed_dir/home/.antidote/antidote.zsh"
+cat > "$combined_malformed_dir/chezmoi.toml" <<EOF
+[data]
+tools = ["github-ssh","shell"]
+githubSSHKeyPath = "$replace_key"
+githubSSHKeyFingerprint = "$replace_fingerprint"
+githubSSHReplaceFingerprint = ""
+githubSSHTest = false
+EOF
+cat "$shell_dir/expected-block" "$shell_dir/expected-block" > "$combined_malformed_dir/home/.zshrc"
+cp "$combined_malformed_dir/home/.zshrc" "$combined_malformed_dir/before"
+if apply "$combined_malformed_dir" >/dev/null 2>&1; then
+    printf '%s\n' '组合选择下损坏的 shell 区块未被拒绝。' >&2
+    exit 1
+fi
+cmp -s "$combined_malformed_dir/before" "$combined_malformed_dir/home/.zshrc"
+test ! -e "$combined_malformed_dir/home/.ssh/id_github"
+test ! -e "$combined_malformed_dir/home/.ssh/config.d"
 
 lint_dir=$test_root/lint
 mkdir -p "$lint_dir/home"
 cp "$replace_dir/chezmoi.toml" "$lint_dir/chezmoi.toml"
+cat > "$lint_dir/shell-chezmoi.toml" <<'EOF'
+[data]
+tools = ["shell"]
+githubSSHKeyPath = ""
+githubSSHKeyFingerprint = ""
+githubSSHReplaceFingerprint = ""
+githubSSHTest = false
+EOF
 for source_script in "$repo_dir"/.chezmoiscripts/*.tmpl; do
     rendered_script=$lint_dir/$(basename "${source_script%.tmpl}")
-    "$chezmoi_bin" \
-        -S "$repo_dir" \
-        -D "$lint_dir/home" \
-        -c "$lint_dir/chezmoi.toml" \
-        execute-template < "$source_script" > "$rendered_script"
-    if grep -q '[^[:space:]]' "$rendered_script"; then
-        /bin/sh -n "$rendered_script"
-        if command -v shellcheck >/dev/null 2>&1; then
-            shellcheck "$rendered_script"
+    for config_file in "$lint_dir/chezmoi.toml" "$lint_dir/shell-chezmoi.toml"; do
+        "$chezmoi_bin" \
+            -S "$repo_dir" \
+            -D "$lint_dir/home" \
+            -c "$config_file" \
+            execute-template < "$source_script" > "$rendered_script"
+        if grep -q '[^[:space:]]' "$rendered_script"; then
+            /bin/sh -n "$rendered_script"
+            if command -v shellcheck >/dev/null 2>&1; then
+                shellcheck "$rendered_script"
+            fi
         fi
-    fi
+    done
 done
+"$chezmoi_bin" \
+    -S "$repo_dir" \
+    -D "$lint_dir/home" \
+    -c "$lint_dir/shell-chezmoi.toml" \
+    execute-template < "$repo_dir/modify_dot_zshrc.tmpl" > "$lint_dir/modify_dot_zshrc"
+grep -q '[^[:space:]]' "$lint_dir/modify_dot_zshrc"
+/bin/sh -n "$lint_dir/modify_dot_zshrc"
+if command -v shellcheck >/dev/null 2>&1; then
+    shellcheck "$lint_dir/modify_dot_zshrc"
+fi
 /bin/sh -n "$repo_dir/private_dot_ssh/modify_private_config"
 if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "$repo_dir/private_dot_ssh/modify_private_config"
+fi
+if command -v zsh >/dev/null 2>&1; then
+    zsh -n "$repo_dir/dot_plasticine/zsh/shared.zsh"
+    zsh -n "$repo_dir/dot_p10k.zsh"
 fi
 
 printf '%s\n' 'integration tests passed'

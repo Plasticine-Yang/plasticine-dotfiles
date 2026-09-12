@@ -15,9 +15,15 @@ test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-installer-test.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 
 work_repo=$test_root/work
-git clone -q "$repo_dir" "$work_repo"
-cp "$repo_dir/install.sh" "$repo_dir/.chezmoi.toml.tmpl" "$repo_dir/.chezmoiignore" "$work_repo/"
-git -C "$work_repo" add install.sh .chezmoi.toml.tmpl .chezmoiignore
+mkdir -p "$work_repo"
+for entry in "$repo_dir"/* "$repo_dir"/.[!.]*; do
+    [ -e "$entry" ] || continue
+    [ "${entry##*/}" = .git ] && continue
+    cp -R "$entry" "$work_repo/"
+done
+git -C "$work_repo" init -q
+git -C "$work_repo" symbolic-ref HEAD refs/heads/main
+git -C "$work_repo" add -A
 git -C "$work_repo" -c user.name=test -c user.email=test@example.com commit -qm installer-test
 origin_repo=$test_root/origin.git
 git clone -q --bare "$work_repo" "$origin_repo"
@@ -141,7 +147,13 @@ set env(PLASTICINE_CHEZMOI_DEST_DIR) $scenario/home
 spawn $env(PLASTICINE_TEST_INSTALLER)
 expect "选择要处理的工具"
 after 300
-send " \r"
+send " "
+after 200
+send "\033\[B"
+after 200
+send " "
+after 200
+send "\r"
 expect "GitHub SSH 私钥路径"
 after 300
 send -- "$env(PLASTICINE_TEST_KEY)\r"
@@ -155,8 +167,10 @@ expect eof
 catch wait result
 exit [lindex $result 3]
 EOF
-    grep -Fq 'tools = ["github-ssh"]' "$interactive_dir/config/chezmoi.toml"
+    grep -Fq 'tools = ["github-ssh","shell"]' "$interactive_dir/config/chezmoi.toml"
     test ! -e "$interactive_dir/home/.ssh/id_github"
+    test ! -e "$interactive_dir/home/.zshrc"
+    test ! -e "$interactive_dir/home/.plasticine"
 fi
 
 printf '%s\n' 'installer tests passed'
