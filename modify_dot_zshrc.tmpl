@@ -1,10 +1,11 @@
 #!/bin/sh
 set -eu
 
-{{ template "shell-zshrc-block" . }}
+{{ template "zshrc-integration-blocks" . }}
 
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-zshrc.XXXXXX")
 trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
 
 cat > "$work_dir/input"
-plasticine_shell_compose "$work_dir/input"
+plasticine_integration_compose "$work_dir/input" "$work_dir/output"
+cat "$work_dir/output"

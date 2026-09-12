@@ -388,7 +388,7 @@ printf 'suf\000\377' >> "$replace_dir/expected"
 cmp -s "$replace_dir/expected" "$replace_dir/home/.zshrc" || fail 'replace did not preserve outside .zshrc bytes.'
 test "$(file_mode "$replace_dir/home/.zshrc")" = 640 ||
     fail "replace zshrc mode is $(file_mode "$replace_dir/home/.zshrc")"
-backup_file=$(find "$replace_dir/home/.plasticine/backups/shell" -name '.zshrc.plasticine-backup-*')
+backup_file=$(find "$replace_dir/home/.plasticine/backups/integration-blocks" -name '.zshrc.plasticine-backup-*')
 test -n "$backup_file" || fail 'replace did not back up .zshrc.'
 cmp -s "$replace_dir/before" "$backup_file" || fail 'replace backup does not match the original .zshrc.'
 test "$(file_mode "$backup_file")" = 600 || fail "replace backup mode is $(file_mode "$backup_file")"
@@ -507,9 +507,9 @@ test "$(file_mode "$rerun_dir/home/.zshrc")" = 640 ||
     fail "rerun zshrc mode is $(file_mode "$rerun_dir/home/.zshrc")"
 test "$(file_mode "$rerun_dir/home/.zsh_plugins.txt")" = 600 ||
     fail "rerun plugins mode is $(file_mode "$rerun_dir/home/.zsh_plugins.txt")"
-backup_count=$(find "$rerun_dir/home/.plasticine/backups/shell" -type f | wc -l | tr -d ' ')
+backup_count=$(find "$rerun_dir/home/.plasticine/backups" -type f | wc -l | tr -d ' ')
 if [ "$backup_count" -ne 2 ]; then
-    find "$rerun_dir/home/.plasticine/backups/shell" -type f >&2
+    find "$rerun_dir/home/.plasticine/backups" -type f >&2
     fail "rerun backup count is $backup_count"
 fi
 find "$rerun_dir/home" -type f -exec shasum -a 256 {} + | LC_ALL=C sort > "$rerun_dir/hash-before"
@@ -525,7 +525,7 @@ test "$(file_mode "$rerun_dir/home/.zshrc")" = 640 ||
     fail "rerun zshrc mode after retry is $(file_mode "$rerun_dir/home/.zshrc")"
 test "$(file_mode "$rerun_dir/home/.zsh_plugins.txt")" = 600 ||
     fail "rerun plugins mode after retry is $(file_mode "$rerun_dir/home/.zsh_plugins.txt")"
-backup_count=$(find "$rerun_dir/home/.plasticine/backups/shell" -type f | wc -l | tr -d ' ')
+backup_count=$(find "$rerun_dir/home/.plasticine/backups" -type f | wc -l | tr -d ' ')
 test "$backup_count" -eq 2 || fail "rerun backup count after retry is $backup_count"
 
 # Antidote-owned runtime state, generated bundles, completion dumps, compiled

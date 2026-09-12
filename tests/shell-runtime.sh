@@ -22,8 +22,12 @@ trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 # The canonical composer and marker block, evaluated exactly as the rendered
 # chezmoi source modifier and the shell `.chezmoiscripts` use them, so the runtime
 # sees the real artifact.
-# shellcheck disable=SC1091
-. "$repo_dir/.chezmoitemplates/shell-zshrc-block"
+rendered_composer=$test_root/zshrc-integration-blocks
+printf '%s\n' '[data]' 'tools = ["shell"]' > "$test_root/chezmoi.toml"
+"${CHEZMOI_BIN:-chezmoi}" -S "$repo_dir" -D "$test_root/home" -c "$test_root/chezmoi.toml" \
+    execute-template < "$repo_dir/.chezmoitemplates/zshrc-integration-blocks" > "$rendered_composer"
+# shellcheck disable=SC1090
+. "$rendered_composer"
 
 fail() {
     printf '%s\n' "shell runtime tests: $1" >&2
@@ -270,7 +274,7 @@ new_home() {
     cp "$repo_dir/dot_plasticine/zsh/shared.zsh" "$home/.plasticine/zsh/shared.zsh"
     cp "$repo_dir/dot_zsh_plugins.txt" "$home/.zsh_plugins.txt"
     cp "$repo_dir/dot_p10k.zsh" "$home/.p10k.zsh"
-    plasticine_shell_compose "$owner_trailer" > "$home/.zshrc"
+    plasticine_integration_compose "$owner_trailer" "$home/.zshrc"
     : > "$log"
 }
 
