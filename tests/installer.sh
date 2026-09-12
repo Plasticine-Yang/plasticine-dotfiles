@@ -92,6 +92,20 @@ test ! -e "$empty_dir/home/install.sh"
 test ! -e "$empty_dir/home/scripts"
 test ! -e "$empty_dir/home/.github"
 
+# An explicitly configured executable name resolves through PATH; callers do
+# not have to discover and pass its absolute path themselves.
+command_name_dir=$test_root/command-name
+mkdir -p "$command_name_dir/home"
+PATH=$(dirname "$chezmoi_bin"):$PATH \
+PLASTICINE_CHEZMOI_BIN=$(basename "$chezmoi_bin") \
+PLASTICINE_DOTFILES_REPO_URL=$origin_repo \
+PLASTICINE_CHEZMOI_SOURCE_DIR=$command_name_dir/data/chezmoi \
+PLASTICINE_CHEZMOI_CONFIG_FILE=$command_name_dir/config/chezmoi.toml \
+PLASTICINE_CHEZMOI_STATE_FILE=$command_name_dir/config/chezmoistate.boltdb \
+PLASTICINE_CHEZMOI_DEST_DIR=$command_name_dir/home \
+    "$repo_dir/install.sh" -y >/dev/null
+test -d "$command_name_dir/data/chezmoi/.git"
+
 new_work=$test_root/new-work
 git clone -q "$origin_repo" "$new_work"
 printf 'installer update probe\n' >> "$new_work/README.md"

@@ -127,6 +127,12 @@ else
 fi
 
 chezmoi_bin=${PLASTICINE_CHEZMOI_BIN:-}
+if [ -n "$chezmoi_bin" ]; then
+    case $chezmoi_bin in
+        */*) ;;
+        *) chezmoi_bin=$(command -v "$chezmoi_bin" 2>/dev/null || true) ;;
+    esac
+fi
 if [ -z "$chezmoi_bin" ] && command -v chezmoi >/dev/null 2>&1; then
     chezmoi_bin=$(command -v chezmoi)
 fi
@@ -157,10 +163,10 @@ case $source_dir:$config_file:$state_file:$destination_dir in
 esac
 
 if [ -e "$source_dir" ]; then
-    [ -d "$source_dir/.git" ] && [ ! -L "$source_dir" ] || {
+    if [ ! -d "$source_dir/.git" ] || [ -L "$source_dir" ]; then
         error "Existing chezmoi source is not a Git checkout: $source_dir"
         exit 1
-    }
+    fi
     existing_repo=$(git -C "$source_dir" remote get-url origin 2>/dev/null || true)
     [ "$existing_repo" = "$repo_url" ] || {
         error "Existing chezmoi source belongs to another repository: $existing_repo"
