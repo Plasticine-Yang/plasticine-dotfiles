@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
 if [ -n "${CHEZMOI_BIN:-}" ]; then
     chezmoi_bin=$CHEZMOI_BIN
 elif command -v chezmoi >/dev/null 2>&1; then
@@ -63,7 +63,8 @@ test "$(grep -Fc '# BEGIN plasticine-dotfiles github-ssh' "$success_dir/home/.ss
 test "$(find "$success_dir/home/.ssh" -name 'config.plasticine-backup-*' | wc -l | tr -d ' ')" -eq 1
 grep -Fq 'Host example.com' "$success_dir/home/.ssh/config"
 effective_identity=$(ssh -G -F "$success_dir/home/.ssh/config.d/00-plasticine-github.conf" github.com 2>/dev/null | awk '$1 == "identityfile" { print $2 }')
-test "$effective_identity" = '~/.ssh/id_github'
+expected_identity=$(printf '\176/.ssh/id_github')
+test "$effective_identity" = "$expected_identity"
 for private_path in \
     "$success_dir/home/.ssh" \
     "$success_dir/home/.ssh/config.d" \

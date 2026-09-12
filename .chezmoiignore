@@ -1,4 +1,5 @@
 README.md
+install.sh
 tests
 tests/**
 {{ if not (has "github-ssh" .tools) }}

@@ -1,13 +1,28 @@
 {{- if not (has .chezmoi.os (list "darwin" "linux")) -}}
 {{- fail "仅支持 macOS 和 Linux。" -}}
 {{- end -}}
-{{- $tools := promptMultichoice "选择要处理的工具（空格切换，回车确认；不选则跳过）" (list "github-ssh") -}}
+{{- $nonInteractive := eq (env "PLASTICINE_NONINTERACTIVE") "1" -}}
+{{- $tools := list -}}
+{{- if $nonInteractive -}}
+{{- $requestedTools := env "PLASTICINE_TOOLS" -}}
+{{- if eq $requestedTools "github-ssh" -}}
+{{- $tools = list "github-ssh" -}}
+{{- else if ne $requestedTools "" -}}
+{{- fail (printf "不支持的工具列表：%s" $requestedTools) -}}
+{{- end -}}
+{{- else -}}
+{{- $tools = promptMultichoice "选择要处理的工具（空格切换，回车确认；不选则跳过）" (list "github-ssh") -}}
+{{- end -}}
 {{- $key := "" -}}
 {{- $sourceFingerprint := "" -}}
 {{- $replaceFingerprint := "" -}}
 {{- $test := false -}}
 {{- if has "github-ssh" $tools -}}
+{{- if $nonInteractive -}}
+{{- $key = env "PLASTICINE_GITHUB_SSH_KEY" -}}
+{{- else -}}
 {{- $key = promptString "GitHub SSH 私钥路径（绝对路径或 ~/ 开头）" -}}
+{{- end -}}
 {{- if hasPrefix "~/" $key -}}
 {{- $key = joinPath .chezmoi.homeDir (trimPrefix "~/" $key) -}}
 {{- end -}}
@@ -35,13 +50,23 @@
 {{- $targetFingerprintOutput := output "ssh-keygen" "-lf" $targetKey -}}
 {{- $targetFingerprint := index (splitList " " $targetFingerprintOutput) 1 -}}
 {{- if ne $sourceFingerprint $targetFingerprint -}}
+{{- if $nonInteractive -}}
+{{- if ne (env "PLASTICINE_REPLACE_GITHUB_SSH_KEY") "1" -}}
+{{- fail (printf "~/.ssh/id_github 已存在（%s）；需要显式允许替换为 %s。" $targetFingerprint $sourceFingerprint) -}}
+{{- end -}}
+{{- else -}}
 {{- if not (promptBool (printf "~/.ssh/id_github 已存在（%s），是否替换为 %s" $targetFingerprint $sourceFingerprint) false) -}}
 {{- fail "已取消替换 GitHub SSH 私钥。" -}}
+{{- end -}}
 {{- end -}}
 {{- $replaceFingerprint = $targetFingerprint -}}
 {{- end -}}
 {{- end -}}
+{{- if $nonInteractive -}}
+{{- $test = eq (env "PLASTICINE_GITHUB_SSH_TEST") "1" -}}
+{{- else -}}
 {{- $test = promptBool "配置完成后测试 GitHub SSH 连接" false -}}
+{{- end -}}
 {{- end -}}
 [data]
     tools = {{ $tools | default (list) | toJson }}
