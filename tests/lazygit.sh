@@ -59,6 +59,8 @@ mkdir -p "$release_bin" "$release_fixture/payload"
 cat > "$release_fixture/payload/lazygit" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = --version ] || exit 99
+[ "${PLASTICINE_TEST_PUBLISHED_HEALTH_FAIL:-}" != 1 ] ||
+    case $0 in */.local/bin/lazygit) exit 96 ;; esac
 printf '%s\n' 'lazygit version 1.2.3'
 EOF
 chmod 755 "$release_fixture/payload/lazygit"
@@ -98,6 +100,15 @@ esac
 cp "$source" "$output"
 EOF
 chmod +x "$release_bin/curl"
+cat > "$release_bin/ln" <<'EOF'
+#!/bin/sh
+case ${PLASTICINE_TEST_PUBLISH_FAILURE:-} in
+    fail) exit 95 ;;
+    race) printf '%s\n' competing-owner > "$2"; exit 95 ;;
+esac
+exec /bin/ln "$@"
+EOF
+chmod +x "$release_bin/ln"
 
 run_installer() {
     scenario=$1
@@ -187,6 +198,134 @@ for platform in Darwin:x86_64:darwin:x86_64 Darwin:arm64:darwin:arm64 Linux:amd6
     test ! -e "$plan_home/.local" || fail 'planning wrote destination state'
     grep -Fq 'package manager: none; privilege: none; credentials: none; terminal prompt: none' "$plan_home/preview" || fail 'preview omitted effect statement'
 done
+
+# Archive membership is an exact contract: a missing or duplicate top-level
+# lazygit member fails before publication or configuration.
+for member_case in missing duplicate; do
+    member_fixture=$test_root/member-$member_case-fixture
+    member_scenario=$test_root/member-$member_case
+    cp -R "$release_fixture" "$member_fixture"; mkdir -p "$member_scenario/home" "$member_fixture/member-work"
+    asset=lazygit_1.2.3_linux_x86_64.tar.gz
+    case $member_case in
+        missing) printf '%s\n' decoy > "$member_fixture/member-work/not-lazygit"; tar -czf "$member_fixture/$asset" -C "$member_fixture/member-work" not-lazygit ;;
+        duplicate)
+            mkdir -p "$member_fixture/member-work/one" "$member_fixture/member-work/two"
+            cp "$release_fixture/payload/lazygit" "$member_fixture/member-work/one/lazygit"
+            cp "$release_fixture/payload/lazygit" "$member_fixture/member-work/two/lazygit"
+            tar -czf "$member_fixture/$asset" -C "$member_fixture/member-work/one" lazygit -C "$member_fixture/member-work/two" lazygit
+            ;;
+    esac
+    checksum=$(shasum -a 256 "$member_fixture/$asset" | awk '{print $1}')
+    grep -v "  $asset$" "$member_fixture/checksums.txt" > "$member_fixture/checksums.new"
+    printf '%s  %s\n' "$checksum" "$asset" >> "$member_fixture/checksums.new"
+    mv "$member_fixture/checksums.new" "$member_fixture/checksums.txt"
+    : > "$member_scenario/calls"
+    if PATH=$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
+        PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$member_scenario/data/chezmoi \
+        PLASTICINE_CHEZMOI_CONFIG_FILE=$member_scenario/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$member_scenario/config/state \
+        PLASTICINE_CHEZMOI_DEST_DIR=$member_scenario/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
+        PLASTICINE_TEST_RELEASE_FIXTURE=$member_fixture PLASTICINE_TEST_RELEASE_CALLS=$member_scenario/calls \
+        "$repo_dir/install.sh" -y --lazygit >/dev/null 2>"$member_scenario/err"; then
+        fail "$member_case archive member succeeded"
+    fi
+    grep -Fq 'exactly one member named lazygit' "$member_scenario/err" || fail "$member_case archive error was not actionable"
+    test ! -e "$member_scenario/home/.local/bin/lazygit" || fail "$member_case archive published a binary"
+    test ! -e "$member_scenario/home/.zshrc" || fail "$member_case archive applied configuration"
+done
+
+# Publication failures, a competing target appearing at publication time, and
+# a post-publication health failure all leave configuration unapplied.
+for publish_case in failure race post-health; do
+    publish_scenario=$test_root/publish-$publish_case
+    mkdir -p "$publish_scenario/home"; : > "$publish_scenario/calls"
+    publish_failure=
+    post_health_failure=
+    case $publish_case in
+        failure) publish_failure=fail ;;
+        race) publish_failure=race ;;
+        post-health) post_health_failure=1 ;;
+    esac
+    if PATH=$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
+        PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$publish_scenario/data/chezmoi \
+        PLASTICINE_CHEZMOI_CONFIG_FILE=$publish_scenario/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$publish_scenario/config/state \
+        PLASTICINE_CHEZMOI_DEST_DIR=$publish_scenario/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
+        PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$publish_scenario/calls \
+        PLASTICINE_TEST_PUBLISH_FAILURE=$publish_failure PLASTICINE_TEST_PUBLISHED_HEALTH_FAIL=$post_health_failure \
+        "$repo_dir/install.sh" -y --lazygit >/dev/null 2>"$publish_scenario/err"; then
+        fail "$publish_case succeeded"
+    fi
+    test ! -e "$publish_scenario/home/.zshrc" || fail "$publish_case applied configuration"
+    case $publish_case in
+        race) test "$(cat "$publish_scenario/home/.local/bin/lazygit")" = competing-owner || fail 'publication race clobbered competing target' ;;
+        *) test ! -e "$publish_scenario/home/.local/bin/lazygit" || fail "$publish_case left a published binary" ;;
+    esac
+done
+
+# When Lazygit succeeds before a later selected tool fails, its healthy binary
+# remains. A rerun resumes from that observation without another download.
+partial=$test_root/partial-rerun
+partial_bin=$partial/bin
+mkdir -p "$partial/home/.antidote" "$partial_bin"; : > "$partial/calls"; : > "$partial/bundle-fails"
+printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$partial/os-release"
+real_zsh=$(command -v zsh)
+cat > "$partial_bin/getent" <<EOF
+#!/bin/sh
+printf 'owner:x:%s:%s:Owner:%s:%s\n' "$(id -u)" "$(id -u)" '$partial/home' '$real_zsh'
+EOF
+cat > "$partial_bin/chsh" <<'EOF'
+#!/bin/sh
+exit 99
+EOF
+cat > "$partial/home/.antidote/antidote.zsh" <<'EOF'
+antidote() {
+    case $1 in
+        --version)
+            print -r -- 'partial fixture antidote'
+            return 0
+            ;;
+        path)
+            if [[ -f $HOME/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme ]]; then
+                print -r -- "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k"
+                return 0
+            fi
+            return 1
+            ;;
+        bundle)
+            [[ ! -f $PLASTICINE_TEST_BUNDLE_FAILS ]] || return 1
+            mkdir -p "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k"
+            print -r -- : > "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
+            return 0
+            ;;
+        *) return 1 ;;
+    esac
+}
+EOF
+chmod +x "$partial_bin"/*
+if PATH=$release_bin:$partial_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
+    PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$partial/data/chezmoi \
+    PLASTICINE_CHEZMOI_CONFIG_FILE=$partial/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$partial/config/state \
+    PLASTICINE_CHEZMOI_DEST_DIR=$partial/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
+    PLASTICINE_SHELL_OS=Linux PLASTICINE_SHELL_ARCH=x86_64 PLASTICINE_SHELL_OS_RELEASE=$partial/os-release PLASTICINE_SHELL_ZSH=$real_zsh \
+    PLASTICINE_SHELL_TTY=0 PLASTICINE_TEST_BUNDLE_FAILS=$partial/bundle-fails PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$partial/calls \
+    "$repo_dir/install.sh" -y --lazygit --shell >/dev/null 2>"$partial/first-err"; then
+    fail 'later shell failure was treated as success'
+fi
+if [ ! -x "$partial/home/.local/bin/lazygit" ]; then
+    cat "$partial/first-err" >&2
+    fail 'partial success did not retain healthy Lazygit'
+fi
+test ! -e "$partial/home/.zshrc" || fail 'partial failure applied combined configuration'
+rm "$partial/bundle-fails"; : > "$partial/calls"
+PATH=$release_bin:$partial_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
+    PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$partial/data/chezmoi \
+    PLASTICINE_CHEZMOI_CONFIG_FILE=$partial/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$partial/config/state \
+    PLASTICINE_CHEZMOI_DEST_DIR=$partial/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
+    PLASTICINE_SHELL_OS=Linux PLASTICINE_SHELL_ARCH=x86_64 PLASTICINE_SHELL_OS_RELEASE=$partial/os-release PLASTICINE_SHELL_ZSH=$real_zsh \
+    PLASTICINE_SHELL_TTY=0 PLASTICINE_TEST_BUNDLE_FAILS=$partial/bundle-fails PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$partial/calls \
+    "$repo_dir/install.sh" -y --lazygit --shell >/dev/null
+test ! -s "$partial/calls" || fail 'partial-success rerun redownloaded healthy Lazygit'
+test -f "$partial/home/.zshrc" || fail 'partial-success rerun did not apply configuration'
+
 for unsupported in FreeBSD:x86_64 Linux:riscv64; do
     old_ifs=$IFS; IFS=:; set -- $unsupported; IFS=$old_ifs
     fixture_os=$1; fixture_arch=$2

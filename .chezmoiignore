@@ -20,12 +20,17 @@ plasticine-demo/**
 .ssh
 .ssh/**
 {{ end }}
-{{ if and (not (has "shell" .tools)) (not (has "lazygit" .tools)) }}
+{{ $zshIntegrationSelected := false }}
+{{ range $integration := (index . "plasticineZshIntegrations" | default (list "shell" "lazygit")) }}
+{{ if has $integration $.tools }}{{ $zshIntegrationSelected = true }}{{ end }}
+{{ end }}
+{{ if not $zshIntegrationSelected }}
 .zshrc
 {{ end }}
 {{ if not (has "shell" .tools) }}
-.zsh_plugins.txt
-.p10k.zsh
+{{ range $target := (index . "plasticineShellTargets" | default (list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh")) }}
+{{ $target }}
+{{ end }}
 .plasticine
 .plasticine/**
 {{ end }}

@@ -67,6 +67,13 @@ cat > "$protect_bin/xcode-select" <<'EOF'
 exit 0
 EOF
 chmod +x "$protect_bin"/*
+cat > "$protect_bin/lazygit" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = --version ] || exit 99
+[ -z "${PLASTICINE_TEST_LAZYGIT_PROBES:-}" ] || printf '%s\n' health >> "$PLASTICINE_TEST_LAZYGIT_PROBES"
+printf '%s\n' 'lazygit version installer-fixture'
+EOF
+chmod +x "$protect_bin/lazygit"
 
 run_installer() {
     scenario_dir=$1
@@ -237,6 +244,40 @@ EOF
     test ! -e "$interactive_dir/home/.zsh_plugins.txt"
     test ! -e "$interactive_dir/home/.p10k.zsh"
     test ! -e "$interactive_dir/home/.plasticine"
+
+    lazygit_cancel_dir=$test_root/lazygit-cancel
+    mkdir -p "$lazygit_cancel_dir/home"
+    export PLASTICINE_TEST_SCENARIO="$lazygit_cancel_dir"
+    export PLASTICINE_TEST_LAZYGIT_PROBES="$lazygit_cancel_dir/probes"
+    expect <<'EOF'
+set timeout 20
+set scenario $env(PLASTICINE_TEST_SCENARIO)
+set env(PLASTICINE_CHEZMOI_BIN) $env(PLASTICINE_TEST_CHEZMOI)
+set env(PLASTICINE_DOTFILES_REPO_URL) $env(PLASTICINE_TEST_ORIGIN)
+set env(PLASTICINE_CHEZMOI_SOURCE_DIR) $scenario/data/chezmoi
+set env(PLASTICINE_CHEZMOI_CONFIG_FILE) $scenario/config/chezmoi.toml
+set env(PLASTICINE_CHEZMOI_STATE_FILE) $scenario/config/chezmoistate.boltdb
+set env(PLASTICINE_CHEZMOI_DEST_DIR) $scenario/home
+set env(PATH) "$env(PLASTICINE_TEST_PROTECT):$env(PATH)"
+spawn $env(PLASTICINE_TEST_INSTALLER)
+expect "选择要处理的工具"
+after 300
+send "\033\[B"
+after 200
+send " "
+after 200
+send "\r"
+expect "Previewing Lazygit toolchain"
+expect "Apply these changes?"
+send "n\r"
+expect eof
+catch wait result
+exit [lindex $result 3]
+EOF
+    grep -Fq 'tools = ["lazygit"]' "$lazygit_cancel_dir/config/chezmoi.toml"
+    test -s "$lazygit_cancel_dir/probes"
+    test ! -e "$lazygit_cancel_dir/home/.zshrc"
+    test ! -e "$lazygit_cancel_dir/home/.plasticine"
 else
     printf '%s\n' 'installer tests: expect 不可用，跳过交互式选择与取消验证。' >&2
 fi

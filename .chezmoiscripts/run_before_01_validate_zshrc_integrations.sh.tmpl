@@ -22,7 +22,7 @@ trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
 if [ -f "$zshrc" ]; then cat "$zshrc" > "$work_dir/current"; else : > "$work_dir/current"; fi
 plasticine_integration_compose "$work_dir/current" "$work_dir/candidate"
 {{- if has "shell" .tools }}
-for shell_target in "$dest_dir/.zsh_plugins.txt" "$dest_dir/.p10k.zsh" "$dest_dir/.plasticine/zsh/shared.zsh"; do
+for shell_target in{{ range $target := (index . "plasticineShellTargets" | default (list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh")) }} "$dest_dir/{{ $target }}"{{ end }}; do
     if [ -L "$shell_target" ] || { [ -e "$shell_target" ] && [ ! -f "$shell_target" ]; }; then
         printf 'plasticine-dotfiles: shell: 配置目标必须是普通文件：%s\n' "$shell_target" >&2
         exit 1
