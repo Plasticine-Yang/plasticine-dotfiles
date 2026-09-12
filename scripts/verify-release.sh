@@ -7,10 +7,10 @@ revision=${2:-}
 repo_url=${3:-$repo_dir}
 chezmoi_bin=${CHEZMOI_BIN:-}
 
-[ -n "$asset_dir" ] && [ -n "$revision" ] || {
+if [ -z "$asset_dir" ] || [ -z "$revision" ]; then
     printf '%s\n' 'usage: scripts/verify-release.sh <asset-directory> <full-commit-id> [repository-url]' >&2
     exit 2
-}
+fi
 case $revision in
     *[!0-9a-f]*|'')
         printf '%s\n' 'release revision must be a full 40-character lowercase commit ID' >&2
@@ -23,10 +23,10 @@ esac
 }
 [ -n "$chezmoi_bin" ] || chezmoi_bin=$(command -v chezmoi)
 
-[ -f "$asset_dir/install.sh" ] && [ -x "$asset_dir/install.sh" ] || {
+if [ ! -f "$asset_dir/install.sh" ] || [ ! -x "$asset_dir/install.sh" ]; then
     printf '%s\n' 'release install.sh is missing or not executable' >&2
     exit 1
-}
+fi
 [ -f "$asset_dir/SHA256SUMS" ] || {
     printf '%s\n' 'release SHA256SUMS is missing' >&2
     exit 1

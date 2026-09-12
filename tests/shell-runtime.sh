@@ -53,7 +53,9 @@ reject_line() {
 expect_order() {
     expect_first=$(grep -n -F -m1 "$2" "$1" | cut -d: -f1)
     expect_second=$(grep -n -F -m1 "$3" "$1" | cut -d: -f1)
-    [ -n "$expect_first" ] && [ -n "$expect_second" ] || fail "$4 (missing entries)"
+    if [ -z "$expect_first" ] || [ -z "$expect_second" ]; then
+        fail "$4 (missing entries)"
+    fi
     [ "$expect_first" -lt "$expect_second" ] || fail "$4"
 }
 

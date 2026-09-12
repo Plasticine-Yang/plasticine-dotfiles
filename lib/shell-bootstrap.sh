@@ -393,10 +393,10 @@ plasticine_shell_plan() {
     fi
     plasticine_shell_discover_antidote || return $?
     if [ "$shell_antidote_route" = existing ]; then
-        [ -f "$shell_antidote" ] && [ -r "$shell_antidote" ] || {
+        if [ ! -f "$shell_antidote" ] || [ ! -r "$shell_antidote" ]; then
             plasticine_shell_error 'Antidote is present but unhealthy; repair its native installation. Left untouched.'
             return 1
-        }
+        fi
         if [ "$shell_zsh_route" != apt ]; then
             plasticine_shell_antidote_health || return 1
             plasticine_shell_prompt_check || return 1
