@@ -2,7 +2,7 @@
 # Shared implementation for selected Integration Blocks in Owner-controlled
 # .zshrc. This rendered catalog is the single ordering source for scanning,
 # replacement and insertion.
-plasticine_integration_catalog='{{ range $integration := (index . "plasticineZshIntegrations" | default (list "shell" "lazygit")) }}{{ if has $integration $.tools }}{{ $integration }} {{ end }}{{ end }}'
+plasticine_integration_catalog='{{ range $integration := splitList "\n" (trim (includeTemplate "zsh-integration-catalog" .)) }}{{ if has $integration $.tools }}{{ $integration }} {{ end }}{{ end }}'
 plasticine_integration_emit() {
     case $1 in
         shell)

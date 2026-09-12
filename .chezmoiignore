@@ -20,11 +20,7 @@ plasticine-demo/**
 .ssh
 .ssh/**
 {{ end }}
-{{ $zshIntegrationSelected := false }}
-{{ range $integration := (index . "plasticineZshIntegrations" | default (list "shell" "lazygit")) }}
-{{ if has $integration $.tools }}{{ $zshIntegrationSelected = true }}{{ end }}
-{{ end }}
-{{ if not $zshIntegrationSelected }}
+{{ if ne (trim (includeTemplate "zsh-integration-selected" .)) "true" }}
 .zshrc
 {{ end }}
 {{ if not (has "shell" .tools) }}

@@ -1,0 +1,5 @@
+{{- $selected := false -}}
+{{- range $integration := splitList "\n" (trim (includeTemplate "zsh-integration-catalog" .)) -}}
+{{- if has $integration $.tools -}}{{- $selected = true -}}{{- end -}}
+{{- end -}}
+{{- $selected -}}

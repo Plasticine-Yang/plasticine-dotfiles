@@ -1,4 +1,4 @@
-{{- if or (has "shell" .tools) (has "lazygit" .tools) -}}
+{{- if eq (trim (includeTemplate "zsh-integration-selected" .)) "true" -}}
 #!/bin/sh
 set -eu
 

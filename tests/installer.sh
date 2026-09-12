@@ -195,7 +195,8 @@ if command -v expect >/dev/null 2>&1; then
     interactive_key=$interactive_dir/key-dir/id_ed25519
     ssh-keygen -q -t ed25519 -N '' -C installer-interactive -f "$interactive_key"
     export PLASTICINE_TEST_INSTALLER="$repo_dir/install.sh"
-    export PLASTICINE_TEST_CHEZMOI="$chezmoi_bin"
+    PLASTICINE_TEST_CHEZMOI=$(command -v "$chezmoi_bin")
+    export PLASTICINE_TEST_CHEZMOI
     export PLASTICINE_TEST_ORIGIN="$origin_repo"
     export PLASTICINE_TEST_SCENARIO="$interactive_dir"
     export PLASTICINE_TEST_KEY="$interactive_key"
@@ -246,9 +247,25 @@ EOF
     test ! -e "$interactive_dir/home/.plasticine"
 
     lazygit_cancel_dir=$test_root/lazygit-cancel
-    mkdir -p "$lazygit_cancel_dir/home"
+    lazygit_cancel_bin=$lazygit_cancel_dir/bin
+    mkdir -p "$lazygit_cancel_dir/home" "$lazygit_cancel_bin"
+    cat > "$lazygit_cancel_bin/curl" <<'EOF'
+#!/bin/sh
+printf '%s\n' network > "$PLASTICINE_TEST_LAZYGIT_NETWORK"
+exit 99
+EOF
+    cat > "$lazygit_cancel_bin/mktemp" <<'EOF'
+#!/bin/sh
+case "$*" in
+    *plasticine-lazygit*) printf '%s\n' temp > "$PLASTICINE_TEST_LAZYGIT_TEMP"; exit 99 ;;
+esac
+exec /usr/bin/mktemp "$@"
+EOF
+    chmod +x "$lazygit_cancel_bin"/*
     export PLASTICINE_TEST_SCENARIO="$lazygit_cancel_dir"
-    export PLASTICINE_TEST_LAZYGIT_PROBES="$lazygit_cancel_dir/probes"
+    export PLASTICINE_TEST_LAZYGIT_NETWORK="$lazygit_cancel_dir/network"
+    export PLASTICINE_TEST_LAZYGIT_TEMP="$lazygit_cancel_dir/temp"
+    export PLASTICINE_TEST_CANCEL_BIN="$lazygit_cancel_bin"
     expect <<'EOF'
 set timeout 20
 set scenario $env(PLASTICINE_TEST_SCENARIO)
@@ -258,7 +275,7 @@ set env(PLASTICINE_CHEZMOI_SOURCE_DIR) $scenario/data/chezmoi
 set env(PLASTICINE_CHEZMOI_CONFIG_FILE) $scenario/config/chezmoi.toml
 set env(PLASTICINE_CHEZMOI_STATE_FILE) $scenario/config/chezmoistate.boltdb
 set env(PLASTICINE_CHEZMOI_DEST_DIR) $scenario/home
-set env(PATH) "$env(PLASTICINE_TEST_PROTECT):$env(PATH)"
+set env(PATH) "$env(PLASTICINE_TEST_CANCEL_BIN):/usr/bin:/bin"
 spawn $env(PLASTICINE_TEST_INSTALLER)
 expect "选择要处理的工具"
 after 300
@@ -275,7 +292,9 @@ catch wait result
 exit [lindex $result 3]
 EOF
     grep -Fq 'tools = ["lazygit"]' "$lazygit_cancel_dir/config/chezmoi.toml"
-    test -s "$lazygit_cancel_dir/probes"
+    test ! -e "$lazygit_cancel_dir/network"
+    test ! -e "$lazygit_cancel_dir/temp"
+    test ! -e "$lazygit_cancel_dir/home/.local"
     test ! -e "$lazygit_cancel_dir/home/.zshrc"
     test ! -e "$lazygit_cancel_dir/home/.plasticine"
 else

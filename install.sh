@@ -207,6 +207,27 @@ else
     fi
 fi
 
+integration_catalog=$source_dir/.chezmoitemplates/zsh-integration-catalog
+[ -f "$integration_catalog" ] || {
+    error 'The source repository does not contain the Zsh integration catalog.'
+    exit 1
+}
+integration_catalog_seen=' '
+while IFS= read -r integration_name || [ -n "$integration_name" ]; do
+    case $integration_name in
+        shell|lazygit) ;;
+        *) error "Invalid Zsh integration catalog entry: $integration_name"; exit 1 ;;
+    esac
+    case $integration_catalog_seen in
+        *" $integration_name "*) error "Duplicate Zsh integration catalog entry: $integration_name"; exit 1 ;;
+    esac
+    integration_catalog_seen=$integration_catalog_seen$integration_name' '
+done < "$integration_catalog"
+[ "$integration_catalog_seen" = ' shell lazygit ' ] || {
+    error 'The source Zsh integration catalog must contain exactly shell then lazygit.'
+    exit 1
+}
+
 if [ "$yes" -eq 1 ]; then
     export PLASTICINE_NONINTERACTIVE=1
     tools=''
@@ -262,6 +283,7 @@ set -- -S "$source_dir" -D "$destination_dir" -c "$config_file" --persistent-sta
 
 shell_selected=0
 lazygit_selected=0
+zsh_integration_selected=0
 shell_antidote_route=''
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"shell"/); exit } END { exit !found }' "$config_file"; then
     shell_selected=1
@@ -269,11 +291,14 @@ fi
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"lazygit"/); exit } END { exit !found }' "$config_file"; then
     lazygit_selected=1
 fi
+if [ "$shell_selected" -eq 1 ] || [ "$lazygit_selected" -eq 1 ]; then
+    zsh_integration_selected=1
+fi
 
 # Validate every selected Integration Block namespace before probing or
 # preparing any selected tool. The same rendered module is run again by
 # chezmoi immediately before apply to close the confirmation-time race.
-if [ "$shell_selected" -eq 1 ] || [ "$lazygit_selected" -eq 1 ]; then
+if [ "$zsh_integration_selected" -eq 1 ]; then
     "$chezmoi_bin" "$@" execute-template \
         < "$source_dir/.chezmoiscripts/run_before_01_validate_zshrc_integrations.sh.tmpl" | /bin/sh
 fi

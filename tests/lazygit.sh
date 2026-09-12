@@ -16,6 +16,7 @@ case $chezmoi_bin in
     *) chezmoi_bin=$(cd -- "$(dirname -- "$chezmoi_bin")" && pwd -P)/${chezmoi_bin##*/} ;;
 esac
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-lazygit-test.XXXXXX")
+test_root=$(cd "$test_root" && pwd -P)
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 
 fail() { printf 'lazygit tests: %s\n' "$1" >&2; exit 1; }
@@ -59,6 +60,8 @@ mkdir -p "$release_bin" "$release_fixture/payload"
 cat > "$release_fixture/payload/lazygit" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = --version ] || exit 99
+[ "${PLASTICINE_TEST_PUBLISHED_HEALTH_RACE:-}" != 1 ] ||
+    case $0 in */.local/bin/lazygit) rm -f "$0"; printf '%s\n' owner-replacement > "$0"; exit 96 ;; esac
 [ "${PLASTICINE_TEST_PUBLISHED_HEALTH_FAIL:-}" != 1 ] ||
     case $0 in */.local/bin/lazygit) exit 96 ;; esac
 printf '%s\n' 'lazygit version 1.2.3'
@@ -147,6 +150,90 @@ EOF
 missing_y=$test_root/missing-y; mkdir -p "$missing_y/home"
 if run_installer "$missing_y" --lazygit </dev/null >/dev/null 2>&1; then fail '--lazygit without -y succeeded'; fi
 test ! -e "$missing_y/data"
+# The catalog is a source invariant, independent of selection: only the exact
+# canonical shell/lazygit sequence may reach init, target inspection, or probes.
+for catalog_case in missing empty reordered duplicate unknown; do
+    catalog_work=$test_root/$catalog_case-work
+    git clone -q "$origin_repo" "$catalog_work"
+    case $catalog_case in
+        missing) rm "$catalog_work/.chezmoitemplates/zsh-integration-catalog" ;;
+        empty) : > "$catalog_work/.chezmoitemplates/zsh-integration-catalog" ;;
+        reordered) printf '%s\n' lazygit shell > "$catalog_work/.chezmoitemplates/zsh-integration-catalog" ;;
+        duplicate) printf '%s\n' shell lazygit lazygit > "$catalog_work/.chezmoitemplates/zsh-integration-catalog" ;;
+        unknown) printf '%s\n' shell unknown > "$catalog_work/.chezmoitemplates/zsh-integration-catalog" ;;
+    esac
+    git -C "$catalog_work" add -A .chezmoitemplates/zsh-integration-catalog
+    git -C "$catalog_work" -c user.name=test -c user.email=test@example.com commit -qm "$catalog_case catalog"
+    catalog_origin=$test_root/$catalog_case.git
+    git clone -q --bare "$catalog_work" "$catalog_origin"
+    catalog_scenario=$test_root/catalog-$catalog_case
+    mkdir -p "$catalog_scenario/home"
+    mkfifo "$catalog_scenario/home/.zshrc"
+    rm -f "$test_root/lazygit-probes" "$test_root/shell-probes"
+    if PATH=$healthy_bin:$protect_bin:$base_path PLASTICINE_TEST_LAZYGIT_PROBES=$test_root/lazygit-probes \
+        PLASTICINE_CHEZMOI_BIN=$chezmoi_bin PLASTICINE_DOTFILES_REPO_URL=$catalog_origin \
+        PLASTICINE_CHEZMOI_SOURCE_DIR=$catalog_scenario/data/chezmoi PLASTICINE_CHEZMOI_CONFIG_FILE=$catalog_scenario/config/chezmoi.toml \
+        PLASTICINE_CHEZMOI_STATE_FILE=$catalog_scenario/state/chezmoistate.boltdb PLASTICINE_CHEZMOI_DEST_DIR=$catalog_scenario/home \
+        "$repo_dir/install.sh" -y >/dev/null 2>"$catalog_scenario/err"; then
+        fail "$catalog_case source integration catalog succeeded"
+    fi
+    case $catalog_case in
+        missing) grep -Fq 'does not contain the Zsh integration catalog' "$catalog_scenario/err" || fail 'missing catalog error was not actionable' ;;
+        duplicate) grep -Fq 'Duplicate Zsh integration catalog entry: lazygit' "$catalog_scenario/err" || fail 'duplicate catalog error was not actionable' ;;
+        unknown) grep -Fq 'Invalid Zsh integration catalog entry: unknown' "$catalog_scenario/err" || fail 'unknown catalog error was not actionable' ;;
+        *) grep -Fq 'must contain exactly shell then lazygit' "$catalog_scenario/err" || fail "$catalog_case catalog error was not actionable" ;;
+    esac
+    test ! -e "$catalog_scenario/config/chezmoi.toml" || fail "$catalog_case catalog created a config file"
+    test ! -d "$catalog_scenario/config" || fail "$catalog_case catalog created the config parent"
+    test ! -d "$catalog_scenario/state" || fail "$catalog_case catalog created the state parent"
+    test -p "$catalog_scenario/home/.zshrc" || fail "$catalog_case catalog inspected or changed the destination .zshrc sentinel"
+    test ! -e "$test_root/lazygit-probes" || fail "$catalog_case catalog allowed a Lazygit probe"
+    test ! -e "$test_root/shell-probes" || fail "$catalog_case catalog allowed a shell tool probe"
+done
+
+# The interactive default path also rejects a catalog missing lazygit before
+# chezmoi can render or prompt, with the same zero-effect boundary.
+command -v expect >/dev/null 2>&1 || fail 'expect is required for interactive catalog validation'
+interactive_catalog_work=$test_root/interactive-catalog-work
+git clone -q "$origin_repo" "$interactive_catalog_work"
+printf '%s\n' shell > "$interactive_catalog_work/.chezmoitemplates/zsh-integration-catalog"
+git -C "$interactive_catalog_work" add .chezmoitemplates/zsh-integration-catalog
+git -C "$interactive_catalog_work" -c user.name=test -c user.email=test@example.com commit -qm interactive-missing-lazygit
+interactive_catalog_origin=$test_root/interactive-catalog.git
+git clone -q --bare "$interactive_catalog_work" "$interactive_catalog_origin"
+interactive_catalog=$test_root/interactive-catalog
+mkdir -p "$interactive_catalog/home"
+mkfifo "$interactive_catalog/home/.zshrc"
+rm -f "$test_root/lazygit-probes" "$test_root/shell-probes"
+export PLASTICINE_TEST_INTERACTIVE_CATALOG="$interactive_catalog"
+export PLASTICINE_TEST_INTERACTIVE_CATALOG_ORIGIN="$interactive_catalog_origin"
+export PLASTICINE_TEST_REPO_DIR="$repo_dir" PLASTICINE_TEST_CHEZMOI="$chezmoi_bin"
+export PLASTICINE_TEST_PATH="$healthy_bin:$protect_bin:$base_path"
+export PLASTICINE_TEST_LAZYGIT_PROBES="$test_root/lazygit-probes"
+expect <<'EOF'
+set timeout 20
+set scenario $env(PLASTICINE_TEST_INTERACTIVE_CATALOG)
+set env(PATH) $env(PLASTICINE_TEST_PATH)
+set env(PLASTICINE_CHEZMOI_BIN) $env(PLASTICINE_TEST_CHEZMOI)
+set env(PLASTICINE_DOTFILES_REPO_URL) $env(PLASTICINE_TEST_INTERACTIVE_CATALOG_ORIGIN)
+set env(PLASTICINE_CHEZMOI_SOURCE_DIR) $scenario/data/chezmoi
+set env(PLASTICINE_CHEZMOI_CONFIG_FILE) $scenario/config/chezmoi.toml
+set env(PLASTICINE_CHEZMOI_STATE_FILE) $scenario/state/chezmoistate.boltdb
+set env(PLASTICINE_CHEZMOI_DEST_DIR) $scenario/home
+log_file $scenario/output
+spawn $env(PLASTICINE_TEST_REPO_DIR)/install.sh
+expect eof
+set rc [lindex [wait] 3]
+if {$rc == 0} { exit 1 }
+EOF
+grep -Fq 'must contain exactly shell then lazygit' "$interactive_catalog/output" || fail 'interactive incomplete catalog error was not actionable'
+! grep -Fq '选择要处理的工具' "$interactive_catalog/output" || fail 'interactive incomplete catalog reached init prompt'
+test ! -e "$interactive_catalog/config/chezmoi.toml" || fail 'interactive incomplete catalog created a config file'
+test ! -d "$interactive_catalog/config" || fail 'interactive incomplete catalog created the config parent'
+test ! -d "$interactive_catalog/state" || fail 'interactive incomplete catalog created the state parent'
+test -p "$interactive_catalog/home/.zshrc" || fail 'interactive incomplete catalog inspected or changed .zshrc'
+test ! -e "$test_root/lazygit-probes" || fail 'interactive incomplete catalog probed Lazygit'
+test ! -e "$test_root/shell-probes" || fail 'interactive incomplete catalog probed a shell tool'
 missing=$test_root/missing; mkdir -p "$missing/home"
 : > "$missing/release-calls"
 if ! PATH=$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
@@ -240,6 +327,7 @@ for publish_case in failure race post-health; do
     mkdir -p "$publish_scenario/home"; : > "$publish_scenario/calls"
     publish_failure=
     post_health_failure=
+    post_health_race=
     case $publish_case in
         failure) publish_failure=fail ;;
         race) publish_failure=race ;;
@@ -251,14 +339,61 @@ for publish_case in failure race post-health; do
         PLASTICINE_CHEZMOI_DEST_DIR=$publish_scenario/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
         PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$publish_scenario/calls \
         PLASTICINE_TEST_PUBLISH_FAILURE=$publish_failure PLASTICINE_TEST_PUBLISHED_HEALTH_FAIL=$post_health_failure \
+        PLASTICINE_TEST_PUBLISHED_HEALTH_RACE=$post_health_race \
         "$repo_dir/install.sh" -y --lazygit >/dev/null 2>"$publish_scenario/err"; then
         fail "$publish_case succeeded"
     fi
     test ! -e "$publish_scenario/home/.zshrc" || fail "$publish_case applied configuration"
     case $publish_case in
         race) test "$(cat "$publish_scenario/home/.local/bin/lazygit")" = competing-owner || fail 'publication race clobbered competing target' ;;
+        post-health)
+            test -f "$publish_scenario/home/.local/bin/lazygit" || fail 'post-health failure removed the published target'
+            retained_target=$(cd "$publish_scenario/home/.local/bin" && pwd -P)/lazygit
+            grep -Fq "retained at $retained_target" "$publish_scenario/err" || fail 'post-health failure did not name the retained target'
+            grep -Fq 'remove it if it is the failed publication, before rerunning' "$publish_scenario/err" || fail 'post-health failure did not explain how to make rerun safe'
+            ;;
         *) test ! -e "$publish_scenario/home/.local/bin/lazygit" || fail "$publish_case left a published binary" ;;
     esac
+    test -z "$(find "$publish_scenario/home/.local/bin" -name '.lazygit.plasticine.*' -print 2>/dev/null)" || fail "$publish_case left publication staging"
+done
+
+# Follow the documented recovery for an ordinary failed publication: remove
+# the retained unhealthy file, then rerun the same controlled release route.
+post_health_retry=$test_root/publish-post-health
+rm "$post_health_retry/home/.local/bin/lazygit"
+if ! PATH=$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
+    PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$post_health_retry/data/chezmoi \
+    PLASTICINE_CHEZMOI_CONFIG_FILE=$post_health_retry/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$post_health_retry/config/state \
+    PLASTICINE_CHEZMOI_DEST_DIR=$post_health_retry/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
+    PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$post_health_retry/calls \
+    "$repo_dir/install.sh" -y --lazygit >/dev/null 2>"$post_health_retry/retry-err"; then
+    cat "$post_health_retry/retry-err" >&2
+    fail 'post-health retry after removing retained target failed'
+fi
+test "$(wc -l < "$post_health_retry/calls" | tr -d ' ')" -eq 6 || fail 'post-health retry did not perform exactly two release downloads'
+"$post_health_retry/home/.local/bin/lazygit" --version >/dev/null 2>&1 || fail 'post-health retry did not leave a healthy executable'
+cmp -s "$lazygit_block" "$post_health_retry/home/.zshrc" || fail 'post-health retry did not apply the Lazygit alias'
+test -z "$(find "$post_health_retry/home/.local/bin" -name '.lazygit.plasticine.*' -print)" || fail 'post-health retry left publication staging'
+
+# A replacement racing the post-publication health check is Owner state. It is
+# retained on both supported operating-system routes while apply still fails.
+for race_platform in Linux:x86_64 Darwin:arm64; do
+    old_ifs=$IFS; IFS=:; set -- $race_platform; IFS=$old_ifs
+    race_os=$1; race_arch=$2
+    publish_scenario=$test_root/post-health-race-$race_os
+    mkdir -p "$publish_scenario/home"; : > "$publish_scenario/calls"
+    if PATH=$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
+        PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$publish_scenario/data/chezmoi \
+        PLASTICINE_CHEZMOI_CONFIG_FILE=$publish_scenario/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$publish_scenario/config/state \
+        PLASTICINE_CHEZMOI_DEST_DIR=$publish_scenario/home PLASTICINE_LAZYGIT_OS=$race_os PLASTICINE_LAZYGIT_ARCH=$race_arch \
+        PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$publish_scenario/calls \
+        PLASTICINE_TEST_PUBLISHED_HEALTH_RACE=1 "$repo_dir/install.sh" -y --lazygit >/dev/null 2>"$publish_scenario/err"; then
+        fail "post-health Owner replacement race succeeded on $race_os"
+    fi
+    test "$(cat "$publish_scenario/home/.local/bin/lazygit")" = owner-replacement || fail "post-health cleanup removed an Owner target on $race_os"
+    grep -Fq 'repair the Owner file' "$publish_scenario/err" || fail "post-health race did not direct Owner repair on $race_os"
+    test ! -e "$publish_scenario/home/.zshrc" || fail "post-health race applied configuration on $race_os"
+    test -z "$(find "$publish_scenario/home/.local/bin" -name '.lazygit.plasticine.*' -print)" || fail "post-health race left publication staging on $race_os"
 done
 
 # When Lazygit succeeds before a later selected tool fails, its healthy binary

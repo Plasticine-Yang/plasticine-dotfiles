@@ -341,15 +341,72 @@ test "$lazygit_shell_before" = "$(shasum -a 256 "$lazygit_shell_dir/home/.zshrc"
 # A Lazygit dry run renders the shared composer but performs no destination
 # writes, backups, or tool preparation.
 lazygit_dry_dir=$test_root/lazygit-dry
-mkdir -p "$lazygit_dry_dir/home"
+mkdir -p "$lazygit_dry_dir/home" "$lazygit_dry_dir/bin"
+cat > "$lazygit_dry_dir/bin/curl" <<'EOF'
+#!/bin/sh
+printf '%s\n' network > "$PLASTICINE_TEST_LAZYGIT_NETWORK"
+exit 99
+EOF
+cat > "$lazygit_dry_dir/bin/mktemp" <<'EOF'
+#!/bin/sh
+case "$*" in
+    *plasticine-lazygit*) printf '%s\n' temp > "$PLASTICINE_TEST_LAZYGIT_TEMP"; exit 99 ;;
+esac
+exec /usr/bin/mktemp "$@"
+EOF
+chmod +x "$lazygit_dry_dir/bin"/*
+# Fixed-point config from before integration metadata was persisted: lifecycle
+# templates must derive their gate from tools and the fallback catalog.
 printf '%s\n' '[data]' 'tools = ["lazygit"]' 'githubSSHKeyPath = ""' \
     'githubSSHKeyFingerprint = ""' 'githubSSHReplaceFingerprint = ""' \
     'githubSSHTest = false' > "$lazygit_dry_dir/chezmoi.toml"
 printf '%s\n' owner > "$lazygit_dry_dir/home/.zshrc"
 cp "$lazygit_dry_dir/home/.zshrc" "$lazygit_dry_dir/before"
-apply "$lazygit_dry_dir" --dry-run
+resolved_chezmoi=$(command -v "$chezmoi_bin")
+PATH=$lazygit_dry_dir/bin:/usr/bin:/bin PLASTICINE_TEST_LAZYGIT_NETWORK=$lazygit_dry_dir/network \
+    PLASTICINE_TEST_LAZYGIT_TEMP=$lazygit_dry_dir/temp "$resolved_chezmoi" -S "$repo_dir" -D "$lazygit_dry_dir/home" \
+    -c "$lazygit_dry_dir/chezmoi.toml" --persistent-state "$lazygit_dry_dir/state" apply --no-tty --dry-run
 cmp -s "$lazygit_dry_dir/before" "$lazygit_dry_dir/home/.zshrc"
 test ! -e "$lazygit_dry_dir/home/.plasticine"
+test ! -e "$lazygit_dry_dir/home/.local"
+test ! -e "$lazygit_dry_dir/network"
+test ! -e "$lazygit_dry_dir/temp"
+old_no_integration=$test_root/old-no-integration.toml
+printf '%s\n' '[data]' 'tools = ["github-ssh"]' 'githubSSHKeyPath = ""' \
+    'githubSSHKeyFingerprint = ""' 'githubSSHReplaceFingerprint = ""' \
+    'githubSSHTest = false' > "$old_no_integration"
+for lifecycle_template in \
+    run_before_01_validate_zshrc_integrations.sh.tmpl \
+    run_before_30_prepare_zshrc_integrations.sh.tmpl \
+    run_after_80_restore_zshrc_mode.sh.tmpl; do
+    "$resolved_chezmoi" -S "$repo_dir" -D "$lazygit_dry_dir/home" -c "$old_no_integration" \
+        execute-template < "$repo_dir/.chezmoiscripts/$lifecycle_template" > "$lazygit_dry_dir/$lifecycle_template"
+    if grep -q '[^[:space:]]' "$lazygit_dry_dir/$lifecycle_template"; then
+        printf '%s\n' "legacy no-integration config enabled $lifecycle_template" >&2
+        exit 1
+    fi
+done
+noncanonical_config=$test_root/noncanonical-integration.toml
+printf '%s\n' '[data]' 'tools = ["lazygit"]' 'plasticineZshIntegrations = ["shell"]' \
+    'githubSSHKeyPath = ""' 'githubSSHKeyFingerprint = ""' \
+    'githubSSHReplaceFingerprint = ""' 'githubSSHTest = false' > "$noncanonical_config"
+"$resolved_chezmoi" -S "$repo_dir" -D "$lazygit_dry_dir/home" -c "$noncanonical_config" \
+    diff --no-pager --exclude=scripts > "$lazygit_dry_dir/noncanonical-diff"
+grep -Fq "alias lg='lazygit'" "$lazygit_dry_dir/noncanonical-diff" || {
+    printf '%s\n' 'persisted noncanonical integration metadata suppressed the lazygit diff' >&2
+    exit 1
+}
+for lifecycle_template in \
+    run_before_01_validate_zshrc_integrations.sh.tmpl \
+    run_before_30_prepare_zshrc_integrations.sh.tmpl \
+    run_after_80_restore_zshrc_mode.sh.tmpl; do
+    "$resolved_chezmoi" -S "$repo_dir" -D "$lazygit_dry_dir/home" -c "$noncanonical_config" \
+        execute-template < "$repo_dir/.chezmoiscripts/$lifecycle_template" > "$lazygit_dry_dir/noncanonical-$lifecycle_template"
+    grep -q '[^[:space:]]' "$lazygit_dry_dir/noncanonical-$lifecycle_template" || {
+        printf '%s\n' "persisted noncanonical metadata disabled $lifecycle_template" >&2
+        exit 1
+    }
+done
 
 lazygit_ssh_dir=$test_root/lazygit-ssh
 mkdir -p "$lazygit_ssh_dir/home/.ssh"; chmod 700 "$lazygit_ssh_dir/home/.ssh"
