@@ -1,6 +1,6 @@
 # plasticine-dotfiles
 
-使用 [chezmoi](https://www.chezmoi.io/) 在 macOS 和 Linux 上选择并恢复个人开发环境。目前支持 GitHub SSH 配置和 Zsh 环境。
+使用 [chezmoi](https://www.chezmoi.io/) 在 macOS 和 Linux 上选择并恢复个人开发环境。目前支持 GitHub SSH 配置、Lazygit 和 Zsh 环境。
 
 ## 一行安装
 
@@ -12,7 +12,7 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
 
 安装器支持 macOS 和 Linux，会在需要时将已验证的 chezmoi 版本安装到 `~/.local/bin/chezmoi`，然后使用 chezmoi 的默认 source、config 和 state 路径。
 
-安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 GitHub SSH 和 Zsh 环境（`shell`）；初始选择为空，不选择某个工具表示本次不处理它。
+安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 GitHub SSH、Lazygit（`lazygit`）和 Zsh 环境（`shell`）；初始选择为空，不选择某个工具表示本次不处理它。
 
 ## 自动化调用
 
@@ -39,7 +39,14 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
   -y --shell --github-ssh --github-ssh-key /absolute/path/to/id_ed25519
 ```
 
-`--shell` 与 `--github-ssh` 可以任意组合，工具集合与顺序无关。工具选项必须配合 `-y`；单独使用 `--shell` 或 `--github-ssh` 会被拒绝并提示改用交互选择。
+单独安装/配置 Lazygit，或与其他工具任意组合：
+
+```sh
+sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)" -- \
+  -y --lazygit
+```
+
+`--lazygit`、`--shell` 与 `--github-ssh` 可以任意组合，工具集合与顺序无关。工具选项必须配合 `-y`；不带 `-y` 使用工具选项会被拒绝并提示改用交互选择。
 
 已有不同的 `~/.ssh/id_github` 时，自动化调用还需要显式传入 `--replace-github-ssh-key`。可通过 `--github-ssh-test` 在应用后测试连接。`-y` 不会启用 chezmoi 的强制覆盖，配置冲突仍会停止安装，也不会代替 Homebrew、`sudo` 或 `chsh` 的原生凭据提示。
 
@@ -77,6 +84,22 @@ PLASTICINE_DOTFILES_REPO_URL="$PWD" ./install.sh
 - 私钥内容不会写入仓库、chezmoi 配置或 diff；本机 chezmoi 配置仅记录源路径和公钥指纹。
 
 连接测试是可选项，会运行 `ssh -T git@github.com`，并使用 OpenSSH 的 `accept-new` 主机密钥策略。
+
+## Lazygit（`--lazygit`）
+
+已有的 `lazygit` 只要通过 `lazygit --version` 健康检查，就保留当前版本和安装归属，不升级、不替换。缺失时，Plasticine 在 apply 阶段从 `jesseduffield/lazygit` 的最新 GitHub Release 下载当前 macOS/Linux、`x86_64`/`arm64` 对应的归档及同一 Release 的 `checksums.txt`，验证 SHA-256 后只提取 `lazygit`，以 `0755` 原子发布到 `~/.local/bin/lazygit`。该校验和与归档处于同一 GitHub Release 信任边界，不是独立签名。此路线不调用 Homebrew、APT、`sudo`、`go install` 或第三方安装器，也不需要凭据或终端提示。
+
+`--lazygit` 只在 Owner 控制的 `~/.zshrc` 中维护以下区块，并与 `shell` 区块共用同一个组合与备份流程：
+
+```zsh
+# >>> Plasticine lazygit >>>
+alias lg='lazygit'
+# <<< Plasticine lazygit <<<
+```
+
+缺失区块按固定工具顺序插到文件开头，已有合法区块原地更新；区块外字节和原文件权限保持不变。一次 apply 即使多个区块同时变化，也只在 `~/.plasticine/backups/integration-blocks/` 生成一个权限为 `0600` 的 `.zshrc` 全量备份；满足状态的重跑不会改写或新增备份。所有选中区块在任何工具安装前验证，所有选中工具健康后才允许备份和配置应用。
+
+Lazygit 的配置、缓存、日志、仓库状态和 `~/.config/lazygit` 都不归 Plasticine 管理，也不会被检查、导入、备份或删除；旧 `~/.plasticine-dotfiles` 及其运行时状态同样不会清理。安装路线不修改 `PATH`：只选 Lazygit 的 Owner 需要自行确保 `~/.local/bin` 已在 `PATH` 中；同时选择 `shell` 时，共享 Zsh 配置会提供现有的 `~/.local/bin` 默认值。
 
 ## Zsh 环境（`--shell`）
 
@@ -122,7 +145,7 @@ fi
 - Powerlevel10k 通过 Antidote 的插件机制获取（`antidote bundle romkatv/powerlevel10k kind:clone`）；Plasticine 不复制、不固定它的 checkout。
 - 已存在但不健康的 Zsh、Antidote、Git、Homebrew 或 Powerlevel10k 会被原样保留并以可操作的错误结束，不会更换安装归属，也没有自动回退路径。
 - Antidote 自己拥有它的 checkout、生成的 bundle、插件克隆、缓存、快照、补全 dump 和编译文件；`~/.zsh_plugins.local.txt` 也属于 Owner。Plasticine 既不管理、也不备份或删除这些运行时状态。
-- `fnm` 只做守卫式激活：已经安装时执行 `fnm env --shell zsh`；命令失败时不会执行它的输出，只会以交互式警告提示，也不会安装、升级或迁移 fnm 及其状态。未安装 fnm 时保持静默。macOS 上若 fnm 只存在于 Homebrew 前缀中，仅在这种情况下把该前缀的可执行目录加入 `PATH`，不移动任何文件。Lazygit 和 Zellij 别名属于它们各自未来的迁移。
+- `fnm` 只做守卫式激活：已经安装时执行 `fnm env --shell zsh`；命令失败时不会执行它的输出，只会以交互式警告提示，也不会安装、升级或迁移 fnm 及其状态。未安装 fnm 时保持静默。macOS 上若 fnm 只存在于 Homebrew 前缀中，仅在这种情况下把该前缀的可执行目录加入 `PATH`，不移动任何文件。Zellij 别名仍属于未来迁移。
 
 ### 包管理器与凭据影响
 
@@ -153,11 +176,12 @@ fi
 CHEZMOI_BIN=/path/to/chezmoi ./tests/integration.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/installer.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/shell.sh
+CHEZMOI_BIN=/path/to/chezmoi ./tests/lazygit.sh
 ./tests/shell-runtime.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/release.sh
 ```
 
-`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、登录 shell 切换与运行时状态隔离；`tests/shell-runtime.sh` 用真实的 Zsh 在临时 HOME 中启动交互式和非交互式 shell，验证受管片段的运行时行为，因此需要本机存在 `zsh`。
+`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、登录 shell 切换与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/shell-runtime.sh` 用真实的 Zsh 在临时 HOME 中启动交互式和非交互式 shell，验证受管片段的运行时行为，因此需要本机存在 `zsh`。
 
 ## 发布
 

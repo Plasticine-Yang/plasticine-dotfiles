@@ -31,7 +31,7 @@ Options:
       --github-ssh-key <path>     Private key to copy to ~/.ssh/id_github
       --github-ssh-test           Test GitHub SSH after applying
       --replace-github-ssh-key    Allow replacement of a different existing key
-      --lazygit                   Configure the alias for an existing healthy Lazygit
+      --lazygit                   Prepare Lazygit if missing and configure its alias
       --shell                     Configure Zsh, install missing reviewed tools, and attempt chsh last
   -h, --help                      Show this help
 EOF
@@ -279,16 +279,15 @@ if [ "$shell_selected" -eq 1 ] || [ "$lazygit_selected" -eq 1 ]; then
 fi
 
 if [ "$lazygit_selected" -eq 1 ]; then
-    lazygit_bin=$(command -v lazygit 2>/dev/null || true)
-    if [ -z "$lazygit_bin" ]; then
-        error 'lazygit: executable not found; install Lazygit, ensure it is on PATH, then retry.'
+    [ -f "$source_dir/lib/lazygit-bootstrap.sh" ] || {
+        error 'The source repository does not contain lib/lazygit-bootstrap.sh.'
         exit 1
-    fi
-    if ! "$lazygit_bin" --version >/dev/null 2>&1; then
-        error "lazygit: existing executable is unhealthy and was left untouched: $lazygit_bin; repair it, then retry."
-        exit 1
-    fi
-    log "Using existing Lazygit: $lazygit_bin"
+    }
+    # shellcheck disable=SC1091
+    . "$source_dir/lib/lazygit-bootstrap.sh"
+    plasticine_lazygit_plan "$destination_dir" || exit 1
+    log 'Previewing Lazygit toolchain...'
+    plasticine_lazygit_preview
 fi
 
 if [ "$shell_selected" -eq 1 ]; then

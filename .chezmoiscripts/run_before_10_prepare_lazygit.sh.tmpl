@@ -1,0 +1,13 @@
+{{- if has "lazygit" .tools -}}
+#!/bin/sh
+set -eu
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
+# shellcheck disable=SC1091
+. "$source_dir/lib/lazygit-bootstrap.sh"
+plasticine_lazygit_plan "$dest_dir" || exit 1
+plasticine_lazygit_prepare || {
+    plasticine_lazygit_error 'official release route failed; no fallback or dependent configuration applied.'
+    exit 1
+}
+{{- end }}
