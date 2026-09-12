@@ -1,0 +1,12 @@
+{{- if eq (trim (includeTemplate "zsh-integration-selected" .)) "true" -}}
+#!/bin/sh
+set -eu
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+zshrc=$dest_dir/.zshrc
+{{ template "zshrc-integration-blocks" . }}
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-integrations-prepare.XXXXXX")
+trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
+if [ -f "$zshrc" ]; then cat "$zshrc" > "$work_dir/current"; else : > "$work_dir/current"; fi
+plasticine_integration_compose "$work_dir/current" "$work_dir/candidate"
+plasticine_integration_prepare "$zshrc" "$dest_dir" "$work_dir/candidate"
+{{- end }}

@@ -106,9 +106,9 @@ At shell closeout, everything else in "Out of scope for the shell increment" rem
 - Focused disposable-HOME tests and the existing installer/integration suites pass.
 - README documents interactive selection, automated selection, ownership, runtime state, and the non-migration of legacy cleanup.
 
-## Current increment: `lazygit`
+## Completed increment: `lazygit`
 
-The next runtime feature is `lazygit`, selected interactively or with `install.sh -y --lazygit`. It covers one independently selectable command-line experience:
+The completed runtime feature is `lazygit`, selected interactively or with `install.sh -y --lazygit`. It covers one independently selectable command-line experience:
 
 - accept an existing healthy Lazygit without changing its version or installation owner;
 - prepare a missing Lazygit directly from its official GitHub Release without invoking a package manager;
@@ -170,3 +170,12 @@ The feature does not manage Lazygit's native configuration or runtime state, inc
 - Disposable-HOME tests use controlled network, release metadata, checksum, archive, platform, filesystem, and health fixtures; no test mutates the developer's machine or uses the network.
 - A real-Zsh runtime check proves `lg` invokes `lazygit`, while installer and integration suites cover selection, preview, cancellation, composition, partial failure, and rerun behavior.
 - README documents selection, the direct-release route, PATH responsibility, managed block and backup behavior, native installation ownership, unmanaged runtime state, and the absence of legacy cleanup or healthy-version migration.
+
+### Lazygit progress
+
+The `lazygit` increment is complete: tickets 04, 05, and 06 are `done`, and every completion criterion above is covered by the repository's test suites and documentation.
+
+- `tests/lazygit.sh` covers healthy-owner retention, controlled official-release routes for macOS/Linux and both supported architectures, checksum/member/publication gates, failure and retry behavior, composition, unsafe targets, rerun convergence, and native/legacy runtime-state isolation without real network access.
+- `tests/lazygit-runtime.sh` starts a real Zsh in disposable homes and proves the exact alias invocation, later Owner execution and override, combined shell/Lazygit behavior, catalog order, existing-block location, syntax, and byte-identical recomposition.
+- `tests/integration.sh`, `tests/installer.sh`, `tests/shell.sh`, `tests/shell-runtime.sh`, and `tests/release.sh` retain the existing selection, preview, dry-run, cancellation, cross-feature, shell, syntax/lint, and release regressions; CI runs the complete suite on Linux and macOS.
+- Lazygit configuration, caches, logs, repository state, PATH ownership, healthy-version upgrades/removal, and cleanup of `~/.plasticine-dotfiles` remain explicitly outside Plasticine ownership. Remaining legacy capabilities stay future work and require their own scoped increments.

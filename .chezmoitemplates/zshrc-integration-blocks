@@ -1,0 +1,172 @@
+# shellcheck shell=sh
+# Shared implementation for selected Integration Blocks in Owner-controlled
+# .zshrc. This rendered catalog is the single ordering source for scanning,
+# replacement and insertion.
+plasticine_integration_catalog='{{ range $integration := splitList "\n" (trim (includeTemplate "zsh-integration-catalog" .)) }}{{ if has $integration $.tools }}{{ $integration }} {{ end }}{{ end }}'
+plasticine_integration_emit() {
+    case $1 in
+        shell)
+            cat <<'PLASTICINE_SHELL_BLOCK'
+# >>> Plasticine shell >>>
+if [ -r "$HOME/.plasticine/zsh/shared.zsh" ]; then
+    if ! . "$HOME/.plasticine/zsh/shared.zsh"; then
+        if [[ -o interactive ]]; then
+            print -ru2 -- "plasticine: shared shell configuration unavailable"
+        fi
+    fi
+fi
+# <<< Plasticine shell <<<
+PLASTICINE_SHELL_BLOCK
+            ;;
+        lazygit)
+            cat <<'PLASTICINE_LAZYGIT_BLOCK'
+# >>> Plasticine lazygit >>>
+alias lg='lazygit'
+# <<< Plasticine lazygit <<<
+PLASTICINE_LAZYGIT_BLOCK
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+plasticine_integration_scan() {
+    plasticine_scan_input=$1
+    plasticine_scan_output=$2
+    { LC_ALL=C od -An -v -tu1 "$plasticine_scan_input" || printf 'PLASTICINE_READ_ERROR\n'; } |
+        LC_ALL=C awk -v selected="$plasticine_integration_catalog" '
+            function is_selected(name,    i) {
+                for (i = 1; i <= count; i++) if (names[i] == name) return 1
+                return 0
+            }
+            function line_done(    text, damaged, parts, n, name, i) {
+                text = line
+                for (i = 1; i <= count; i++) {
+                    name = names[i]
+                    if (text == "# >>> Plasticine " name " >>>") {
+                        if (open != "" || seen[name]) bad = 1
+                        start[name] = line_start; seen[name] = 1; open = name
+                        line = ""; line_start = offset; return
+                    }
+                    if (text == "# <<< Plasticine " name " <<<") {
+                        if (open != name) bad = 1
+                        finish[name] = offset; open = ""
+                        line = ""; line_start = offset; return
+                    }
+                }
+                damaged = text
+                sub(/^[ \t]*#[ \t]*[<>]*[ \t]*Plasticine[ \t]+/, "", damaged)
+                if (damaged != text) {
+                    n = split(damaged, parts, /[ \t\r<>]/)
+                    if (is_selected(parts[1])) bad = 1
+                }
+                line = ""; line_start = offset
+            }
+            BEGIN { count = split(selected, names, / +/); offset = 0; line_start = 0; open = "" }
+            /PLASTICINE_READ_ERROR/ { bad = 1; next }
+            {
+                for (i = 1; i <= NF; i++) {
+                    byte = $i + 0; offset++
+                    if (byte == 10) line_done()
+                    else line = line sprintf("%c", byte)
+                }
+            }
+            END {
+                if (line_start != offset) line_done()
+                if (bad || open != "") exit 1
+                for (i = 1; i <= count; i++) {
+                    name = names[i]
+                    if (name == "") continue
+                    if (seen[name]) print name, start[name], finish[name] - start[name]
+                    else print name, -1, 0
+                }
+            }
+        ' > "$plasticine_scan_output"
+}
+
+plasticine_integration_replace() {
+    plasticine_replace_input=$1
+    plasticine_replace_output=$2
+    plasticine_replace_feature=$3
+    plasticine_replace_offsets=$4
+    plasticine_replace_line=$(awk -v feature="$plasticine_replace_feature" '$1 == feature { print; exit }' "$plasticine_replace_offsets")
+    # The scan format is exactly three space-separated numeric/name fields.
+    # shellcheck disable=SC2086
+    set -- $plasticine_replace_line
+    plasticine_replace_start=${2:--1}
+    plasticine_replace_length=${3:-0}
+    if [ "$plasticine_replace_start" -eq -1 ]; then
+        cat "$plasticine_replace_input" > "$plasticine_replace_output"
+    else
+        dd if="$plasticine_replace_input" bs=1 count="$plasticine_replace_start" 2>/dev/null
+        plasticine_integration_emit "$plasticine_replace_feature"
+        dd if="$plasticine_replace_input" bs=1 skip=$((plasticine_replace_start + plasticine_replace_length)) 2>/dev/null
+    fi > "$plasticine_replace_output"
+}
+
+plasticine_integration_compose() {
+    plasticine_compose_input=$1
+    plasticine_compose_output=$2
+    plasticine_compose_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-integration.XXXXXX") || return 1
+    plasticine_compose_offsets=$plasticine_compose_dir/offsets
+    if ! plasticine_integration_scan "$plasticine_compose_input" "$plasticine_compose_offsets"; then
+        rm -rf "$plasticine_compose_dir"
+        printf '%s\n' '.zshrc 中选中的 Plasticine Integration Block 损坏、嵌套或重复，未进行修改；请先手动修复。' >&2
+        return 1
+    fi
+    cat "$plasticine_compose_input" > "$plasticine_compose_dir/current"
+    for plasticine_compose_feature in $plasticine_integration_catalog; do
+        # Rescan after every replacement because its byte length may change the
+        # offsets of later blocks.
+        plasticine_integration_scan "$plasticine_compose_dir/current" "$plasticine_compose_dir/current-offsets" || { rm -rf "$plasticine_compose_dir"; return 1; }
+        plasticine_integration_replace "$plasticine_compose_dir/current" "$plasticine_compose_dir/next" "$plasticine_compose_feature" "$plasticine_compose_dir/current-offsets" || { rm -rf "$plasticine_compose_dir"; return 1; }
+        mv "$plasticine_compose_dir/next" "$plasticine_compose_dir/current"
+    done
+    # Build one prefix in catalog order. Existing blocks retain their locations.
+    : > "$plasticine_compose_dir/prefix"
+    for plasticine_compose_feature in $plasticine_integration_catalog; do
+        if awk -v feature="$plasticine_compose_feature" '$1 == feature && $2 == -1 { found=1 } END { exit !found }' "$plasticine_compose_offsets"; then
+            plasticine_integration_emit "$plasticine_compose_feature" >> "$plasticine_compose_dir/prefix"
+        fi
+    done
+    if [ -s "$plasticine_compose_dir/prefix" ]; then
+        cat "$plasticine_compose_dir/prefix" "$plasticine_compose_dir/current" > "$plasticine_compose_dir/next"
+        mv "$plasticine_compose_dir/next" "$plasticine_compose_dir/current"
+    fi
+    cat "$plasticine_compose_dir/current" > "$plasticine_compose_output"
+    rm -rf "$plasticine_compose_dir"
+}
+
+plasticine_integration_prepare() {
+    plasticine_prepare_zshrc=$1
+    plasticine_prepare_dest=$2
+    plasticine_prepare_candidate=$3
+    plasticine_prepare_backup_dir=$plasticine_prepare_dest/.plasticine/backups/integration-blocks
+    plasticine_prepare_pending=$plasticine_prepare_backup_dir/pending-mode
+    if [ -f "$plasticine_prepare_pending" ] && [ -f "$plasticine_prepare_zshrc" ]; then
+        IFS= read -r plasticine_prepare_old_mode < "$plasticine_prepare_pending"
+        chmod "$plasticine_prepare_old_mode" "$plasticine_prepare_zshrc" 2>/dev/null || true
+        rm -f "$plasticine_prepare_pending"
+    fi
+    plasticine_prepare_changed=1
+    if [ -f "$plasticine_prepare_zshrc" ] && cmp -s "$plasticine_prepare_candidate" "$plasticine_prepare_zshrc"; then
+        plasticine_prepare_changed=0
+    fi
+    if [ "$plasticine_prepare_changed" -eq 1 ] && [ -f "$plasticine_prepare_zshrc" ]; then
+        umask 077
+        mkdir -p "$plasticine_prepare_backup_dir"
+        chmod 700 "$plasticine_prepare_dest/.plasticine/backups" "$plasticine_prepare_backup_dir"
+        plasticine_prepare_backup=$(mktemp "$plasticine_prepare_backup_dir/.zshrc.plasticine-backup-XXXXXXXX") || return 1
+        cat "$plasticine_prepare_zshrc" > "$plasticine_prepare_backup"
+        chmod 600 "$plasticine_prepare_backup"
+    fi
+    if [ -f "$plasticine_prepare_zshrc" ]; then
+        plasticine_prepare_mode=$(stat -c '%a' "$plasticine_prepare_zshrc" 2>/dev/null || stat -f '%Lp' "$plasticine_prepare_zshrc") || return 1
+        if [ "$plasticine_prepare_mode" != 644 ]; then
+            umask 077
+            mkdir -p "$plasticine_prepare_backup_dir"
+            chmod 700 "$plasticine_prepare_dest/.plasticine/backups" "$plasticine_prepare_backup_dir"
+            printf '%s\n' "$plasticine_prepare_mode" > "$plasticine_prepare_pending"
+            chmod 644 "$plasticine_prepare_zshrc"
+        fi
+    fi
+}

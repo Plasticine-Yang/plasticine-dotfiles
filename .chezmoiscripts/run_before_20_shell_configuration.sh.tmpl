@@ -5,15 +5,12 @@ set -eu
 dest_dir={{ template "shell-quote" .chezmoi.destDir }}
 source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
 
-zshrc=$dest_dir/.zshrc
 plugins=$dest_dir/.zsh_plugins.txt
 p10k=$dest_dir/.p10k.zsh
 shared=$dest_dir/.plasticine/zsh/shared.zsh
 plasticine_dir=$dest_dir/.plasticine
 backup_dir=$plasticine_dir/backups/shell
 pending_modes=$backup_dir/pending-modes
-
-{{ template "shell-zshrc-block" . }}
 
 shell_error() {
     printf 'plasticine-dotfiles: shell: %s\n' "$1" >&2
@@ -31,13 +28,6 @@ fi
 
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-shell.XXXXXX")
 trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
-if [ -f "$zshrc" ]; then
-    cat "$zshrc" > "$work_dir/current"
-else
-    : > "$work_dir/current"
-fi
-plasticine_shell_compose "$work_dir/current" > "$work_dir/candidate"
-
 # shellcheck disable=SC1091
 . "$source_dir/lib/shell-bootstrap.sh"
 plasticine_shell_plan "$dest_dir" || exit 1
@@ -61,7 +51,6 @@ plasticine_shell_backup_if_changed() {
     fi
 }
 
-plasticine_shell_backup_if_changed "$zshrc" "$work_dir/candidate"
 plasticine_shell_backup_if_changed "$plugins" "$source_dir/dot_zsh_plugins.txt"
 plasticine_shell_backup_if_changed "$p10k" "$source_dir/dot_p10k.zsh"
 plasticine_shell_backup_if_changed "$shared" "$source_dir/dot_plasticine/zsh/shared.zsh"
@@ -70,7 +59,7 @@ plasticine_shell_backup_if_changed "$shared" "$source_dir/dot_plasticine/zsh/sha
 # mode and normalize before apply; the matching run_after script restores it.
 umask 077
 : > "$work_dir/modes"
-for shell_target in "$zshrc" "$plugins" "$p10k" "$shared"; do
+for shell_target in "$plugins" "$p10k" "$shared"; do
     if [ -f "$shell_target" ]; then
         shell_mode=$(stat -c '%a' "$shell_target" 2>/dev/null || stat -f '%Lp' "$shell_target") || {
             shell_error "无法读取文件权限：~/${shell_target#"$dest_dir"/}"

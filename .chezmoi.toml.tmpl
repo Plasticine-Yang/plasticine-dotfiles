@@ -2,7 +2,9 @@
 {{- fail "仅支持 macOS 和 Linux。" -}}
 {{- end -}}
 {{- $nonInteractive := eq (env "PLASTICINE_NONINTERACTIVE") "1" -}}
-{{- $allowedTools := list "github-ssh" "shell" -}}
+{{- $allowedTools := list "github-ssh" "lazygit" "shell" -}}
+{{- $zshIntegrations := splitList "\n" (trim (includeTemplate "zsh-integration-catalog" .)) -}}
+{{- $shellTargets := list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh" -}}
 {{- $tools := list -}}
 {{- if $nonInteractive -}}
 {{- range $requestedTool := splitList " " (trim (env "PLASTICINE_TOOLS")) -}}
@@ -17,6 +19,16 @@
 {{- else -}}
 {{- $tools = promptMultichoice "选择要处理的工具（空格切换，回车确认；不选则跳过）" $allowedTools -}}
 {{- end -}}
+{{- $plasticineZshIntegrationSelected := false -}}
+{{- range $integration := $zshIntegrations -}}
+{{- if has $integration $tools -}}{{- $plasticineZshIntegrationSelected = true -}}{{- end -}}
+{{- end -}}
+{{- if $plasticineZshIntegrationSelected -}}
+{{- $zshrcInfo := lstat (joinPath .chezmoi.destDir ".zshrc") -}}
+{{- if and $zshrcInfo (ne $zshrcInfo.type "file") -}}
+{{- fail "~/.zshrc 必须是普通文件，不能是符号链接、目录或其他非普通文件。" -}}
+{{- end -}}
+{{- end -}}
 {{- if has "shell" $tools -}}
 {{- $destDir := .chezmoi.destDir -}}
 {{- range $parent := list ".plasticine" ".plasticine/zsh" -}}
@@ -25,7 +37,7 @@
 {{- fail (printf "shell: ~/%s 必须是普通目录，不能是符号链接或其他非目录。" $parent) -}}
 {{- end -}}
 {{- end -}}
-{{- range $target := list ".zshrc" ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh" -}}
+{{- range $target := $shellTargets -}}
 {{- $info := lstat (joinPath $destDir $target) -}}
 {{- if and $info (ne $info.type "file") -}}
 {{- fail (printf "shell: ~/%s 必须是普通文件，不能是符号链接、目录或其他非普通文件。" $target) -}}
@@ -89,6 +101,7 @@
 {{- end -}}
 [data]
     tools = {{ $tools | default (list) | toJson }}
+    plasticineShellTargets = {{ $shellTargets | toJson }}
     githubSSHKeyPath = {{ $key | toJson }}
     githubSSHKeyFingerprint = {{ $sourceFingerprint | toJson }}
     githubSSHReplaceFingerprint = {{ $replaceFingerprint | toJson }}

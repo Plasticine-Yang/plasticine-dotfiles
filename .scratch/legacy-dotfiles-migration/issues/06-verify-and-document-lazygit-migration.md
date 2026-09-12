@@ -1,6 +1,6 @@
 # 06 — Verify and document the Lazygit migration
 
-Status: ready-for-agent
+Status: done
 
 Blocked by: 04, 05
 

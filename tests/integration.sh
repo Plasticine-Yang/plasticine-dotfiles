@@ -39,6 +39,11 @@ cat > "$protect_bin/sudo" <<'EOF'
 printf '%s\n' 'plasticine tests: host sudo blocked' >&2
 exit 99
 EOF
+cat > "$protect_bin/lazygit" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = --version ] || exit 99
+printf '%s\n' 'lazygit version integration-fixture'
+EOF
 chmod +x "$protect_bin"/*
 
 linux_os_release=$test_root/os-release
@@ -304,6 +309,152 @@ test "$(grep -Fc '# BEGIN plasticine-dotfiles github-ssh' "$combined_dir/home/.s
 cmp -s "$combined_key" "$combined_dir/home/.ssh/id_github"
 cmp -s "$shell_dir/expected-block" "$combined_dir/home/.zshrc"
 
+# Lazygit composes with each existing feature and all three together. Existing
+# blocks stay where the Owner put them, missing blocks use catalog order, and a
+# satisfied rerun is byte-identical.
+lazygit_block=$test_root/lazygit-block
+cat > "$lazygit_block" <<'EOF'
+# >>> Plasticine lazygit >>>
+alias lg='lazygit'
+# <<< Plasticine lazygit <<<
+EOF
+lazygit_shell_dir=$test_root/lazygit-shell
+mkdir -p "$lazygit_shell_dir/home"; write_antidote "$lazygit_shell_dir/home"
+cat > "$lazygit_shell_dir/chezmoi.toml" <<'EOF'
+[data]
+tools = ["lazygit","shell"]
+githubSSHKeyPath = ""
+githubSSHKeyFingerprint = ""
+githubSSHReplaceFingerprint = ""
+githubSSHTest = false
+EOF
+printf 'owner-prefix\n' > "$lazygit_shell_dir/home/.zshrc"
+cat "$lazygit_block" >> "$lazygit_shell_dir/home/.zshrc"
+printf 'owner-suffix' >> "$lazygit_shell_dir/home/.zshrc"
+apply "$lazygit_shell_dir"
+grep -n '^# >>> Plasticine shell >>>$' "$lazygit_shell_dir/home/.zshrc" | grep -q '^1:'
+grep -n '^owner-prefix$' "$lazygit_shell_dir/home/.zshrc" | grep -q '^10:'
+lazygit_shell_before=$(shasum -a 256 "$lazygit_shell_dir/home/.zshrc" | awk '{print $1}')
+apply "$lazygit_shell_dir"
+test "$lazygit_shell_before" = "$(shasum -a 256 "$lazygit_shell_dir/home/.zshrc" | awk '{print $1}')"
+
+# A Lazygit dry run renders the shared composer but performs no destination
+# writes, backups, or tool preparation.
+lazygit_dry_dir=$test_root/lazygit-dry
+mkdir -p "$lazygit_dry_dir/home" "$lazygit_dry_dir/bin"
+cat > "$lazygit_dry_dir/bin/curl" <<'EOF'
+#!/bin/sh
+printf '%s\n' network > "$PLASTICINE_TEST_LAZYGIT_NETWORK"
+exit 99
+EOF
+cat > "$lazygit_dry_dir/bin/mktemp" <<'EOF'
+#!/bin/sh
+case "$*" in
+    *plasticine-lazygit*) printf '%s\n' temp > "$PLASTICINE_TEST_LAZYGIT_TEMP"; exit 99 ;;
+esac
+exec /usr/bin/mktemp "$@"
+EOF
+chmod +x "$lazygit_dry_dir/bin"/*
+# Fixed-point config from before integration metadata was persisted: lifecycle
+# templates must derive their gate from tools and the fallback catalog.
+printf '%s\n' '[data]' 'tools = ["lazygit"]' 'githubSSHKeyPath = ""' \
+    'githubSSHKeyFingerprint = ""' 'githubSSHReplaceFingerprint = ""' \
+    'githubSSHTest = false' > "$lazygit_dry_dir/chezmoi.toml"
+printf '%s\n' owner > "$lazygit_dry_dir/home/.zshrc"
+cp "$lazygit_dry_dir/home/.zshrc" "$lazygit_dry_dir/before"
+resolved_chezmoi=$(command -v "$chezmoi_bin")
+PATH=$lazygit_dry_dir/bin:/usr/bin:/bin PLASTICINE_TEST_LAZYGIT_NETWORK=$lazygit_dry_dir/network \
+    PLASTICINE_TEST_LAZYGIT_TEMP=$lazygit_dry_dir/temp "$resolved_chezmoi" -S "$repo_dir" -D "$lazygit_dry_dir/home" \
+    -c "$lazygit_dry_dir/chezmoi.toml" --persistent-state "$lazygit_dry_dir/state" apply --no-tty --dry-run
+cmp -s "$lazygit_dry_dir/before" "$lazygit_dry_dir/home/.zshrc"
+test ! -e "$lazygit_dry_dir/home/.plasticine"
+test ! -e "$lazygit_dry_dir/home/.local"
+test ! -e "$lazygit_dry_dir/network"
+test ! -e "$lazygit_dry_dir/temp"
+old_no_integration=$test_root/old-no-integration.toml
+printf '%s\n' '[data]' 'tools = ["github-ssh"]' 'githubSSHKeyPath = ""' \
+    'githubSSHKeyFingerprint = ""' 'githubSSHReplaceFingerprint = ""' \
+    'githubSSHTest = false' > "$old_no_integration"
+for lifecycle_template in \
+    run_before_01_validate_zshrc_integrations.sh.tmpl \
+    run_before_30_prepare_zshrc_integrations.sh.tmpl \
+    run_after_80_restore_zshrc_mode.sh.tmpl; do
+    "$resolved_chezmoi" -S "$repo_dir" -D "$lazygit_dry_dir/home" -c "$old_no_integration" \
+        execute-template < "$repo_dir/.chezmoiscripts/$lifecycle_template" > "$lazygit_dry_dir/$lifecycle_template"
+    if grep -q '[^[:space:]]' "$lazygit_dry_dir/$lifecycle_template"; then
+        printf '%s\n' "legacy no-integration config enabled $lifecycle_template" >&2
+        exit 1
+    fi
+done
+noncanonical_config=$test_root/noncanonical-integration.toml
+printf '%s\n' '[data]' 'tools = ["lazygit"]' 'plasticineZshIntegrations = ["shell"]' \
+    'githubSSHKeyPath = ""' 'githubSSHKeyFingerprint = ""' \
+    'githubSSHReplaceFingerprint = ""' 'githubSSHTest = false' > "$noncanonical_config"
+"$resolved_chezmoi" -S "$repo_dir" -D "$lazygit_dry_dir/home" -c "$noncanonical_config" \
+    diff --no-pager --exclude=scripts > "$lazygit_dry_dir/noncanonical-diff"
+grep -Fq "alias lg='lazygit'" "$lazygit_dry_dir/noncanonical-diff" || {
+    printf '%s\n' 'persisted noncanonical integration metadata suppressed the lazygit diff' >&2
+    exit 1
+}
+for lifecycle_template in \
+    run_before_01_validate_zshrc_integrations.sh.tmpl \
+    run_before_30_prepare_zshrc_integrations.sh.tmpl \
+    run_after_80_restore_zshrc_mode.sh.tmpl; do
+    "$resolved_chezmoi" -S "$repo_dir" -D "$lazygit_dry_dir/home" -c "$noncanonical_config" \
+        execute-template < "$repo_dir/.chezmoiscripts/$lifecycle_template" > "$lazygit_dry_dir/noncanonical-$lifecycle_template"
+    grep -q '[^[:space:]]' "$lazygit_dry_dir/noncanonical-$lifecycle_template" || {
+        printf '%s\n' "persisted noncanonical metadata disabled $lifecycle_template" >&2
+        exit 1
+    }
+done
+
+lazygit_ssh_dir=$test_root/lazygit-ssh
+mkdir -p "$lazygit_ssh_dir/home/.ssh"; chmod 700 "$lazygit_ssh_dir/home/.ssh"
+cat > "$lazygit_ssh_dir/chezmoi.toml" <<EOF
+[data]
+tools = ["github-ssh","lazygit"]
+githubSSHKeyPath = "$combined_key"
+githubSSHKeyFingerprint = "$combined_fingerprint"
+githubSSHReplaceFingerprint = ""
+githubSSHTest = false
+EOF
+apply "$lazygit_ssh_dir"
+cmp -s "$combined_key" "$lazygit_ssh_dir/home/.ssh/id_github"
+cmp -s "$lazygit_block" "$lazygit_ssh_dir/home/.zshrc"
+test ! -e "$lazygit_ssh_dir/home/.zsh_plugins.txt"
+test ! -e "$lazygit_ssh_dir/home/.p10k.zsh"
+
+all_tools_dir=$test_root/all-tools
+mkdir -p "$all_tools_dir/home/.ssh"; chmod 700 "$all_tools_dir/home/.ssh"; write_antidote "$all_tools_dir/home"
+cat > "$all_tools_dir/chezmoi.toml" <<EOF
+[data]
+tools = ["github-ssh","lazygit","shell"]
+githubSSHKeyPath = "$combined_key"
+githubSSHKeyFingerprint = "$combined_fingerprint"
+githubSSHReplaceFingerprint = ""
+githubSSHTest = false
+EOF
+apply "$all_tools_dir"
+cmp -s "$combined_key" "$all_tools_dir/home/.ssh/id_github"
+cat "$shell_dir/expected-block" "$lazygit_block" > "$all_tools_dir/expected-zshrc"
+cmp -s "$all_tools_dir/expected-zshrc" "$all_tools_dir/home/.zshrc"
+all_tools_before=$(find "$all_tools_dir/home" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{print $1}')
+apply "$all_tools_dir"
+all_tools_after=$(find "$all_tools_dir/home" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{print $1}')
+test "$all_tools_before" = "$all_tools_after"
+
+# The non-interactive selection is a set: every CLI-derived option order records
+# the same sorted three-tool value before apply.
+for requested in 'lazygit shell github-ssh' 'shell github-ssh lazygit' 'github-ssh lazygit shell'; do
+    selection_name=$(printf '%s' "$requested" | tr ' ' '-')
+    selection_config=$test_root/selection-$selection_name.toml
+    PLASTICINE_NONINTERACTIVE=1 PLASTICINE_TOOLS="$requested" \
+        PLASTICINE_GITHUB_SSH_KEY="$combined_key" PLASTICINE_GITHUB_SSH_TEST=0 PLASTICINE_REPLACE_GITHUB_SSH_KEY=0 \
+        "$chezmoi_bin" -S "$repo_dir" -D "$test_root/selection-home" --persistent-state "$test_root/selection-$selection_name.state" \
+        init -C "$selection_config" >/dev/null
+    grep -Fq 'tools = ["github-ssh","lazygit","shell"]' "$selection_config"
+done
+
 malformed_dir=$test_root/malformed
 mkdir -p "$malformed_dir/home"
 write_antidote "$malformed_dir/home"
@@ -349,9 +500,17 @@ githubSSHKeyFingerprint = ""
 githubSSHReplaceFingerprint = ""
 githubSSHTest = false
 EOF
+cat > "$lint_dir/all-chezmoi.toml" <<EOF
+[data]
+tools = ["github-ssh","lazygit","shell"]
+githubSSHKeyPath = "$combined_key"
+githubSSHKeyFingerprint = "$combined_fingerprint"
+githubSSHReplaceFingerprint = ""
+githubSSHTest = false
+EOF
 for source_script in "$repo_dir"/.chezmoiscripts/*.tmpl; do
     rendered_script=$lint_dir/$(basename "${source_script%.tmpl}")
-    for config_file in "$lint_dir/chezmoi.toml" "$lint_dir/shell-chezmoi.toml"; do
+    for config_file in "$lint_dir/chezmoi.toml" "$lint_dir/shell-chezmoi.toml" "$lint_dir/all-chezmoi.toml"; do
         "$chezmoi_bin" \
             -S "$repo_dir" \
             -D "$lint_dir/home" \
@@ -364,6 +523,18 @@ for source_script in "$repo_dir"/.chezmoiscripts/*.tmpl; do
             fi
         fi
     done
+done
+for config_file in "$lint_dir/shell-chezmoi.toml" "$lint_dir/all-chezmoi.toml"; do
+    rendered_composer=$lint_dir/composer-$(basename "$config_file" .toml)
+    "$chezmoi_bin" \
+        -S "$repo_dir" \
+        -D "$lint_dir/home" \
+        -c "$config_file" \
+        execute-template < "$repo_dir/.chezmoitemplates/zshrc-integration-blocks" > "$rendered_composer"
+    /bin/sh -n "$rendered_composer"
+    if command -v shellcheck >/dev/null 2>&1; then
+        shellcheck "$rendered_composer"
+    fi
 done
 "$chezmoi_bin" \
     -S "$repo_dir" \
@@ -378,9 +549,9 @@ fi
 /bin/sh -n "$repo_dir/private_dot_ssh/modify_private_config"
 /bin/sh -n "$repo_dir/install.sh"
 /bin/sh -n "$repo_dir/lib/shell-bootstrap.sh"
-# The shared composer template is rendered into the `.zshrc` source modifier and
-# the shell `.chezmoiscripts`, so it must parse as POSIX shell on its own.
-/bin/sh -n "$repo_dir/.chezmoitemplates/shell-zshrc-block"
+/bin/sh -n "$repo_dir/lib/lazygit-bootstrap.sh"
+# The shared composer has selection-dependent template branches; rendered
+# consumers above are syntax-checked instead of the unrendered template.
 for repository_script in "$repo_dir"/scripts/*.sh; do
     /bin/sh -n "$repository_script"
 done
@@ -391,7 +562,7 @@ if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "$repo_dir/private_dot_ssh/modify_private_config"
     shellcheck "$repo_dir/install.sh"
     shellcheck "$repo_dir/lib/shell-bootstrap.sh"
-    shellcheck "$repo_dir/.chezmoitemplates/shell-zshrc-block"
+    shellcheck "$repo_dir/lib/lazygit-bootstrap.sh"
     shellcheck "$repo_dir"/scripts/*.sh
     shellcheck "$repo_dir"/tests/*.sh
 fi

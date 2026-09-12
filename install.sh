@@ -23,7 +23,7 @@ Interactive mode:
   install.sh
 
 Non-interactive mode:
-  install.sh -y [--github-ssh --github-ssh-key <path>] [--shell]
+  install.sh -y [--github-ssh --github-ssh-key <path>] [--lazygit] [--shell]
 
 Options:
   -y, --yes                       Run without prompts and apply changes
@@ -31,6 +31,7 @@ Options:
       --github-ssh-key <path>     Private key to copy to ~/.ssh/id_github
       --github-ssh-test           Test GitHub SSH after applying
       --replace-github-ssh-key    Allow replacement of a different existing key
+      --lazygit                   Prepare Lazygit if missing and configure its alias
       --shell                     Configure Zsh, install missing reviewed tools, and attempt chsh last
   -h, --help                      Show this help
 EOF
@@ -63,6 +64,7 @@ github_ssh_key=''
 github_ssh_test=0
 replace_github_ssh_key=0
 shell=0
+lazygit=0
 
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -77,6 +79,7 @@ while [ "$#" -gt 0 ]; do
         --github-ssh-test) github_ssh_test=1 ;;
         --replace-github-ssh-key) replace_github_ssh_key=1 ;;
         --shell) shell=1 ;;
+        --lazygit) lazygit=1 ;;
         -h|--help) usage; exit 0 ;;
         *) error "Unknown option: $1"; usage >&2; exit 2 ;;
     esac
@@ -108,7 +111,7 @@ done
 if [ "$yes" -eq 0 ]; then
     if [ "$github_ssh" -eq 1 ] || [ -n "$github_ssh_key" ] ||
        [ "$github_ssh_test" -eq 1 ] || [ "$replace_github_ssh_key" -eq 1 ] ||
-       [ "$shell" -eq 1 ]; then
+       [ "$shell" -eq 1 ] || [ "$lazygit" -eq 1 ]; then
         error 'Tool options require -y; run without options for interactive selection.'
         exit 2
     fi
@@ -204,6 +207,27 @@ else
     fi
 fi
 
+integration_catalog=$source_dir/.chezmoitemplates/zsh-integration-catalog
+[ -f "$integration_catalog" ] || {
+    error 'The source repository does not contain the Zsh integration catalog.'
+    exit 1
+}
+integration_catalog_seen=' '
+while IFS= read -r integration_name || [ -n "$integration_name" ]; do
+    case $integration_name in
+        shell|lazygit) ;;
+        *) error "Invalid Zsh integration catalog entry: $integration_name"; exit 1 ;;
+    esac
+    case $integration_catalog_seen in
+        *" $integration_name "*) error "Duplicate Zsh integration catalog entry: $integration_name"; exit 1 ;;
+    esac
+    integration_catalog_seen=$integration_catalog_seen$integration_name' '
+done < "$integration_catalog"
+[ "$integration_catalog_seen" = ' shell lazygit ' ] || {
+    error 'The source Zsh integration catalog must contain exactly shell then lazygit.'
+    exit 1
+}
+
 if [ "$yes" -eq 1 ]; then
     export PLASTICINE_NONINTERACTIVE=1
     tools=''
@@ -215,6 +239,9 @@ if [ "$yes" -eq 1 ]; then
     fi
     if [ "$shell" -eq 1 ]; then
         tools="${tools:+$tools }shell"
+    fi
+    if [ "$lazygit" -eq 1 ]; then
+        tools="${tools:+$tools }lazygit"
     fi
     export PLASTICINE_TOOLS="$tools"
     export PLASTICINE_GITHUB_SSH_TEST=$github_ssh_test
@@ -255,9 +282,37 @@ chmod 600 "$config_file"
 set -- -S "$source_dir" -D "$destination_dir" -c "$config_file" --persistent-state "$state_file"
 
 shell_selected=0
+lazygit_selected=0
+zsh_integration_selected=0
 shell_antidote_route=''
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"shell"/); exit } END { exit !found }' "$config_file"; then
     shell_selected=1
+fi
+if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"lazygit"/); exit } END { exit !found }' "$config_file"; then
+    lazygit_selected=1
+fi
+if [ "$shell_selected" -eq 1 ] || [ "$lazygit_selected" -eq 1 ]; then
+    zsh_integration_selected=1
+fi
+
+# Validate every selected Integration Block namespace before probing or
+# preparing any selected tool. The same rendered module is run again by
+# chezmoi immediately before apply to close the confirmation-time race.
+if [ "$zsh_integration_selected" -eq 1 ]; then
+    "$chezmoi_bin" "$@" execute-template \
+        < "$source_dir/.chezmoiscripts/run_before_01_validate_zshrc_integrations.sh.tmpl" | /bin/sh
+fi
+
+if [ "$lazygit_selected" -eq 1 ]; then
+    [ -f "$source_dir/lib/lazygit-bootstrap.sh" ] || {
+        error 'The source repository does not contain lib/lazygit-bootstrap.sh.'
+        exit 1
+    }
+    # shellcheck disable=SC1091
+    . "$source_dir/lib/lazygit-bootstrap.sh"
+    plasticine_lazygit_plan "$destination_dir" || exit 1
+    log 'Previewing Lazygit toolchain...'
+    plasticine_lazygit_preview
 fi
 
 if [ "$shell_selected" -eq 1 ]; then

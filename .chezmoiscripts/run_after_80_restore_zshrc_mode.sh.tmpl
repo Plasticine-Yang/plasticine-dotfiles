@@ -1,0 +1,11 @@
+{{- if eq (trim (includeTemplate "zsh-integration-selected" .)) "true" -}}
+#!/bin/sh
+set -eu
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+pending=$dest_dir/.plasticine/backups/integration-blocks/pending-mode
+if [ -f "$pending" ]; then
+    IFS= read -r owner_mode < "$pending"
+    chmod "$owner_mode" "$dest_dir/.zshrc"
+    rm -f "$pending"
+fi
+{{- end }}

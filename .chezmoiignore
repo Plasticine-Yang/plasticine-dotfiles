@@ -20,10 +20,13 @@ plasticine-demo/**
 .ssh
 .ssh/**
 {{ end }}
-{{ if not (has "shell" .tools) }}
+{{ if ne (trim (includeTemplate "zsh-integration-selected" .)) "true" }}
 .zshrc
-.zsh_plugins.txt
-.p10k.zsh
+{{ end }}
+{{ if not (has "shell" .tools) }}
+{{ range $target := (index . "plasticineShellTargets" | default (list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh")) }}
+{{ $target }}
+{{ end }}
 .plasticine
 .plasticine/**
 {{ end }}
