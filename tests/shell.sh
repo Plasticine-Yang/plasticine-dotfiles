@@ -49,6 +49,10 @@ real_curl=$(command -v curl)
 protect_prefix=$test_root/protect-prefix/antidote
 cat > "$protect_bin/git" <<EOF
 #!/bin/sh
+if [ "\${1:-}" = -C ] && [ "\${2##*/}" = .antidote ] && [ "\${3:-}" = pull ]; then
+    printf '%s\\n' 'git pull --ff-only' >> "\${PLASTICINE_TEST_CALLS:-/dev/null}"
+    exit 0
+fi
 if [ "\${1:-}" = clone ] && [ "\${2:-}" = --depth=1 ] &&
     [ "\${3:-}" = https://github.com/mattmc3/antidote.git ]; then
     printf '%s\\n' 'plasticine tests: host git clone of Antidote blocked' >&2
@@ -139,6 +143,10 @@ run_installer() {
 write_antidote() {
     antidote_home=$1
     mkdir -p "$antidote_home/.antidote"
+    if [ ! -d "$antidote_home/.antidote/.git" ]; then
+        git -C "$antidote_home/.antidote" init -q
+        git -C "$antidote_home/.antidote" remote add origin https://github.com/mattmc3/antidote.git
+    fi
     if [ "${2:-}" != missing-p10k ]; then
         mkdir -p "$antidote_home/.cache/antidote/github.com/romkatv/powerlevel10k"
         printf '%s\n' ':' > "$antidote_home/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
@@ -159,16 +167,17 @@ antidote() {
             return 1
             ;;
         bundle)
-            if [[ $* == 'bundle romkatv/powerlevel10k kind:clone' ]]; then
-                print -r -- 'bundle romkatv/powerlevel10k kind:clone' >> "${PLASTICINE_TEST_CALLS:-/dev/null}"
-                if [[ -n ${PLASTICINE_TEST_BUNDLE_FAILS:-} && -e $PLASTICINE_TEST_BUNDLE_FAILS ]]; then
-                    return 1
-                fi
-                mkdir -p "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k"
-                print -r -- ':' > "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
-                return 0
+            print -r -- "bundle ${*:-stdin}" >> "${PLASTICINE_TEST_CALLS:-/dev/null}"
+            if [[ -n ${PLASTICINE_TEST_BUNDLE_FAILS:-} && -e $PLASTICINE_TEST_BUNDLE_FAILS ]]; then
+                return 1
             fi
-            return 1
+            mkdir -p "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k"
+            print -r -- ':' > "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
+            return 0
+            ;;
+        update)
+            print -r -- update >> "${PLASTICINE_TEST_CALLS:-/dev/null}"
+            return 0
             ;;
         *)
             return 1
@@ -176,6 +185,8 @@ antidote() {
     esac
 }
 EOF
+    git -C "$antidote_home/.antidote" add antidote.zsh
+    git -C "$antidote_home/.antidote" -c user.name=test -c user.email=test@example.com commit -qm fixture
 }
 
 file_mode() {
@@ -233,11 +244,29 @@ test ! -e "$empty_dir/home/.plasticine" || fail 'empty selection wrote .plastici
 shell_dir=$test_root/shell-only
 mkdir -p "$shell_dir/home"
 write_antidote "$shell_dir/home"
-if ! run_linux_installer "$shell_dir" -y --shell >"$shell_dir/out" 2>"$shell_dir/err"; then
+: > "$shell_dir/calls"
+if ! PLASTICINE_TEST_CALLS=$shell_dir/calls run_linux_installer "$shell_dir" -y --shell >"$shell_dir/out" 2>"$shell_dir/err"; then
     tail -20 "$shell_dir/out" >&2
     cat "$shell_dir/err" >&2
     fail 'shell-only apply failed'
 fi
+grep -Fq 'git pull --ff-only' "$shell_dir/calls" || fail 'existing Antidote checkout was not updated.'
+grep -Fq 'bundle bundle' "$shell_dir/calls" || fail 'managed plugins were not bundled from selected declarations.'
+grep -Fq update "$shell_dir/calls" || fail 'Antidote native plugin update was not invoked.'
+
+# A checkout with Owner changes is not reset or updated.
+dirty_antidote_dir=$test_root/dirty-antidote
+mkdir -p "$dirty_antidote_dir/home"
+write_antidote "$dirty_antidote_dir/home"
+printf '%s\n' owner-change >> "$dirty_antidote_dir/home/.antidote/antidote.zsh"
+if run_linux_installer "$dirty_antidote_dir" -y --shell \
+    >"$dirty_antidote_dir/out" 2>"$dirty_antidote_dir/err"; then
+    fail 'Antidote checkout with local changes was forcibly updated.'
+fi
+grep -Fq 'local changes' "$dirty_antidote_dir/err" || fail 'dirty Antidote checkout lacked guidance.'
+test ! -e "$dirty_antidote_dir/home/.zshrc" || fail 'dirty Antidote checkout applied configuration.'
+grep -Fq owner-change "$dirty_antidote_dir/home/.antidote/antidote.zsh" ||
+    fail 'dirty Antidote checkout was reset.'
 grep -Fq 'tools = ["shell"]' "$shell_dir/config/chezmoi.toml" || fail 'shell-only did not record tools = ["shell"].'
 cmp -s "$block_file" "$shell_dir/home/.zshrc" || fail 'shell-only did not apply .zshrc.'
 cmp -s "$repo_dir/dot_zsh_plugins.txt" "$shell_dir/home/.zsh_plugins.txt" || fail 'shell-only did not apply plugins.'
@@ -282,6 +311,9 @@ cat > "$missing_antidote_dir/fake-bin/brew" <<EOF
 [ "\$HOMEBREW_NO_ANALYTICS" = 1 ] || exit 99
 case "\$*" in
     --version) exit 0 ;;
+    update)
+        printf 'brew update\\n' >> '$missing_antidote_dir/fake-bin/calls'
+        ;;
     '--prefix antidote')
         printf '%s\\n' '$missing_antidote_prefix'
         ;;
@@ -545,9 +577,8 @@ test "$(file_mode "$interrupted_dir/home/.zsh_plugins.txt")" = 600 ||
 test ! -e "$interrupted_dir/home/.plasticine/backups/shell/pending-modes" ||
     fail 'interrupted-mode recovery left pending state after success'
 
-# Antidote-owned runtime state, generated bundles, completion dumps, compiled
-# files and the Owner plugin list are never tracked, replaced, backed up or
-# removed by the feature.
+# Antidote-owned runtime state can change through native synchronization, but
+# remains untracked and unbacked-up; the Owner declaration itself is preserved.
 runtime_state_dir=$test_root/runtime-state
 runtime_home=$runtime_state_dir/home
 mkdir -p "$runtime_home/.cache/antidote/github.com/zsh-users/zsh-autosuggestions"
@@ -576,19 +607,15 @@ runtime_owned_files() {
         -type f -exec shasum -a 256 {} + | LC_ALL=C sort
 }
 
-runtime_owned_files > "$runtime_state_dir/files-before"
+owner_plugins_before=$(shasum -a 256 "$runtime_home/.zsh_plugins.local.txt" | awk '{ print $1 }')
 if ! run_linux_installer "$runtime_state_dir" -y --shell \
     >"$runtime_state_dir/stdout" 2>"$runtime_state_dir/stderr"; then
     cat "$runtime_state_dir/stdout" >&2
     cat "$runtime_state_dir/stderr" >&2
     fail 'runtime-state apply failed'
 fi
-runtime_owned_files > "$runtime_state_dir/files-after"
-if ! diff -u "$runtime_state_dir/files-before" "$runtime_state_dir/files-after" \
-    > "$runtime_state_dir/files-diff"; then
-    cat "$runtime_state_dir/files-diff" >&2
-    fail 'the feature changed, replaced or removed Antidote runtime state'
-fi
+test "$(shasum -a 256 "$runtime_home/.zsh_plugins.local.txt" | awk '{ print $1 }')" = "$owner_plugins_before" ||
+    fail 'the feature changed the Owner plugin declarations'
 cmp -s "$block_file" "$runtime_home/.zshrc" || fail 'runtime-state apply did not write .zshrc.'
 if [ -e "$runtime_home/.plasticine/backups/shell" ]; then
     find "$runtime_home/.plasticine/backups/shell" -type f >&2
@@ -609,12 +636,8 @@ for runtime_owned in \
     fi
 done
 run_linux_installer "$runtime_state_dir" -y --shell >/dev/null || fail 'runtime-state rerun failed.'
-runtime_owned_files > "$runtime_state_dir/files-rerun"
-if ! diff -u "$runtime_state_dir/files-after" "$runtime_state_dir/files-rerun" \
-    > "$runtime_state_dir/rerun-diff"; then
-    cat "$runtime_state_dir/rerun-diff" >&2
-    fail 'a rerun changed Antidote runtime state'
-fi
+test "$(shasum -a 256 "$runtime_home/.zsh_plugins.local.txt" | awk '{ print $1 }')" = "$owner_plugins_before" ||
+    fail 'a rerun changed the Owner plugin declarations'
 
 write_bootstrap_bin() {
     fake_bin=$1
@@ -635,17 +658,24 @@ antidote() {
             [[ -f "\$HOME/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme" ]] || return 1
             print -r -- "\$HOME/.cache/antidote/github.com/romkatv/powerlevel10k" ;;
         bundle)
-            [[ "\$*" == 'bundle romkatv/powerlevel10k kind:clone' ]] || return 99
-            print -r -- 'bundle romkatv/powerlevel10k kind:clone' >> '$fake_bin/calls'
+            print -r -- "bundle \${*:-stdin}" >> '$fake_bin/calls'
             [[ ! -f '$fake_bin/bundle-fails' ]] || return 1
             mkdir -p "\$HOME/.cache/antidote/github.com/romkatv/powerlevel10k"
             print -r -- ':' > "\$HOME/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme" ;;
+        update)
+            print -r -- update >> '$fake_bin/calls'
+            [[ ! -f '$fake_bin/update-fails' ]] ;;
         *) return 99 ;;
     esac
 }
 EOF
     cat > "$fake_bin/git" <<EOF
 #!/bin/sh
+if [ "\$1" = -C ] && [ "\${2##*/}" = .antidote ] && [ "\${3:-}" = pull ]; then
+    printf 'git pull --ff-only\\n' >> '$fake_bin/calls'
+    [ ! -f '$fake_bin/git-update-fails' ]
+    exit \$?
+fi
 if [ "\$1" = --version ]; then
     [ ! -f '$fake_bin/git-unhealthy' ] || exit 1
     exec '$real_git' --version
@@ -657,6 +687,10 @@ if [ "\$1" = clone ] && [ "\${2:-}" = --depth=1 ] &&
     dest=\$4
     mkdir -p "\$dest"
     cp '$fake_bin/antidote.fixture' "\$dest/antidote.zsh"
+    '$real_git' -C "\$dest" init -q
+    '$real_git' -C "\$dest" remote add origin https://github.com/mattmc3/antidote.git
+    '$real_git' -C "\$dest" add antidote.zsh
+    '$real_git' -C "\$dest" -c user.name=test -c user.email=test@example.com commit -qm fixture
     exit 0
 fi
 exec '$real_git' "\$@"
@@ -668,6 +702,20 @@ case "\$*" in
     --version)
         [ ! -f '$fake_bin/brew-unhealthy' ] || exit 1
         exit 0
+        ;;
+    'list --versions antidote')
+        [ -f '$fake_bin/prefix/share/antidote/antidote.zsh' ]
+        ;;
+    update)
+        printf 'brew update\\n' >> '$fake_bin/calls'
+        [ ! -f '$fake_bin/brew-update-fails' ]
+        ;;
+    'outdated --quiet antidote')
+        if [ -f '$fake_bin/brew-outdated' ]; then printf '%s\\n' antidote; fi
+        ;;
+    'upgrade antidote')
+        printf 'brew upgrade antidote\\n' >> '$fake_bin/calls'
+        [ ! -f '$fake_bin/brew-upgrade-fails' ]
         ;;
     '--prefix antidote')
         printf '%s\\n' '$fake_bin/prefix'
@@ -835,7 +883,7 @@ grep -Fq 'Antidote route: git' "$linux_fresh/stdout"
 grep -Fq 'sudo apt-get update' "$linux_fresh/stdout"
 grep -Fq 'sudo apt-get install -y --no-upgrade zsh' "$linux_fresh/stdout"
 grep -Fq 'git clone --depth=1' "$linux_fresh/stdout"
-grep -Fq 'antidote bundle romkatv/powerlevel10k kind:clone' "$linux_fresh/stdout"
+grep -Fq 'run antidote update on every selected apply' "$linux_fresh/stdout"
 grep -Fq 'LAST, after usable configuration: chsh' "$linux_fresh/stdout"
 grep -Fq HTTPS "$linux_fresh/stdout"
 grep -Fq privilege "$linux_fresh/stdout"
@@ -843,7 +891,7 @@ grep -Fq opaque "$linux_fresh/stdout"
 linux_log=$(cat "$linux_fresh/fake-bin/calls")
 printf '%s\n' "$linux_log" | grep -Fq 'sudo apt-get install -y --no-upgrade zsh'
 printf '%s\n' "$linux_log" | grep -Fq 'git clone --depth=1 https://github.com/mattmc3/antidote.git'
-printf '%s\n' "$linux_log" | grep -Fq 'bundle romkatv/powerlevel10k kind:clone'
+printf '%s\n' "$linux_log" | grep -Fq 'bundle bundle'
 printf '%s\n' "$linux_log" | grep -Fq "chsh -s $linux_zsh"
 test "$(cat "$linux_fresh/fake-bin/login")" = "$linux_zsh"
 expect_config "$linux_fresh" 'fresh Linux'
@@ -870,11 +918,13 @@ PLASTICINE_SHELL_OS=Linux \
 scenario_path=''
 linux_rerun_after=$(find "$linux_fresh/home" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{ print $1 }')
 test "$linux_rerun_before" = "$linux_rerun_after"
-if [ -s "$linux_fresh/fake-bin/calls" ]; then
+grep -Fq 'git pull --ff-only' "$linux_fresh/fake-bin/calls" || fail 'healthy rerun did not update Antidote.'
+grep -Fq 'bundle bundle' "$linux_fresh/fake-bin/calls" || fail 'healthy rerun did not synchronize plugins.'
+grep -Fq update "$linux_fresh/fake-bin/calls" || fail 'healthy rerun did not invoke Antidote update.'
+if grep -Eq 'apt-get |git clone|brew install|chsh ' "$linux_fresh/fake-bin/calls"; then
     cat "$linux_fresh/fake-bin/calls" >&2
-    fail 'healthy Linux rerun invoked installers'
+    fail 'healthy Linux rerun reinstalled tools or retried chsh'
 fi
-grep -Fq already-present "$linux_fresh/rerun-stdout" || fail 'healthy rerun preview missing already-present.'
 grep -Fq 'no chsh call' "$linux_fresh/rerun-stdout" || fail 'healthy rerun preview still proposed chsh.'
 
 # Partial chsh failure: the configuration is applied and usable, the transition
@@ -913,7 +963,12 @@ scenario_path=''
 linux_chsh_fail_after=$(find "$linux_chsh_fail/home" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{ print $1 }')
 test "$linux_chsh_fail_before" = "$linux_chsh_fail_after"
 grep -Fxq "chsh -s $linux_chsh_fail/fake-bin/zsh" "$linux_chsh_fail/fake-bin/calls"
-test "$(grep -c . "$linux_chsh_fail/fake-bin/calls" | tr -d ' ')" = 1
+grep -Fq 'git pull --ff-only' "$linux_chsh_fail/fake-bin/calls"
+grep -Fq 'bundle bundle' "$linux_chsh_fail/fake-bin/calls"
+grep -Fq update "$linux_chsh_fail/fake-bin/calls"
+if grep -Eq 'apt-get |git clone|brew install' "$linux_chsh_fail/fake-bin/calls"; then
+    fail 'chsh retry reinstalled healthy shell tools.'
+fi
 
 # No-terminal chsh failure retains configuration and never fabricates input.
 linux_chsh_tty=$test_root/linux-chsh-tty
@@ -1205,7 +1260,7 @@ macos_bootstrap_log=$(cat "$macos_bootstrap/fake-bin/calls")
 printf '%s\n' "$macos_bootstrap_log" | grep -Fq 'curl official-homebrew'
 printf '%s\n' "$macos_bootstrap_log" | grep -Fq 'bash official-homebrew unprivileged'
 printf '%s\n' "$macos_bootstrap_log" | grep -Fq 'brew install antidote'
-printf '%s\n' "$macos_bootstrap_log" | grep -Fq 'bundle romkatv/powerlevel10k kind:clone'
+printf '%s\n' "$macos_bootstrap_log" | grep -Fq 'bundle bundle'
 if grep -Fq sudo "$macos_bootstrap/fake-bin/calls"; then
     fail 'Homebrew bootstrap used sudo.'
 fi
@@ -1424,7 +1479,7 @@ PLASTICINE_SHELL_OS=Linux \
     scenario_path=$linux_p10k_retry/fake-bin \
     run_installer "$linux_p10k_retry" -y --shell
 scenario_path=''
-grep -Fq 'bundle romkatv/powerlevel10k kind:clone' "$linux_p10k_retry/fake-bin/calls"
+grep -Fq 'bundle bundle' "$linux_p10k_retry/fake-bin/calls"
 if grep -Fq 'apt-get ' "$linux_p10k_retry/fake-bin/calls"; then
     fail 'plugin retry reinstalled APT packages.'
 fi
