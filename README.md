@@ -200,6 +200,8 @@ Plasticine 只整体管理以下九个文件：
 
 `--shell` 准备一套可用且保持当前的 Zsh 体验：Zsh 本体保留系统/APT 例外；每次 apply 都通过 Antidote 的原生机制更新 Antidote、Powerlevel10k 和声明的插件，最后才尝试切换登录 shell。
 
+Shell 原生安装路线支持 macOS 14+、Debian 12+、Ubuntu 24.04+ 的 x86_64/arm64；Debian 12 与 13、Ubuntu 24.04 是明确支持的 Linux 基线，更新版本采用 best-effort。其他 Linux 发行版仅在已有依赖满足时尝试配置，不提供 APT 或 Linux Homebrew 回退。低于版本下限时，即使已有 Zsh 也会拒绝本次 Shell 选择；可重新运行并取消选择 `shell`，其他工具仍按各自的支持条件检查。此限制不是所有工具共享的最低系统要求。
+
 ### 受管路径
 
 | 路径 | 归属 |
@@ -289,8 +291,8 @@ CHEZMOI_BIN=/path/to/chezmoi ./tests/release.sh
 
 ## 发布
 
-本仓库使用独立的 SemVer 版本线，从 `v0.1.0` 开始。日常提交和 Pull Request 会在 Ubuntu 与 macOS 上执行完整测试；稳定版本只能从 GitHub Actions 的 `Release` workflow 手动触发，并输入 `vMAJOR.MINOR.PATCH` 格式的版本号。
+本仓库使用独立的 SemVer 版本线，从 `v0.1.0` 开始。日常提交和 Pull Request 会在 Ubuntu 与 macOS 上执行完整测试，并在 Debian 12 的 x86_64/arm64 容器中执行 Shell 和安装器回归，以及真实 APT Zsh、Antidote 和当前插件的安装、启动与重跑检查。Debian 容器使用一次性非 root 用户，登录 shell 预设为目标路径；真实 `chsh` 账户认证仍需在独立 Debian 终端验证，不能由容器测试替代。稳定版本只能从 GitHub Actions 的 `Release` workflow 手动触发，并输入 `vMAJOR.MINOR.PATCH` 格式的版本号。
 
 发布流程验证触发时的 `main` commit，生成 `install.sh` 和 `SHA256SUMS`，先创建 draft Release，核对 tag、commit 与附件后再发布。发布版安装器固定到该 Release 的完整 commit，并内含 chezmoi `2.72.1` 的版本/完整性数据；随 source 固定的 Lazygit `0.65.1` 与 Neovim `0.12.5` 元组也只会随新的 Base Dotfiles Release 前进。因此历史 Release 的安装内容不会随上游新版本或 `main` 推进而改变，而顶层 `/releases/latest/download/install.sh` 仍只负责选择最新 Base Dotfiles 稳定版本。
 
-发布前应在仓库设置中将 `CI / Test (ubuntu-24.04)` 和 `CI / Test (macos-14)` 配置为 `main` 的 required checks，并启用 GitHub immutable releases。CI 和 Release workflow 中使用的第三方 Actions 固定到完整 commit，由 Dependabot 每月提出更新。
+发布前应在仓库设置中将 `CI / Test (ubuntu-24.04)`、`CI / Test (macos-14)`、`CI / Debian 12 shell (ubuntu-24.04)` 和 `CI / Debian 12 shell (ubuntu-24.04-arm)` 配置为 `main` 的 required checks，并启用 GitHub immutable releases。CI 和 Release workflow 中使用的第三方 Actions 固定到完整 commit，由 Dependabot 每月提出更新。

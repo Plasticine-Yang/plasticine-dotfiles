@@ -137,13 +137,13 @@ plasticine_shell_platform() {
                         ;;
                 esac
                 if ! awk -v id="$shell_distribution" -v v="$shell_version" \
-                    'BEGIN {exit !((id == "debian" && v+0 >= 13) || (id == "ubuntu" && v+0 >= 24.04))}'; then
-                    plasticine_shell_error 'reviewed Linux routes require Debian 13 or Ubuntu 24.04 or newer.'
+                    'BEGIN {exit !((id == "debian" && v+0 >= 12) || (id == "ubuntu" && v+0 >= 24.04))}'; then
+                    plasticine_shell_error "detected $shell_distribution $shell_version; reviewed Linux routes require Debian 12 or Ubuntu 24.04 or newer. Rerun and deselect shell (omit --shell in non-interactive mode) to process other tools."
                     return 1
                 fi
                 shell_apt_supported=1
                 case $shell_distribution:$shell_version in
-                    debian:13 | ubuntu:24.04) shell_support=fully-supported ;;
+                    debian:12 | debian:13 | ubuntu:24.04) shell_support=fully-supported ;;
                 esac
                 ;;
         esac

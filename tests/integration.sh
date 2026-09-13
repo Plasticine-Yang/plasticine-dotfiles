@@ -66,7 +66,7 @@ EOF
 chmod +x "$protect_bin"/*
 
 linux_os_release=$test_root/os-release
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_os_release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$linux_os_release"
 
 write_antidote() {
     mkdir -p "$1/.antidote"

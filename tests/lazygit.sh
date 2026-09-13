@@ -522,7 +522,7 @@ partial_bin=$partial/bin
 mkdir -p "$partial/home/.antidote" "$partial_bin"; : > "$partial/calls"; : > "$partial/bundle-fails"
 git -C "$partial/home/.antidote" init -q
 git -C "$partial/home/.antidote" remote add origin https://github.com/mattmc3/antidote.git
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$partial/os-release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$partial/os-release"
 ssh-keygen -q -t ed25519 -N '' -C partial-gate -f "$partial/github-key"
 printf '%s\n' 'owner zshrc before preparation' > "$partial/home/.zshrc"
 printf '%s\n' 'owner plugins before preparation' > "$partial/home/.zsh_plugins.txt"

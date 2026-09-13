@@ -199,7 +199,7 @@ fail() {
 }
 
 debian_release=$test_root/os-release
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$debian_release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$debian_release"
 
 run_linux_installer() {
     PLASTICINE_SHELL_OS=Linux \
@@ -226,7 +226,7 @@ printf 'probed\n' >> '$probe_marker'
 exit 1
 EOF
 chmod +x "$empty_dir/fake-bin/zsh"
-if ! scenario_path="$empty_dir/fake-bin" run_installer "$empty_dir" -y \
+if ! scenario_path="$empty_dir/fake-bin" run_linux_installer "$empty_dir" -y \
     >"$empty_dir/out" 2>"$empty_dir/err"; then
     tail -20 "$empty_dir/out" >&2
     cat "$empty_dir/err" >&2
@@ -753,6 +753,7 @@ EOF
     cat > "$fake_bin/sudo" <<EOF
 #!/bin/sh
 printf 'sudo %s\\n' "\$*" >> '$fake_bin/calls'
+[ ! -f '$fake_bin/sudo-fails' ] || exit 1
 [ "\$1" != -n ] || shift
 [ "\$1" = apt-get ] || { printf 'FORBIDDEN sudo\\n' >> '$fake_bin/calls'; exit 99; }
 exec "\$@"
@@ -830,7 +831,7 @@ mkdir -p "$missing_antidote_linux/home"
 write_bootstrap_bin "$missing_antidote_linux/fake-bin"
 cp "$missing_antidote_linux/fake-bin/zsh.fixture" "$missing_antidote_linux/fake-bin/zsh"
 printf '%s\n' "$missing_antidote_linux/fake-bin/zsh" > "$missing_antidote_linux/fake-bin/login"
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$missing_antidote_linux/os-release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$missing_antidote_linux/os-release"
 if ! PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_ARCH=arm64 \
     PLASTICINE_SHELL_OS_RELEASE=$missing_antidote_linux/os-release \
@@ -856,7 +857,7 @@ linux_fresh=$test_root/linux-fresh
 mkdir -p "$linux_fresh/home"
 write_bootstrap_bin "$linux_fresh/fake-bin"
 printf '%s\n' '/bin/bash' > "$linux_fresh/fake-bin/login"
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_fresh/os-release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$linux_fresh/os-release"
 linux_zsh=$linux_fresh/fake-bin/zsh
 if ! PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_ARCH=arm64 \
@@ -934,7 +935,7 @@ mkdir -p "$linux_chsh_fail/home"
 write_bootstrap_bin "$linux_chsh_fail/fake-bin"
 write_antidote "$linux_chsh_fail/home"
 printf '%s\n' '/bin/bash' > "$linux_chsh_fail/fake-bin/login"
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_chsh_fail/os-release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$linux_chsh_fail/os-release"
 : > "$linux_chsh_fail/fake-bin/chsh-fails"
 cp "$linux_chsh_fail/fake-bin/zsh.fixture" "$linux_chsh_fail/fake-bin/zsh"
 if PLASTICINE_SHELL_OS=Linux \
@@ -977,7 +978,7 @@ mkdir -p "$linux_chsh_tty/home"
 write_bootstrap_bin "$linux_chsh_tty/fake-bin"
 write_antidote "$linux_chsh_tty/home"
 printf '%s\n' '/bin/bash' > "$linux_chsh_tty/fake-bin/login"
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_chsh_tty/os-release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$linux_chsh_tty/os-release"
 cp "$linux_chsh_tty/fake-bin/zsh.fixture" "$linux_chsh_tty/fake-bin/zsh"
 if PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_ARCH=arm64 \
@@ -1001,7 +1002,7 @@ mkdir -p "$linux_chsh_lie/home"
 write_bootstrap_bin "$linux_chsh_lie/fake-bin"
 write_antidote "$linux_chsh_lie/home"
 printf '%s\n' '/bin/bash' > "$linux_chsh_lie/fake-bin/login"
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_chsh_lie/os-release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$linux_chsh_lie/os-release"
 cp "$linux_chsh_lie/fake-bin/zsh.fixture" "$linux_chsh_lie/fake-bin/zsh"
 : > "$linux_chsh_lie/fake-bin/chsh-lies"
 if PLASTICINE_SHELL_OS=Linux \
@@ -1018,12 +1019,12 @@ grep -Fq 'did not update' "$linux_chsh_lie/stderr"
 expect_config "$linux_chsh_lie" 'lying chsh'
 
 # Official route failures prevent configuration and do not fall back.
-for failure in apt-fails git-fails bundle-fails; do
+for failure in sudo-fails apt-fails git-fails bundle-fails; do
     linux_fail=$test_root/linux-fail-$failure
     mkdir -p "$linux_fail/home"
     write_bootstrap_bin "$linux_fail/fake-bin"
     printf '%s\n' '/bin/bash' > "$linux_fail/fake-bin/login"
-    printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_fail/os-release"
+    printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$linux_fail/os-release"
     : > "$linux_fail/fake-bin/$failure"
     if PLASTICINE_SHELL_OS=Linux \
         PLASTICINE_SHELL_ARCH=arm64 \
@@ -1042,6 +1043,12 @@ for failure in apt-fails git-fails bundle-fails; do
         bundle-fails) expect_config "$linux_fail" "$failure" ;;
         *) expect_no_config "$linux_fail" "$failure" ;;
     esac
+    if [ "$failure" = sudo-fails ]; then
+        grep -Fq 'if credentials are needed rerun in a native terminal' "$linux_fail/stderr" || fail 'sudo failure omitted credential guidance.'
+        if grep -Eq '^(apt-get|git clone) ' "$linux_fail/fake-bin/calls"; then
+            fail 'sudo failure still installed tools.'
+        fi
+    fi
     if grep -Fq 'chsh ' "$linux_fail/fake-bin/calls"; then
         fail "$failure invoked chsh."
     fi
@@ -1057,7 +1064,7 @@ write_bootstrap_bin "$linux_nontty/fake-bin"
 write_antidote "$linux_nontty/home" missing-p10k
 cp "$linux_nontty/fake-bin/zsh.fixture" "$linux_nontty/fake-bin/zsh"
 printf '%s\n' "$linux_nontty/fake-bin/zsh" > "$linux_nontty/fake-bin/login"
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_nontty/os-release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$linux_nontty/os-release"
 rm -rf "$linux_nontty/home/.antidote" "$linux_nontty/home/.cache"
 if ! PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_ARCH=arm64 \
@@ -1084,7 +1091,7 @@ linux_malformed=$test_root/linux-malformed
 mkdir -p "$linux_malformed/home"
 write_bootstrap_bin "$linux_malformed/fake-bin"
 printf '%s\n' '/bin/bash' > "$linux_malformed/fake-bin/login"
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_malformed/os-release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$linux_malformed/os-release"
 printf '%s\n' '# >>> Plasticine shell >>>' > "$linux_malformed/home/.zshrc"
 if PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_ARCH=arm64 \
@@ -1107,7 +1114,7 @@ linux_fifo=$test_root/linux-fifo
 mkdir -p "$linux_fifo/home"
 write_bootstrap_bin "$linux_fifo/fake-bin"
 printf '%s\n' '/bin/bash' > "$linux_fifo/fake-bin/login"
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_fifo/os-release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$linux_fifo/os-release"
 mkfifo "$linux_fifo/home/.p10k.zsh"
 if PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_ARCH=arm64 \
@@ -1130,7 +1137,7 @@ mkdir -p "$linux_merged/home"
 write_bootstrap_bin "$linux_merged/fake-bin"
 write_antidote "$linux_merged/home"
 printf '%s\n' '/usr/bin/zsh' > "$linux_merged/fake-bin/login"
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_merged/os-release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$linux_merged/os-release"
 PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_ARCH=arm64 \
     PLASTICINE_SHELL_OS_RELEASE=$linux_merged/os-release \
@@ -1147,8 +1154,9 @@ fi
 expect_config "$linux_merged" 'merged-usr'
 
 # Reviewed Debian/Ubuntu versions and architectures; others fail preflight.
-for distro_spec in 'debian 13 arm64 0' 'ubuntu 24.04 aarch64 0' 'ubuntu 26.04 arm64 0' \
-    'debian 12 arm64 1' 'ubuntu 22.04 x86_64 1' 'fedora 43 arm64 0' 'debian 13 mips 1'; do
+for distro_spec in 'debian 12 x86_64 0' 'debian 12 arm64 0' 'debian 13 arm64 0' \
+    'ubuntu 24.04 aarch64 0' 'ubuntu 26.04 arm64 0' 'debian 11 x86_64 1' \
+    'ubuntu 22.04 x86_64 1' 'fedora 43 arm64 0' 'debian 13 mips 1'; do
     # Intentional word splitting of the spec table.
     # shellcheck disable=SC2086
     set -- $distro_spec
@@ -1173,6 +1181,8 @@ for distro_spec in 'debian 13 arm64 0' 'ubuntu 24.04 aarch64 0' 'ubuntu 26.04 ar
         test "$plat_status" -eq 0 || fail "supported $1 $2 $3 failed."
         if [ "$2" = 26.04 ]; then
             grep -Fq best-effort "$linux_plat/stdout"
+        elif [ "$1" = debian ]; then
+            grep -Fq fully-supported "$linux_plat/stdout" || fail "supported Debian $2 lacked its support classification."
         fi
         grep -Fq 'git pull --ff-only' "$linux_plat/fake-bin/calls" ||
             fail "supported $1 $2 $3 did not update the existing Antidote checkout."
@@ -1188,6 +1198,13 @@ for distro_spec in 'debian 13 arm64 0' 'ubuntu 24.04 aarch64 0' 'ubuntu 26.04 ar
         test "$plat_status" -ne 0 || fail "unsupported $1 $2 $3 was accepted."
         test ! -s "$linux_plat/fake-bin/calls"
         expect_no_config "$linux_plat" "$1 $2 $3"
+        case $1:$2 in
+            debian:11|ubuntu:22.04)
+                grep -Fq "detected $1 $2" "$linux_plat/stderr" || fail 'platform error omitted the detected distribution.'
+                grep -Fq 'Debian 12 or Ubuntu 24.04 or newer' "$linux_plat/stderr" || fail 'platform error omitted supported versions.'
+                grep -Fq 'deselect shell' "$linux_plat/stderr" || fail 'platform error omitted selection recovery guidance.'
+                ;;
+        esac
     fi
 done
 
@@ -1379,7 +1396,7 @@ write_bootstrap_bin "$linux_git_unhealthy/fake-bin"
 write_antidote "$linux_git_unhealthy/home" missing-p10k
 cp "$linux_git_unhealthy/fake-bin/zsh.fixture" "$linux_git_unhealthy/fake-bin/zsh"
 printf '%s\n' "$linux_git_unhealthy/fake-bin/zsh" > "$linux_git_unhealthy/fake-bin/login"
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_git_unhealthy/os-release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$linux_git_unhealthy/os-release"
 : > "$linux_git_unhealthy/fake-bin/git-unhealthy"
 if PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_ARCH=arm64 \
@@ -1402,7 +1419,7 @@ mkdir -p "$linux_apt_no_git/home"
 write_bootstrap_bin "$linux_apt_no_git/fake-bin"
 write_antidote "$linux_apt_no_git/home"
 printf '%s\n' "$linux_apt_no_git/fake-bin/zsh" > "$linux_apt_no_git/fake-bin/login"
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_apt_no_git/os-release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$linux_apt_no_git/os-release"
 : > "$linux_apt_no_git/fake-bin/git-unhealthy"
 if PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_ARCH=arm64 \
@@ -1449,7 +1466,7 @@ write_antidote "$linux_p10k_unhealthy/home"
 printf '%s\n' 'if ; broken' > "$linux_p10k_unhealthy/home/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
 cp "$linux_p10k_unhealthy/fake-bin/zsh.fixture" "$linux_p10k_unhealthy/fake-bin/zsh"
 printf '%s\n' "$linux_p10k_unhealthy/fake-bin/zsh" > "$linux_p10k_unhealthy/fake-bin/login"
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_p10k_unhealthy/os-release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$linux_p10k_unhealthy/os-release"
 if PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_ARCH=arm64 \
     PLASTICINE_SHELL_OS_RELEASE=$linux_p10k_unhealthy/os-release \
@@ -1471,7 +1488,7 @@ write_bootstrap_bin "$linux_p10k_retry/fake-bin"
 write_antidote "$linux_p10k_retry/home" missing-p10k
 cp "$linux_p10k_retry/fake-bin/zsh.fixture" "$linux_p10k_retry/fake-bin/zsh"
 printf '%s\n' "$linux_p10k_retry/fake-bin/zsh" > "$linux_p10k_retry/fake-bin/login"
-printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_p10k_retry/os-release"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$linux_p10k_retry/os-release"
 : > "$linux_p10k_retry/fake-bin/bundle-fails"
 if PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_ARCH=arm64 \

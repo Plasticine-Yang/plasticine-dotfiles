@@ -141,3 +141,76 @@ jobs:
 
       - name: Run release pipeline tests
         run: CHEZMOI_BIN=chezmoi ./tests/release.sh
+
+  debian-shell:
+    name: Debian 12 shell (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    container: debian:12-slim
+    timeout-minutes: 25
+    steps:
+      - name: Install Debian test prerequisites
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl expect git libdigest-sha-perl openssh-client sudo
+          useradd --create-home --shell /usr/bin/zsh tester
+          printf '%s\n' 'tester ALL=(root) NOPASSWD: /usr/bin/apt-get update, /usr/bin/apt-get install -y --no-upgrade zsh' > /etc/sudoers.d/plasticine-test
+          chmod 440 /etc/sudoers.d/plasticine-test
+          visudo -cf /etc/sudoers.d/plasticine-test
+
+      - name: Check out the tested revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Prepare an unprivileged source checkout
+        run: |
+          cp -R . /home/tester/source
+          chown -R tester:tester /home/tester/source
+
+      - name: Smoke the native Debian shell installation
+        run: |
+          runuser -u tester -- sh -eu <<'EOF'
+          export HOME=/home/tester
+          cd "$HOME/source"
+          git switch -c debian-shell-smoke
+          git add -A
+          git -c user.name=test -c user.email=test@example.com commit --allow-empty -qm smoke-source
+          export PLASTICINE_DOTFILES_REPO_URL=$HOME/source
+          export PLASTICINE_SHELL_TTY=0
+          test ! -e /usr/bin/zsh
+          ./install.sh -y --shell
+          test -x /usr/bin/zsh
+          test "$(getent passwd "$(id -u)" | cut -d: -f7)" = /usr/bin/zsh
+          export PATH=$HOME/.local/bin:$PATH
+          zsh --version
+          zsh -ic '(( $+functions[antidote] && $+functions[p10k] && $+functions[compdef] ))' > "$HOME/startup.out" 2> "$HOME/startup.err"
+          if grep -F 'plasticine:' "$HOME/startup.err"; then
+            cat "$HOME/startup.err"
+            exit 1
+          fi
+          sha256sum "$HOME/.zshrc" "$HOME/.zsh_plugins.txt" "$HOME/.p10k.zsh" "$HOME/.plasticine/zsh/shared.zsh" > "$HOME/before.sha256"
+          ./install.sh -y --shell
+          sha256sum -c "$HOME/before.sha256"
+          EOF
+
+      - name: Run Debian shell and installer regressions
+        run: |
+          runuser -u tester -- sh -eu <<'EOF'
+          export HOME=/home/tester
+          export PATH=$HOME/.local/bin:$PATH
+          export CHEZMOI_BIN=$HOME/.local/bin/chezmoi
+          cd "$HOME/source"
+          ./tests/shell.sh
+          ./tests/shell-runtime.sh
+          ./tests/integration.sh
+          ./tests/lazygit.sh
+          ./tests/combined-installation.sh
+          ./tests/installer.sh
+          ./tests/release.sh
+          EOF
