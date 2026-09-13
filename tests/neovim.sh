@@ -39,7 +39,16 @@ grep -Fq 'tools = ["neovim"]' "$config"
 
 fixture_bin=$test_root/bin
 fixture_assets=$test_root/assets
-mkdir -p "$fixture_bin" "$fixture_assets"
+fixture_system_bin=$test_root/system-bin
+mkdir -p "$fixture_bin" "$fixture_assets" "$fixture_system_bin"
+# Keep ordinary scenarios independent of a runner-provided Neovim while making
+# the normal system commands used by chezmoi and the lifecycle scripts visible.
+for fixture_system_command in /usr/bin/* /bin/*; do
+    [ -f "$fixture_system_command" ] && [ -x "$fixture_system_command" ] || continue
+    [ "${fixture_system_command##*/}" != nvim ] || continue
+    [ -e "$fixture_system_bin/${fixture_system_command##*/}" ] ||
+        ln -s "$fixture_system_command" "$fixture_system_bin/${fixture_system_command##*/}"
+done
 make_archive() {
     version=$1
     root=$test_root/build-$version/nvim-linux-x86_64
@@ -125,7 +134,7 @@ chmod 755 "$fixture_bin/curl"
 
 apply_case() {
     case_home=$1; case_state=$2; shift 2
-    PATH=$fixture_bin:/usr/bin:/bin PLASTICINE_NEOVIM_OS=Linux PLASTICINE_NEOVIM_ARCH=x86_64 \
+    PATH=$fixture_bin:$fixture_system_bin PLASTICINE_NEOVIM_OS=Linux PLASTICINE_NEOVIM_ARCH=x86_64 \
         PLASTICINE_NEOVIM_TEST_ASSETS=$fixture_assets PLASTICINE_NEOVIM_TEST_CALLS=$case_home/calls \
         "$@" "$chezmoi_bin" -S "$repo_dir" -D "$case_home" -c "$config" --persistent-state "$case_state" apply --no-tty
 }
@@ -133,7 +142,7 @@ apply_case() {
 # Preview is local: no metadata, download, or editor execution.
 preview_home=$test_root/preview-home
 mkdir -p "$preview_home"; : > "$preview_home/calls"
-PATH=$fixture_bin:/usr/bin:/bin PLASTICINE_NEOVIM_OS=Linux PLASTICINE_NEOVIM_ARCH=x86_64 \
+PATH=$fixture_bin:$fixture_system_bin PLASTICINE_NEOVIM_OS=Linux PLASTICINE_NEOVIM_ARCH=x86_64 \
     PLASTICINE_NEOVIM_TEST_ASSETS=$fixture_assets PLASTICINE_NEOVIM_TEST_CALLS=$preview_home/calls \
     "$chezmoi_bin" -S "$repo_dir" -D "$preview_home" -c "$config" --persistent-state "$test_root/preview-state" diff --no-pager >/dev/null
 [ ! -s "$preview_home/calls" ]
@@ -186,7 +195,7 @@ done
 external=$test_root/external-home; external_bin=$test_root/external-bin
 mkdir -p "$external" "$external_bin"; : > "$external/calls"
 sed 's/NVIM v0.12.4/NVIM v0.11.0/' "$test_root/build-0.12.4/nvim-linux-x86_64/bin/nvim" > "$external_bin/nvim"; chmod 755 "$external_bin/nvim"
-if PATH=$external_bin:$fixture_bin:/usr/bin:/bin PLASTICINE_NEOVIM_OS=Linux PLASTICINE_NEOVIM_ARCH=x86_64 PLASTICINE_NEOVIM_TEST_ASSETS=$fixture_assets PLASTICINE_NEOVIM_TEST_CALLS=$external/calls \
+if PATH=$external_bin:$fixture_bin:$fixture_system_bin PLASTICINE_NEOVIM_OS=Linux PLASTICINE_NEOVIM_ARCH=x86_64 PLASTICINE_NEOVIM_TEST_ASSETS=$fixture_assets PLASTICINE_NEOVIM_TEST_CALLS=$external/calls \
     "$chezmoi_bin" -S "$repo_dir" -D "$external" -c "$config" --persistent-state "$test_root/external-state" apply --no-tty >/dev/null 2>&1; then
     printf '%s\n' 'outdated external owner unexpectedly succeeded.' >&2; exit 1
 fi
@@ -216,7 +225,7 @@ fi
 conflict=$test_root/conflict-home; mkdir -p "$conflict/.config/nvim"; printf 'set number\n' > "$conflict/.config/nvim/init.vim"
 if apply_case "$conflict" "$test_root/conflict-state" env >/dev/null 2>&1; then exit 1; fi
 unsupported=$test_root/unsupported-home; mkdir -p "$unsupported"; : > "$unsupported/calls"
-if PATH=$fixture_bin:/usr/bin:/bin PLASTICINE_NEOVIM_OS=Windows PLASTICINE_NEOVIM_ARCH=x86_64 PLASTICINE_NEOVIM_TEST_ASSETS=$fixture_assets PLASTICINE_NEOVIM_TEST_CALLS=$unsupported/calls \
+if PATH=$fixture_bin:$fixture_system_bin PLASTICINE_NEOVIM_OS=Windows PLASTICINE_NEOVIM_ARCH=x86_64 PLASTICINE_NEOVIM_TEST_ASSETS=$fixture_assets PLASTICINE_NEOVIM_TEST_CALLS=$unsupported/calls \
     "$chezmoi_bin" -S "$repo_dir" -D "$unsupported" -c "$config" --persistent-state "$test_root/unsupported-state" apply --no-tty >/dev/null 2>&1; then exit 1; fi
 [ ! -s "$unsupported/calls" ]
 
