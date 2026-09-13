@@ -528,6 +528,23 @@ test "$(file_mode "$rerun_dir/home/.zsh_plugins.txt")" = 600 ||
 backup_count=$(find "$rerun_dir/home/.plasticine/backups" -type f | wc -l | tr -d ' ')
 test "$backup_count" -eq 2 || fail "rerun backup count after retry is $backup_count"
 
+# A retry after interruption restores recorded Owner modes before configuration
+# work, then preserves them through the completed apply.
+interrupted_dir=$test_root/interrupted-mode
+mkdir -p "$interrupted_dir/home/.plasticine/backups/shell"
+write_antidote "$interrupted_dir/home"
+printf '%s\n' 'owner plugins before interruption' > "$interrupted_dir/home/.zsh_plugins.txt"
+chmod 644 "$interrupted_dir/home/.zsh_plugins.txt"
+printf '%s\n' '600 .zsh_plugins.txt' > "$interrupted_dir/home/.plasticine/backups/shell/pending-modes"
+if ! run_linux_installer "$interrupted_dir" -y --shell >/dev/null 2>"$interrupted_dir/err"; then
+    cat "$interrupted_dir/err" >&2
+    fail 'interrupted-mode recovery apply failed'
+fi
+test "$(file_mode "$interrupted_dir/home/.zsh_plugins.txt")" = 600 ||
+    fail 'interrupted-mode recovery did not preserve the recorded Owner mode'
+test ! -e "$interrupted_dir/home/.plasticine/backups/shell/pending-modes" ||
+    fail 'interrupted-mode recovery left pending state after success'
+
 # Antidote-owned runtime state, generated bundles, completion dumps, compiled
 # files and the Owner plugin list are never tracked, replaced, backed up or
 # removed by the feature.

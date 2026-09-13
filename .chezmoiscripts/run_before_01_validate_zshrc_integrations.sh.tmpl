@@ -5,6 +5,7 @@ set -eu
 dest_dir={{ template "shell-quote" .chezmoi.destDir }}
 zshrc=$dest_dir/.zshrc
 
+{{ template "whole-file-protection" . }}
 {{ template "zshrc-integration-blocks" . }}
 
 for command_name in od awk dd cmp stat mktemp mkdir chmod rm cat mv; do
@@ -13,26 +14,17 @@ for command_name in od awk dd cmp stat mktemp mkdir chmod rm cat mv; do
         exit 1
     }
 done
-if [ -L "$zshrc" ] || { [ -e "$zshrc" ] && [ ! -f "$zshrc" ]; }; then
-    printf '%s\n' 'plasticine-dotfiles: integrations: ~/.zshrc 必须是普通文件，不能是符号链接、目录或其他非普通文件。' >&2
-    exit 1
-fi
+plasticine_whole_file_validate_file "$zshrc" integrations
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-integrations-validate.XXXXXX")
 trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
 if [ -f "$zshrc" ]; then cat "$zshrc" > "$work_dir/current"; else : > "$work_dir/current"; fi
 plasticine_integration_compose "$work_dir/current" "$work_dir/candidate"
 {{- if has "shell" .tools }}
 for shell_target in{{ range $target := (index . "plasticineShellTargets" | default (list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh")) }} "$dest_dir/{{ $target }}"{{ end }}; do
-    if [ -L "$shell_target" ] || { [ -e "$shell_target" ] && [ ! -f "$shell_target" ]; }; then
-        printf 'plasticine-dotfiles: shell: 配置目标必须是普通文件：%s\n' "$shell_target" >&2
-        exit 1
-    fi
+    plasticine_whole_file_validate_file "$shell_target" shell
 done
 for shell_parent in "$dest_dir/.plasticine" "$dest_dir/.plasticine/zsh"; do
-    if [ -L "$shell_parent" ] || { [ -e "$shell_parent" ] && [ ! -d "$shell_parent" ]; }; then
-        printf 'plasticine-dotfiles: shell: 配置目录必须是普通目录：%s\n' "$shell_parent" >&2
-        exit 1
-    fi
+    plasticine_whole_file_validate_dir "$shell_parent" shell
 done
 {{- end }}
 {{- end }}

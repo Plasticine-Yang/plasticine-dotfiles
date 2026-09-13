@@ -5,15 +5,10 @@ set -eu
 dest_dir={{ template "shell-quote" .chezmoi.destDir }}
 source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
 pending_modes=$dest_dir/.plasticine/backups/shell/pending-modes
+{{ template "whole-file-protection" . }}
 
 # Owner modes must be restored before chsh; pending-modes may still be present.
-if [ -f "$pending_modes" ]; then
-    while IFS=' ' read -r shell_mode shell_relative; do
-        [ -n "$shell_mode" ] || continue
-        chmod "$shell_mode" "$dest_dir/$shell_relative"
-    done < "$pending_modes"
-    rm -f "$pending_modes"
-fi
+plasticine_whole_file_restore_modes "$pending_modes" "$dest_dir" shell
 
 # shellcheck disable=SC1091
 . "$source_dir/lib/shell-bootstrap.sh"

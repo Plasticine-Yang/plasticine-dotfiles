@@ -402,6 +402,13 @@ partial=$test_root/partial-rerun
 partial_bin=$partial/bin
 mkdir -p "$partial/home/.antidote" "$partial_bin"; : > "$partial/calls"; : > "$partial/bundle-fails"
 printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$partial/os-release"
+ssh-keygen -q -t ed25519 -N '' -C partial-gate -f "$partial/github-key"
+printf '%s\n' 'owner zshrc before preparation' > "$partial/home/.zshrc"
+printf '%s\n' 'owner plugins before preparation' > "$partial/home/.zsh_plugins.txt"
+cp "$partial/home/.zshrc" "$partial/zshrc-before"
+cp "$partial/home/.zsh_plugins.txt" "$partial/plugins-before"
+chmod 640 "$partial/home/.zshrc"
+chmod 600 "$partial/home/.zsh_plugins.txt"
 real_zsh=$(command -v zsh)
 cat > "$partial_bin/getent" <<EOF
 #!/bin/sh
@@ -442,14 +449,20 @@ if PATH=$release_bin:$partial_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_
     PLASTICINE_CHEZMOI_DEST_DIR=$partial/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
     PLASTICINE_SHELL_OS=Linux PLASTICINE_SHELL_ARCH=x86_64 PLASTICINE_SHELL_OS_RELEASE=$partial/os-release PLASTICINE_SHELL_ZSH=$real_zsh \
     PLASTICINE_SHELL_TTY=0 PLASTICINE_TEST_BUNDLE_FAILS=$partial/bundle-fails PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$partial/calls \
-    "$repo_dir/install.sh" -y --lazygit --shell >/dev/null 2>"$partial/first-err"; then
+    "$repo_dir/install.sh" -y --github-ssh --github-ssh-key "$partial/github-key" --lazygit --shell \
+    >/dev/null 2>"$partial/first-err"; then
     fail 'later shell failure was treated as success'
 fi
 if [ ! -x "$partial/home/.local/bin/lazygit" ]; then
     cat "$partial/first-err" >&2
     fail 'partial success did not retain healthy Lazygit'
 fi
-test ! -e "$partial/home/.zshrc" || fail 'partial failure applied combined configuration'
+cmp -s "$partial/zshrc-before" "$partial/home/.zshrc" || fail 'later preparation failure changed .zshrc'
+cmp -s "$partial/plugins-before" "$partial/home/.zsh_plugins.txt" || fail 'later preparation failure changed shell configuration'
+test "$(file_mode "$partial/home/.zshrc")" = 640 || fail 'later preparation failure changed .zshrc mode'
+test "$(file_mode "$partial/home/.zsh_plugins.txt")" = 600 || fail 'later preparation failure changed shell configuration mode'
+test ! -e "$partial/home/.plasticine/backups" || fail 'later preparation failure created configuration backups'
+test ! -e "$partial/home/.ssh" || fail 'later preparation failure applied GitHub SSH configuration'
 rm "$partial/bundle-fails"; : > "$partial/calls"
 PATH=$release_bin:$partial_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
     PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$partial/data/chezmoi \
@@ -457,9 +470,10 @@ PATH=$release_bin:$partial_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin
     PLASTICINE_CHEZMOI_DEST_DIR=$partial/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
     PLASTICINE_SHELL_OS=Linux PLASTICINE_SHELL_ARCH=x86_64 PLASTICINE_SHELL_OS_RELEASE=$partial/os-release PLASTICINE_SHELL_ZSH=$real_zsh \
     PLASTICINE_SHELL_TTY=0 PLASTICINE_TEST_BUNDLE_FAILS=$partial/bundle-fails PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$partial/calls \
-    "$repo_dir/install.sh" -y --lazygit --shell >/dev/null
+    "$repo_dir/install.sh" -y --github-ssh --github-ssh-key "$partial/github-key" --lazygit --shell >/dev/null
 test ! -s "$partial/calls" || fail 'partial-success rerun redownloaded healthy Lazygit'
-test -f "$partial/home/.zshrc" || fail 'partial-success rerun did not apply configuration'
+grep -Fq "# >>> Plasticine shell >>>" "$partial/home/.zshrc" || fail 'partial-success rerun did not apply configuration'
+cmp -s "$partial/github-key" "$partial/home/.ssh/id_github" || fail 'partial-success rerun did not apply GitHub SSH configuration'
 
 for unsupported in FreeBSD:x86_64 Linux:riscv64; do
     old_ifs=$IFS; IFS=:; set -- $unsupported; IFS=$old_ifs
