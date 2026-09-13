@@ -1,6 +1,6 @@
 # plasticine-dotfiles
 
-使用 [chezmoi](https://www.chezmoi.io/) 在 macOS 和 Linux 上选择并恢复个人开发环境。目前支持 Git 配置、GitHub SSH 配置、fnm、Lazygit、Neovim 和 Zsh 环境。
+使用 [chezmoi](https://www.chezmoi.io/) 在 macOS 和 Linux 上选择并恢复个人开发环境。目前支持 Git 配置、GitHub SSH 配置、fnm、Herdr、Lazygit、Neovim 和 Zsh 环境。
 
 ## 一行安装
 
@@ -14,7 +14,7 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
 
 chezmoi 维护和 source 获取属于安装器前置工作，会发生在 Feature 确认之前；之后取消 Feature 应用不会撤销已经完成的前置更新。外部安装归属的当前版本可以直接使用，但过期版本必须由原归属更新，安装器不会覆盖它或另装一个遮蔽副本。元数据、下载、SHA-256、候选健康或发布失败都会停止安装并尽量保留原有可用命令。`PLASTICINE_CHEZMOI_BIN` 仍是测试/显式 executable override：安装器验证所需接口，但不接管、更新或联网检查这个显式路径。
 
-安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 Git 配置（`git-config`）、GitHub SSH、fnm（`fnm`）、Lazygit（`lazygit`）、Neovim（`neovim`）和 Zsh 环境（`shell`）；初始选择为空，不选择某个工具表示本次不处理它。
+安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 Git 配置（`git-config`）、GitHub SSH、fnm（`fnm`）、Herdr（`herdr`）、Lazygit（`lazygit`）、Neovim（`neovim`）和 Zsh 环境（`shell`）；初始选择为空，不选择某个工具表示本次不处理它。
 
 ## 自动化调用
 
@@ -77,6 +77,15 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
 ```
 
 `--neovim` 不会隐式选择 shell、fnm 或 Git 配置，也可以和现有 Feature 任意组合。
+
+单独安装或更新 Herdr，也可以把它与其他 Feature 任意组合：
+
+```sh
+sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)" -- \
+  -y --herdr
+```
+
+`--herdr` 不依赖 `--shell`；所有 Feature 选项的顺序都不影响选择结果。
 
 已有不同的 `~/.ssh/id_github` 时，自动化调用还需要显式传入 `--replace-github-ssh-key`。可通过 `--github-ssh-test` 在应用后测试连接。`-y` 不会启用 chezmoi 的强制覆盖，配置冲突仍会停止安装，也不会代替 Homebrew、`sudo` 或 `chsh` 的原生凭据提示。
 
@@ -179,6 +188,14 @@ Plasticine 只整体管理以下九个文件：
 
 插件同步发生在九文件配置应用之后。同步或运行时检查失败时命令返回非零，已经生成的配置备份、已应用配置和 lazy.nvim 已完成的原生效果会保留；修复网络、插件或运行时错误后重跑即可，不会伪装成全事务回滚。
 
+## Herdr（`--herdr`）
+
+每次确认应用后，Plasticine 都从 `https://herdr.dev/latest.json` 解析当次稳定目标；Preview 和取消不会查询该目标。Herdr 缺失时，会先完整下载 `https://herdr.dev/install.sh`，令官方脚本通过 `HERDR_INSTALL_DIR` 安装到私有临时目录。官方脚本负责平台选择、下载和 manifest SHA-256 校验；该校验与下载元数据同属 `herdr.dev` 信任边界，不是独立签名。候选通过安全的 `herdr --version` 检查且与稳定目标一致后，才以原子 no-clobber 方式发布到 `~/.local/bin/herdr`。
+
+`~/.local/bin/herdr` 的稳定 direct install 过期时，Plasticine 调用原生命令 `herdr update`，随后再次核对版本。不会传 `--handoff`，不会替 Herdr 回答确认、停止 server/session 或把 `-y` 当作 native process-control 授权；若旧 server 需要人为干预，更新失败并提示在终端中重试。当前稳定版本保持不变。PATH 中其他归属的当前版本可以保留；过期的 Homebrew、mise、Nix 或其他外部归属必须由其 Owner 更新，Plasticine 不会覆盖或另装副本。preview/custom channel、异常版本、损坏命令以及比 stable manifest 更新的版本也不会被静默切换或降级。
+
+此 Feature 只维护命令，不启动 Herdr UI/server、不创建 session、不安装 agent integration，也不创建、读取、迁移或清理 Herdr 配置、插件、缓存和 session 数据。它不创建 alias 或修改 shell 文件；只选 Herdr 时，Owner 需自行将 `~/.local/bin` 加入 `PATH`，同时选择 `shell` 时可复用现有共享 PATH。元数据、官方 installer、上游校验、候选健康、native update、发布或最终目标检查失败都返回非零；当前已有命令和 native state 尽量保留，可排除提示的问题后安全重跑。
+
 ## Zsh 环境（`--shell`）
 
 `--shell` 准备一套可用且保持当前的 Zsh 体验：Zsh 本体保留系统/APT 例外；每次 apply 都通过 Antidote 的原生机制更新 Antidote、Powerlevel10k 和声明的插件，最后才尝试切换登录 shell。
@@ -261,6 +278,7 @@ CHEZMOI_BIN=/path/to/chezmoi ./tests/fnm.sh
 ./tests/fnm-runtime.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/neovim.sh
 PLASTICINE_LIVE_NEOVIM_SMOKE=1 ./tests/neovim-runtime.sh
+CHEZMOI_BIN=/path/to/chezmoi ./tests/herdr.sh
 ./tests/shell-runtime.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/release.sh
 ```

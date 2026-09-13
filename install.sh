@@ -22,7 +22,7 @@ Interactive mode:
   install.sh
 
 Non-interactive mode:
-  install.sh -y [--git-config] [--github-ssh --github-ssh-key <path>] [--fnm] [--lazygit] [--neovim] [--shell]
+  install.sh -y [--git-config] [--github-ssh --github-ssh-key <path>] [--fnm] [--herdr] [--lazygit] [--neovim] [--shell]
 
 Options:
   -y, --yes                       Run without prompts and apply changes
@@ -31,6 +31,7 @@ Options:
       --github-ssh-key <path>     Private key to copy to ~/.ssh/id_github
       --github-ssh-test           Test GitHub SSH after applying
       --replace-github-ssh-key    Allow replacement of a different existing key
+      --herdr                     Install or update Herdr from its stable channel
       --lazygit                   Prepare Lazygit if missing and configure its alias
       --fnm                       Install or update fnm through the permitted platform route
       --neovim                    Install/update Neovim, configure it, and update plugins
@@ -49,6 +50,7 @@ shell=0
 lazygit=0
 fnm=0
 neovim=0
+herdr=0
 
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -64,6 +66,7 @@ while [ "$#" -gt 0 ]; do
         --github-ssh-test) github_ssh_test=1 ;;
         --replace-github-ssh-key) replace_github_ssh_key=1 ;;
         --shell) shell=1 ;;
+        --herdr) herdr=1 ;;
         --lazygit) lazygit=1 ;;
         --fnm) fnm=1 ;;
         --neovim) neovim=1 ;;
@@ -103,7 +106,7 @@ if [ "$yes" -eq 0 ]; then
     if [ "$github_ssh" -eq 1 ] || [ -n "$github_ssh_key" ] ||
        [ "$github_ssh_test" -eq 1 ] || [ "$replace_github_ssh_key" -eq 1 ] ||
        [ "$shell" -eq 1 ] || [ "$lazygit" -eq 1 ] || [ "$fnm" -eq 1 ] ||
-       [ "$neovim" -eq 1 ] || [ "$git_config" -eq 1 ]; then
+       [ "$neovim" -eq 1 ] || [ "$herdr" -eq 1 ] || [ "$git_config" -eq 1 ]; then
         error 'Tool options require -y; run without options for interactive selection.'
         exit 2
     fi
@@ -227,6 +230,9 @@ if [ "$yes" -eq 1 ]; then
     if [ "$neovim" -eq 1 ]; then
         tools="${tools:+$tools }neovim"
     fi
+    if [ "$herdr" -eq 1 ]; then
+        tools="${tools:+$tools }herdr"
+    fi
     export PLASTICINE_TOOLS="$tools"
     export PLASTICINE_GITHUB_SSH_TEST=$github_ssh_test
     export PLASTICINE_REPLACE_GITHUB_SSH_KEY=$replace_github_ssh_key
@@ -269,6 +275,7 @@ shell_selected=0
 lazygit_selected=0
 fnm_selected=0
 neovim_selected=0
+herdr_selected=0
 zsh_integration_selected=0
 shell_antidote_route=''
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"shell"/); exit } END { exit !found }' "$config_file"; then
@@ -282,6 +289,9 @@ if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"fnm"/); exit } END { exit !fou
 fi
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"neovim"/); exit } END { exit !found }' "$config_file"; then
     neovim_selected=1
+fi
+if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"herdr"/); exit } END { exit !found }' "$config_file"; then
+    herdr_selected=1
 fi
 if [ "$shell_selected" -eq 1 ] || [ "$lazygit_selected" -eq 1 ]; then
     zsh_integration_selected=1
@@ -324,6 +334,18 @@ if [ "$fnm_selected" -eq 1 ]; then
         error 'fnm: Homebrew bootstrap needs a native terminal; install Homebrew interactively, then retry. --yes cannot supply credentials.'
         exit 1
     fi
+fi
+
+if [ "$herdr_selected" -eq 1 ]; then
+    [ -f "$source_dir/lib/herdr-bootstrap.sh" ] || {
+        error 'The source repository does not contain lib/herdr-bootstrap.sh.'
+        exit 1
+    }
+    # shellcheck disable=SC1091
+    . "$source_dir/lib/herdr-bootstrap.sh"
+    plasticine_herdr_plan "$destination_dir" || exit 1
+    log 'Previewing Herdr toolchain...'
+    plasticine_herdr_preview
 fi
 
 if [ "$shell_selected" -eq 1 ]; then

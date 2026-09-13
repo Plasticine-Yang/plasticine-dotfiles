@@ -303,6 +303,8 @@ send "\033\[B"
 after 200
 send "\033\[B"
 after 200
+send "\033\[B"
+after 200
 send " "
 after 200
 send "\r"
@@ -362,6 +364,8 @@ set env(PATH) "$env(PLASTICINE_TEST_CANCEL_BIN):/usr/bin:/bin"
 spawn $env(PLASTICINE_TEST_INSTALLER)
 expect "选择要处理的工具"
 after 300
+send "\033\[B"
+after 200
 send "\033\[B"
 after 200
 send "\033\[B"
