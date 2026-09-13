@@ -4,7 +4,7 @@
 
 **Blocked by:** 07 — Separate tool preparation from configuration effects.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Add Herdr to interactive and explicit non-interactive Feature Selection. It works alone and with other Features without requiring shell, fnm, Lazygit, or their later update tickets.
 - [ ] During confirmed apply, establish the current stable target and distinguish missing, outdated, current, unhealthy, prerelease/custom, and unsupported-owner installations. An older runnable command is not successful currency; an unchanged current target does not trigger unnecessary replacement.

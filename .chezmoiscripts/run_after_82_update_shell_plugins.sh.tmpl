@@ -1,0 +1,15 @@
+{{- if has "shell" .tools -}}
+#!/bin/sh
+set -eu
+
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
+
+# Plugin resolution depends on the selected declarations having been applied.
+# Run it before mode restoration and the final readiness/chsh step. A failed
+# synchronization leaves pending mode state for the next safe retry.
+# shellcheck disable=SC1091
+. "$source_dir/lib/shell-bootstrap.sh"
+plasticine_shell_plan "$dest_dir" || exit 1
+plasticine_shell_sync_plugins || exit 1
+{{- end }}

@@ -142,31 +142,23 @@ plasticine_integration_prepare() {
     plasticine_prepare_candidate=$3
     plasticine_prepare_backup_dir=$plasticine_prepare_dest/.plasticine/backups/integration-blocks
     plasticine_prepare_pending=$plasticine_prepare_backup_dir/pending-mode
-    if [ -f "$plasticine_prepare_pending" ] && [ -f "$plasticine_prepare_zshrc" ]; then
-        IFS= read -r plasticine_prepare_old_mode < "$plasticine_prepare_pending"
-        chmod "$plasticine_prepare_old_mode" "$plasticine_prepare_zshrc" 2>/dev/null || true
-        rm -f "$plasticine_prepare_pending"
-    fi
+    plasticine_whole_file_restore_modes "$plasticine_prepare_pending" \
+        "$plasticine_prepare_dest" integrations .zshrc
     plasticine_prepare_changed=1
     if [ -f "$plasticine_prepare_zshrc" ] && cmp -s "$plasticine_prepare_candidate" "$plasticine_prepare_zshrc"; then
         plasticine_prepare_changed=0
     fi
     if [ "$plasticine_prepare_changed" -eq 1 ] && [ -f "$plasticine_prepare_zshrc" ]; then
-        umask 077
-        mkdir -p "$plasticine_prepare_backup_dir"
-        chmod 700 "$plasticine_prepare_dest/.plasticine/backups" "$plasticine_prepare_backup_dir"
-        plasticine_prepare_backup=$(mktemp "$plasticine_prepare_backup_dir/.zshrc.plasticine-backup-XXXXXXXX") || return 1
-        cat "$plasticine_prepare_zshrc" > "$plasticine_prepare_backup"
-        chmod 600 "$plasticine_prepare_backup"
+        plasticine_whole_file_backup_if_changed "$plasticine_prepare_zshrc" \
+            "$plasticine_prepare_candidate" "$plasticine_prepare_backup_dir" .zshrc || return 1
     fi
     if [ -f "$plasticine_prepare_zshrc" ]; then
-        plasticine_prepare_mode=$(stat -c '%a' "$plasticine_prepare_zshrc" 2>/dev/null || stat -f '%Lp' "$plasticine_prepare_zshrc") || return 1
-        if [ "$plasticine_prepare_mode" != 644 ]; then
-            umask 077
-            mkdir -p "$plasticine_prepare_backup_dir"
-            chmod 700 "$plasticine_prepare_dest/.plasticine/backups" "$plasticine_prepare_backup_dir"
-            printf '%s\n' "$plasticine_prepare_mode" > "$plasticine_prepare_pending"
-            chmod 644 "$plasticine_prepare_zshrc"
-        fi
+        plasticine_prepare_modes=${plasticine_prepare_candidate%/*}/modes
+        : > "$plasticine_prepare_modes"
+        plasticine_whole_file_record_mode "$plasticine_prepare_zshrc" \
+            "$plasticine_prepare_dest" 644 "$plasticine_prepare_modes" integrations || return 1
+        plasticine_whole_file_publish_modes "$plasticine_prepare_modes" \
+            "$plasticine_prepare_pending" "$plasticine_prepare_backup_dir" || return 1
+        rm -f "$plasticine_prepare_modes"
     fi
 }

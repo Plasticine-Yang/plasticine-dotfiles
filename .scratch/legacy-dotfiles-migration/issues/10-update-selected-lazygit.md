@@ -4,7 +4,7 @@
 
 **Blocked by:** 07 — Separate tool preparation from configuration effects.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Reuse the existing Lazygit selection and official release route. Interactive installation, non-interactive installation, and direct chezmoi application reach the same latest-target behavior without a new update command or version flag.
 - [ ] Preview forecasts the selected route and possible update without querying release metadata. Only confirmed apply resolves the latest stable target, even when an existing executable is healthy; cancelled and dry-run feature work performs no latest lookup or update.

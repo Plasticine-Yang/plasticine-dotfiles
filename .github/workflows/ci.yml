@@ -39,9 +39,10 @@ jobs:
           set -euo pipefail
           if [[ "$RUNNER_OS" == Linux ]]; then
             sudo apt-get update
-            sudo apt-get install -y --no-install-recommends expect zsh
+            sudo apt-get install -y --no-install-recommends expect neovim zsh
           else
             command -v expect >/dev/null
+            brew install neovim
           fi
           case "$(uname -s)-$(uname -m)" in
             Linux-x86_64)
@@ -88,7 +89,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          command -v chezmoi shellcheck zsh expect
+          command -v chezmoi shellcheck nvim zsh expect
           chezmoi --version
           shellcheck --version
           zsh --version
@@ -98,6 +99,15 @@ jobs:
 
       - name: Run integration tests
         run: CHEZMOI_BIN=chezmoi ./tests/integration.sh
+
+      - name: Run combined installation tests
+        run: CHEZMOI_BIN=chezmoi ./tests/combined-installation.sh
+
+      - name: Run chezmoi bootstrap tests
+        run: CHEZMOI_BIN=chezmoi ./tests/chezmoi.sh
+
+      - name: Run Git configuration tests
+        run: CHEZMOI_BIN=chezmoi ./tests/git-config.sh
 
       - name: Run installer tests
         run: CHEZMOI_BIN=chezmoi ./tests/installer.sh
@@ -113,6 +123,21 @@ jobs:
 
       - name: Run Lazygit runtime tests
         run: CHEZMOI_BIN=chezmoi ./tests/lazygit-runtime.sh
+
+      - name: Run fnm tests
+        run: CHEZMOI_BIN=chezmoi ./tests/fnm.sh
+
+      - name: Run fnm runtime tests
+        run: ./tests/fnm-runtime.sh
+
+      - name: Run Neovim tests
+        run: CHEZMOI_BIN=chezmoi ./tests/neovim.sh
+
+      - name: Run Neovim runtime tests
+        run: ./tests/neovim-runtime.sh
+
+      - name: Run Herdr tests
+        run: CHEZMOI_BIN=chezmoi ./tests/herdr.sh
 
       - name: Run release pipeline tests
         run: CHEZMOI_BIN=chezmoi ./tests/release.sh

@@ -4,7 +4,7 @@
 
 **Blocked by:** 12 — Migrate Neovim configuration and current plugins on an existing editor.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Replace ticket 12's missing/outdated-editor prerequisite error with the permitted official-archive installation and update route. Keep the current-editor path, independent selection, and configuration/plugin behavior already delivered there.
 - [ ] Support the declared macOS and Linux platform/architecture combinations using official stable prebuilt archives. Do not invoke Homebrew, APT, Cargo, a third-party installer, or AppImage; missing download or extraction prerequisites produce guidance rather than package installation.
@@ -21,3 +21,9 @@
 - [ ] Cover binary preparation failure before configuration and native plugin failure after configuration, including retry and preservation of the previous usable installation where preparation never completed. Use controlled archives, metadata, filesystem events, and subprocesses without live downloads in routine automated tests.
 - [ ] Use real Neovim in isolated runtime tests to verify the selected distribution can load its runtime, migrated configuration, and representative plugin behavior. Retain ticket 12's explicit smoke-check requirement for current upstream plugin compatibility.
 - [ ] Update usage documentation to remove the temporary existing-current-editor restriction and describe official archive installation, upgrades, installation-owner refusals, PATH responsibility, platform support, and recovery. Run focused tests and the existing configuration, installer, integration, and release regressions.
+
+## Comments
+
+- Implemented on `agent/ticket-13-neovim-archive` from baseline `89d50d7`. The existing Neovim selection/configuration/plugin flow now plans and prepares official stable archives before any managed configuration effect.
+- The route maps macOS/Linux and x86_64/arm64 to official archives, verifies the Release API SHA-256 asset digest and safe complete runtime layout, checks the candidate with its packaged runtime, and publishes `~/.local/opt/neovim` plus `~/.local/bin/nvim`.
+- Fresh publication is no-clobber; only the managed link/distribution pair is an authorized upgrade owner. Current external owners are retained, while outdated/ambiguous/custom/prerelease owners fail without a shadow installation. Deterministic tests cover fresh/current/next-target convergence, failure preservation, complete runtime, owner refusal, destination races, and plugin failure/retry.

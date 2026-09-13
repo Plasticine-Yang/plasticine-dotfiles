@@ -1,0 +1,38 @@
+{{- if has "neovim" .tools -}}
+#!/bin/sh
+set -eu
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
+backup_dir=$dest_dir/.plasticine/backups/neovim
+pending_modes=$backup_dir/pending-modes
+{{ template "whole-file-protection" . }}
+plasticine_whole_file_restore_modes "$pending_modes" "$dest_dir" neovim
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-neovim-config.XXXXXX")
+trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
+umask 077
+: > "$work_dir/modes"
+for relative in init.lua lua/basic.lua lua/keybindings.lua lua/colorschema.lua lua/plugins.lua \
+    lua/plugins-config/neoscroll.lua lua/plugins-config/nvim-tree.lua \
+    lua/plugins-config/surround.lua lua/plugins-config/toggleterm.lua; do
+    target=$dest_dir/.config/nvim/$relative
+    candidate=$source_dir/dot_config/nvim/$relative
+    plasticine_whole_file_validate_file "$target" neovim || exit 1
+    plasticine_whole_file_backup_if_changed "$target" "$candidate" "$backup_dir" "${relative##*/}"
+    if [ -f "$target" ]; then
+        plasticine_whole_file_record_mode "$target" "$dest_dir" 644 "$work_dir/modes" neovim
+    fi
+done
+plasticine_whole_file_publish_modes "$work_dir/modes" "$pending_modes" "$backup_dir"
+for relative in init.lua lua/basic.lua lua/keybindings.lua lua/colorschema.lua lua/plugins.lua \
+    lua/plugins-config/neoscroll.lua lua/plugins-config/nvim-tree.lua \
+    lua/plugins-config/surround.lua lua/plugins-config/toggleterm.lua; do
+    target=$dest_dir/.config/nvim/$relative
+    candidate=$source_dir/dot_config/nvim/$relative
+    mkdir -p "${target%/*}"
+    if [ -f "$target" ] && cmp -s "$candidate" "$target"; then continue; fi
+    staged=$(mktemp "${target%/*}/.plasticine-neovim.XXXXXX")
+    cat "$candidate" > "$staged"
+    chmod 644 "$staged"
+    mv -f "$staged" "$target"
+done
+{{- end }}

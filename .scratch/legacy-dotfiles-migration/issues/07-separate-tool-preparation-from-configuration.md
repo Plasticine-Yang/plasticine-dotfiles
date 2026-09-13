@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Existing installer and chezmoi entrypoints remain authoritative. Interactive selection, non-interactive selection, Preview, cancellation, and direct chezmoi application continue to work without a second command surface.
 - [ ] Every selected configuration target and selected Integration Block namespace is validated before the first selected-tool mutation. Validation is repeated as appropriate during apply so Preview-time observations are not treated as permanent authorization.

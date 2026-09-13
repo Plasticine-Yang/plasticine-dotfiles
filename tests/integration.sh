@@ -16,6 +16,12 @@ trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 
 protect_bin=$test_root/protect-bin
 mkdir -p "$protect_bin"
+real_git=$(command -v git)
+cat > "$protect_bin/git" <<EOF
+#!/bin/sh
+if [ "\${1:-}" = -C ] && [ "\${2##*/}" = .antidote ] && [ "\${3:-}" = pull ]; then exit 0; fi
+exec '$real_git' "\$@"
+EOF
 cat > "$protect_bin/chsh" <<'EOF'
 #!/bin/sh
 printf '%s\n' 'plasticine tests: host chsh blocked' >&2
@@ -42,7 +48,20 @@ EOF
 cat > "$protect_bin/lazygit" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = --version ] || exit 99
-printf '%s\n' 'lazygit version integration-fixture'
+printf '%s\n' 'lazygit version 1.2.3'
+EOF
+cat > "$protect_bin/curl" <<'EOF'
+#!/bin/sh
+output=''
+url=''
+while [ "$#" -gt 0 ]; do
+    case $1 in -o) output=$2; shift ;; http*) url=$1 ;; esac
+    shift
+done
+case $url in
+    */jesseduffield/lazygit/releases/latest) printf '%s\n' '{"tag_name":"v1.2.3"}' > "$output" ;;
+    *) exit 99 ;;
+esac
 EOF
 chmod +x "$protect_bin"/*
 
@@ -51,6 +70,8 @@ printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_os_release"
 
 write_antidote() {
     mkdir -p "$1/.antidote"
+    git -C "$1/.antidote" init -q
+    git -C "$1/.antidote" remote add origin https://github.com/mattmc3/antidote.git
     mkdir -p "$1/.cache/antidote/github.com/romkatv/powerlevel10k"
     printf '%s\n' ':' > "$1/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
     cat > "$1/.antidote/antidote.zsh" <<'EOF'
@@ -69,19 +90,19 @@ antidote() {
             return 1
             ;;
         bundle)
-            if [[ $* == 'bundle romkatv/powerlevel10k kind:clone' ]]; then
-                mkdir -p "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k"
-                print -r -- ':' > "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
-                return 0
-            fi
-            return 1
+            mkdir -p "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k"
+            print -r -- ':' > "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
+            return 0
             ;;
+        update) return 0 ;;
         *)
             return 1
             ;;
     esac
 }
 EOF
+    git -C "$1/.antidote" add antidote.zsh
+    git -C "$1/.antidote" -c user.name=test -c user.email=test@example.com commit -qm fixture
 }
 
 write_config() {
@@ -378,7 +399,7 @@ printf '%s\n' '[data]' 'tools = ["github-ssh"]' 'githubSSHKeyPath = ""' \
 for lifecycle_template in \
     run_before_01_validate_zshrc_integrations.sh.tmpl \
     run_before_30_prepare_zshrc_integrations.sh.tmpl \
-    run_after_80_restore_zshrc_mode.sh.tmpl; do
+    run_after_83_restore_zshrc_mode.sh.tmpl; do
     "$resolved_chezmoi" -S "$repo_dir" -D "$lazygit_dry_dir/home" -c "$old_no_integration" \
         execute-template < "$repo_dir/.chezmoiscripts/$lifecycle_template" > "$lazygit_dry_dir/$lifecycle_template"
     if grep -q '[^[:space:]]' "$lazygit_dry_dir/$lifecycle_template"; then
@@ -399,7 +420,7 @@ grep -Fq "alias lg='lazygit'" "$lazygit_dry_dir/noncanonical-diff" || {
 for lifecycle_template in \
     run_before_01_validate_zshrc_integrations.sh.tmpl \
     run_before_30_prepare_zshrc_integrations.sh.tmpl \
-    run_after_80_restore_zshrc_mode.sh.tmpl; do
+    run_after_83_restore_zshrc_mode.sh.tmpl; do
     "$resolved_chezmoi" -S "$repo_dir" -D "$lazygit_dry_dir/home" -c "$noncanonical_config" \
         execute-template < "$repo_dir/.chezmoiscripts/$lifecycle_template" > "$lazygit_dry_dir/noncanonical-$lifecycle_template"
     grep -q '[^[:space:]]' "$lazygit_dry_dir/noncanonical-$lifecycle_template" || {
@@ -428,7 +449,7 @@ all_tools_dir=$test_root/all-tools
 mkdir -p "$all_tools_dir/home/.ssh"; chmod 700 "$all_tools_dir/home/.ssh"; write_antidote "$all_tools_dir/home"
 cat > "$all_tools_dir/chezmoi.toml" <<EOF
 [data]
-tools = ["github-ssh","lazygit","shell"]
+tools = ["git-config","github-ssh","lazygit","shell"]
 githubSSHKeyPath = "$combined_key"
 githubSSHKeyFingerprint = "$combined_fingerprint"
 githubSSHReplaceFingerprint = ""
@@ -436,6 +457,7 @@ githubSSHTest = false
 EOF
 apply "$all_tools_dir"
 cmp -s "$combined_key" "$all_tools_dir/home/.ssh/id_github"
+cmp -s "$repo_dir/dot_gitconfig" "$all_tools_dir/home/.gitconfig"
 cat "$shell_dir/expected-block" "$lazygit_block" > "$all_tools_dir/expected-zshrc"
 cmp -s "$all_tools_dir/expected-zshrc" "$all_tools_dir/home/.zshrc"
 all_tools_before=$(find "$all_tools_dir/home" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{print $1}')
@@ -444,15 +466,15 @@ all_tools_after=$(find "$all_tools_dir/home" -type f -exec shasum -a 256 {} + | 
 test "$all_tools_before" = "$all_tools_after"
 
 # The non-interactive selection is a set: every CLI-derived option order records
-# the same sorted three-tool value before apply.
-for requested in 'lazygit shell github-ssh' 'shell github-ssh lazygit' 'github-ssh lazygit shell'; do
+# the same sorted four-tool value before apply.
+for requested in 'git-config lazygit shell github-ssh' 'shell github-ssh git-config lazygit' 'github-ssh lazygit shell git-config'; do
     selection_name=$(printf '%s' "$requested" | tr ' ' '-')
     selection_config=$test_root/selection-$selection_name.toml
     PLASTICINE_NONINTERACTIVE=1 PLASTICINE_TOOLS="$requested" \
         PLASTICINE_GITHUB_SSH_KEY="$combined_key" PLASTICINE_GITHUB_SSH_TEST=0 PLASTICINE_REPLACE_GITHUB_SSH_KEY=0 \
         "$chezmoi_bin" -S "$repo_dir" -D "$test_root/selection-home" --persistent-state "$test_root/selection-$selection_name.state" \
         init -C "$selection_config" >/dev/null
-    grep -Fq 'tools = ["github-ssh","lazygit","shell"]' "$selection_config"
+    grep -Fq 'tools = ["git-config","github-ssh","lazygit","shell"]' "$selection_config"
 done
 
 malformed_dir=$test_root/malformed
@@ -502,7 +524,7 @@ githubSSHTest = false
 EOF
 cat > "$lint_dir/all-chezmoi.toml" <<EOF
 [data]
-tools = ["github-ssh","lazygit","shell"]
+tools = ["git-config","github-ssh","lazygit","shell"]
 githubSSHKeyPath = "$combined_key"
 githubSSHKeyFingerprint = "$combined_fingerprint"
 githubSSHReplaceFingerprint = ""
@@ -550,6 +572,7 @@ fi
 /bin/sh -n "$repo_dir/install.sh"
 /bin/sh -n "$repo_dir/lib/shell-bootstrap.sh"
 /bin/sh -n "$repo_dir/lib/lazygit-bootstrap.sh"
+/bin/sh -n "$repo_dir/lib/neovim-bootstrap.sh"
 # The shared composer has selection-dependent template branches; rendered
 # consumers above are syntax-checked instead of the unrendered template.
 for repository_script in "$repo_dir"/scripts/*.sh; do
@@ -563,6 +586,7 @@ if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "$repo_dir/install.sh"
     shellcheck "$repo_dir/lib/shell-bootstrap.sh"
     shellcheck "$repo_dir/lib/lazygit-bootstrap.sh"
+    shellcheck "$repo_dir/lib/neovim-bootstrap.sh"
     shellcheck "$repo_dir"/scripts/*.sh
     shellcheck "$repo_dir"/tests/*.sh
 fi

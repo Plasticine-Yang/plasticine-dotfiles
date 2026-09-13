@@ -202,6 +202,15 @@ plasticine_shell_antidote_command() {
         "$shell_zsh" -f -c '. "$1" && shift && antidote "$@"' plasticine-shell "$shell_antidote" "$@"
 }
 
+plasticine_shell_antidote_file_command() {
+    # Run native operations against the selected declarations without loading
+    # ~/.zshrc or any other Owner startup code.
+    # shellcheck disable=SC2016
+    HOME=$shell_dest_dir ANTIDOTE_HOME=$shell_dest_dir/.cache/antidote \
+        "$shell_zsh" -f -c '. "$1" && command=$2 && declarations=$3 && output=$4 && shift 4 && antidote "$command" "$@" < "$declarations" >| "$output"' \
+        plasticine-shell "$shell_antidote" "$@"
+}
+
 plasticine_shell_antidote_health() {
     if [ -n "$shell_antidote" ] && [ -f "$shell_antidote" ] && [ -r "$shell_antidote" ] &&
         plasticine_shell_antidote_command --version >/dev/null 2>&1; then
@@ -251,7 +260,8 @@ plasticine_shell_prompt_from_cache() {
 }
 
 plasticine_shell_git_needed() {
-    [ "$shell_antidote_route" != existing ] || [ "$shell_prompt_route" != existing ]
+    [ "$shell_antidote_route" = git ] || [ "$shell_antidote_route" = git-update ] ||
+        [ "$shell_prompt_route" != existing ]
 }
 
 plasticine_shell_observe_git() {
@@ -289,6 +299,26 @@ plasticine_shell_discover_antidote() {
     if [ "$shell_os" = Linux ]; then
         if [ -e "$shell_dest_dir/.antidote" ] || [ -L "$shell_dest_dir/.antidote" ]; then
             shell_antidote=$shell_dest_dir/.antidote/antidote.zsh
+            if [ -L "$shell_dest_dir/.antidote" ] || [ ! -d "$shell_dest_dir/.antidote/.git" ]; then
+                plasticine_shell_error 'existing Antidote is not a positively identified native Git checkout; repair or remove it, then retry. Left untouched.'
+                return 1
+            fi
+            shell_antidote_origin=$(git -C "$shell_dest_dir/.antidote" remote get-url origin 2>/dev/null) || {
+                plasticine_shell_error 'existing Antidote checkout has no readable origin; repair it, then retry. Left untouched.'
+                return 1
+            }
+            case $shell_antidote_origin in
+                https://github.com/mattmc3/antidote.git | https://github.com/mattmc3/antidote | git@github.com:mattmc3/antidote.git) ;;
+                *)
+                    plasticine_shell_error "existing Antidote checkout has an unsupported origin: $shell_antidote_origin. Left untouched."
+                    return 1
+                    ;;
+            esac
+            [ -z "$(git -C "$shell_dest_dir/.antidote" status --porcelain)" ] || {
+                plasticine_shell_error 'existing Antidote checkout has local changes; commit or remove them before native update. Left untouched.'
+                return 1
+            }
+            shell_antidote_route=git-update
             return 0
         fi
         shell_antidote=$shell_dest_dir/.antidote/antidote.zsh
@@ -300,10 +330,10 @@ plasticine_shell_discover_antidote() {
         shell_brew=''
     else
         shell_brew=$(plasticine_shell_resolve brew) || shell_brew=''
-        if [ -z "$shell_brew" ]; then
-            shell_brew=$(plasticine_shell_conventional_brew)
-            [ -e "$shell_brew" ] || [ -L "$shell_brew" ] || shell_brew=''
-        fi
+    fi
+    if [ -z "$shell_brew" ]; then
+        shell_brew=$(plasticine_shell_conventional_brew)
+        [ -e "$shell_brew" ] || [ -L "$shell_brew" ] || shell_brew=''
     fi
     if [ -n "$shell_brew" ]; then
         case $shell_brew in
@@ -317,10 +347,14 @@ plasticine_shell_discover_antidote() {
             plasticine_shell_error 'Homebrew is present but unhealthy; repair its native installation. Left untouched.'
             return 1
         }
-        shell_prefix=$(HOMEBREW_NO_ANALYTICS=1 "$shell_brew" --prefix antidote 2>/dev/null) || {
-            plasticine_shell_error 'Homebrew Antidote discovery failed; repair Homebrew. No fallback.'
-            return 1
-        }
+        shell_prefix=$(HOMEBREW_NO_ANALYTICS=1 "$shell_brew" --prefix antidote 2>/dev/null) || shell_prefix=''
+        if [ -z "$shell_prefix" ]; then
+            shell_prefix=$(HOMEBREW_NO_ANALYTICS=1 "$shell_brew" --prefix 2>/dev/null) || {
+                plasticine_shell_error 'Homebrew prefix discovery failed; repair Homebrew. No fallback.'
+                return 1
+            }
+            shell_prefix=$shell_prefix/opt/antidote
+        fi
         case $shell_prefix in
             /*) ;;
             *)
@@ -329,7 +363,9 @@ plasticine_shell_discover_antidote() {
                 ;;
         esac
         shell_antidote=$shell_prefix/share/antidote/antidote.zsh
-        if [ ! -e "$shell_prefix" ] && [ ! -L "$shell_prefix" ]; then
+        if [ -f "$shell_antidote" ] && [ -r "$shell_antidote" ]; then
+            shell_antidote_route=brew-update
+        else
             shell_antidote_route=brew
         fi
     else
@@ -337,7 +373,9 @@ plasticine_shell_discover_antidote() {
         shell_antidote_route=brew-bootstrap
         plasticine_shell_require curl bash || return $?
     fi
-    [ "$shell_antidote_route" = existing ] || shell_brew_formulae=antidote
+    case $shell_antidote_route in
+        brew | brew-bootstrap) shell_brew_formulae=antidote ;;
+    esac
 }
 
 plasticine_shell_plan() {
@@ -392,7 +430,7 @@ plasticine_shell_plan() {
         }
     fi
     plasticine_shell_discover_antidote || return $?
-    if [ "$shell_antidote_route" = existing ]; then
+    if [ "$shell_antidote_route" = git-update ] || [ "$shell_antidote_route" = brew-update ]; then
         if [ ! -f "$shell_antidote" ] || [ ! -r "$shell_antidote" ]; then
             plasticine_shell_error 'Antidote is present but unhealthy; repair its native installation. Left untouched.'
             return 1
@@ -422,9 +460,9 @@ plasticine_shell_preview() {
     printf 'plasticine-dotfiles: shell: platform %s/%s (%s); Zsh route: %s; Antidote route: %s\n' \
         "$shell_os" "$shell_arch" "$shell_support" "$shell_zsh_route" "$shell_antidote_route"
     if [ -z "$shell_apt_packages" ] && [ -z "$shell_brew_formulae" ] &&
-        [ "$shell_antidote_route" = existing ] && [ "$shell_prompt_route" = existing ] &&
+        [ "$shell_prompt_route" = existing ] &&
         [ "$shell_transition" -eq 0 ]; then
-        printf '%s\n' '  Existing healthy tools keep their native installation owners; health only; network: none; privilege: none.'
+        printf '%s\n' '  Zsh keeps its healthy system/APT owner; selected Antidote and plugins are still checked through their native upstream routes.'
     else
         printf '%s\n' '  Existing healthy tools keep their native installation owners.'
     fi
@@ -441,6 +479,13 @@ plasticine_shell_preview() {
         git)
             printf '%s\n' "  command: git clone --depth=1 https://github.com/mattmc3/antidote.git $shell_dest_dir/.antidote; network: HTTPS; privilege: none"
             ;;
+        git-update)
+            printf '%s\n' "  command: git -C $shell_dest_dir/.antidote pull --ff-only; current upstream checkout; network: HTTPS/SSH per origin; privilege: none"
+            ;;
+        brew-update)
+            printf '%s\n' '  command: HOMEBREW_NO_ANALYTICS=1 brew update; refresh native metadata; network: Homebrew remotes' \
+                '  command: HOMEBREW_NO_ANALYTICS=1 brew upgrade antidote (only when outdated; never broad upgrade)'
+            ;;
         brew-bootstrap)
             printf '%s\n' '  Homebrew missing: official bootstrap; network: HTTPS; native terminal required.' \
                 '  command: curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh' \
@@ -449,16 +494,11 @@ plasticine_shell_preview() {
             ;;
     esac
     if [ -n "$shell_brew_formulae" ]; then
-        printf '%s\n' "  command: HOMEBREW_NO_ANALYTICS=1 brew install $shell_brew_formulae; network: HTTPS" \
+        printf '%s\n' "  command: HOMEBREW_NO_ANALYTICS=1 brew update; then brew install $shell_brew_formulae; network: HTTPS" \
             '  Homebrew itself may request administrator credentials/privilege; Plasticine does not wrap sudo brew; --yes does not answer native prompts.'
     fi
-    if [ "$shell_prompt_route" = existing ]; then
-        printf '%s\n' '  Powerlevel10k: already-present (native Antidote path, readable theme, syntax health); no update.'
-    else
-        printf '%s\n' '  Powerlevel10k route: documented Antidote plugin bundle (if missing after Zsh/Antidote preparation); network: HTTPS to GitHub; privilege: none' \
-            '  command: zsh -f; source <native antidote.zsh>; antidote bundle romkatv/powerlevel10k kind:clone' \
-            '  No plugin code or Owner plugin list is loaded; Antidote owns native clone/cache paths.'
-    fi
+    printf '%s\n' '  After managed configuration: generate managed and optional Owner bundles, then run antidote update on every selected apply.' \
+        '  Network: plugin-declared upstreams; privilege: none. No plugin or unrelated Owner startup code is sourced.'
     printf '%s\n' '  Upstream installer effects are partly opaque; no automatic fallback.' \
         '  Other managed/optional plugins load through Antidote at Zsh startup, not during installation.'
     if [ "$shell_transition" -eq 1 ]; then
@@ -563,6 +603,10 @@ plasticine_shell_prepare() {
             shell_antidote=$shell_dest_dir/.antidote/antidote.zsh
             ;;
         brew)
+            HOMEBREW_NO_ANALYTICS=1 "$shell_brew" update || {
+                plasticine_shell_error 'Homebrew metadata refresh failed; Antidote was not installed. No fallback.'
+                return 1
+            }
             HOMEBREW_NO_ANALYTICS=1 "$shell_brew" install antidote || {
                 plasticine_shell_error 'reviewed Homebrew route did not provide a healthy Antidote; repair through Homebrew. No fallback.'
                 return 1
@@ -571,13 +615,39 @@ plasticine_shell_prepare() {
             ;;
         brew-bootstrap)
             plasticine_shell_brew_bootstrap || return 1
+            HOMEBREW_NO_ANALYTICS=1 "$shell_brew" update || {
+                plasticine_shell_error 'Homebrew metadata refresh failed after bootstrap; Antidote was not installed.'
+                return 1
+            }
             HOMEBREW_NO_ANALYTICS=1 "$shell_brew" install antidote || {
                 plasticine_shell_error 'reviewed Homebrew route did not provide a healthy Antidote; repair through Homebrew. No fallback.'
                 return 1
             }
             plasticine_shell_refresh_brew_antidote || return 1
             ;;
-        existing) ;;
+        brew-update)
+            HOMEBREW_NO_ANALYTICS=1 "$shell_brew" update || {
+                plasticine_shell_error 'Homebrew metadata refresh failed; Antidote currency is unknown. Existing installation retained.'
+                return 1
+            }
+            shell_brew_outdated=$(HOMEBREW_NO_ANALYTICS=1 "$shell_brew" outdated --quiet antidote) || {
+                plasticine_shell_error 'Homebrew could not determine Antidote currency. Existing installation retained.'
+                return 1
+            }
+            if [ -n "$shell_brew_outdated" ]; then
+                HOMEBREW_NO_ANALYTICS=1 "$shell_brew" upgrade antidote || {
+                    plasticine_shell_error 'Homebrew Antidote update failed; existing installation retained. Retry through Homebrew.'
+                    return 1
+                }
+                plasticine_shell_refresh_brew_antidote || return 1
+            fi
+            ;;
+        git-update)
+            git -C "$shell_dest_dir/.antidote" pull --ff-only || {
+                plasticine_shell_error 'native Antidote checkout update failed; existing checkout retained. Resolve its branch/upstream state and retry.'
+                return 1
+            }
+            ;;
         *)
             plasticine_shell_error 'unknown Antidote route; no fallback.'
             return 1
@@ -588,22 +658,55 @@ plasticine_shell_prepare() {
         return 1
     fi
     plasticine_shell_antidote_health || return 1
-    plasticine_shell_prompt_check || return 1
-    if [ "$shell_prompt_route" != existing ]; then
-        git --version >/dev/null 2>&1 || {
-            plasticine_shell_error 'Git is present but unhealthy; repair its installation owner. Left untouched.'
+}
+
+plasticine_shell_sync_plugins() {
+    shell_managed_plugins=$shell_dest_dir/.zsh_plugins.txt
+    shell_managed_bundle=$shell_dest_dir/.zsh_plugins.zsh
+    shell_owner_plugins=$shell_dest_dir/.zsh_plugins.local.txt
+    shell_owner_bundle=$shell_dest_dir/.zsh_plugins.local.zsh
+    [ -f "$shell_managed_plugins" ] && [ -r "$shell_managed_plugins" ] || {
+        plasticine_shell_error 'managed plugin declarations are unavailable after configuration; native update incomplete.'
+        return 1
+    }
+    plasticine_shell_antidote_file_command bundle "$shell_managed_plugins" "$shell_managed_bundle" || {
+        plasticine_shell_error 'Antidote could not resolve the managed plugin declarations; native update incomplete. Retry after repairing the reported upstream.'
+        return 1
+    }
+    if [ -e "$shell_owner_plugins" ] || [ -L "$shell_owner_plugins" ]; then
+        [ -f "$shell_owner_plugins" ] && [ -r "$shell_owner_plugins" ] || {
+            plasticine_shell_error 'Owner plugin declarations are not a readable regular file; left untouched.'
             return 1
         }
-        plasticine_shell_antidote_command bundle romkatv/powerlevel10k kind:clone >/dev/null || {
-            plasticine_shell_error 'Antidote did not obtain Powerlevel10k; no fallback or configuration applied.'
-            return 1
-        }
-        plasticine_shell_prompt_check || return 1
-        [ "$shell_prompt_route" = existing ] || {
-            plasticine_shell_error 'Antidote did not produce a usable Powerlevel10k plugin; no configuration applied.'
+        plasticine_shell_antidote_file_command bundle "$shell_owner_plugins" "$shell_owner_bundle" || {
+            plasticine_shell_error 'Antidote could not resolve the Owner plugin declarations; partial native plugin state retained. Repair and retry.'
             return 1
         }
     fi
+    plasticine_shell_antidote_command update || {
+        plasticine_shell_error 'Antidote plugin update failed; completed checkout/configuration effects retained. Repair the reported plugin and retry.'
+        return 1
+    }
+    # Regenerate bundles after checkout updates, then verify the selected prompt.
+    plasticine_shell_antidote_file_command bundle "$shell_managed_plugins" "$shell_managed_bundle" || return 1
+    if [ -f "$shell_owner_plugins" ]; then
+        plasticine_shell_antidote_file_command bundle "$shell_owner_plugins" "$shell_owner_bundle" || return 1
+    fi
+    "$shell_zsh" -f -n "$shell_managed_bundle" || {
+        plasticine_shell_error 'generated managed plugin bundle failed Zsh syntax validation; native state retained for diagnosis.'
+        return 1
+    }
+    if [ -f "$shell_owner_bundle" ]; then
+        "$shell_zsh" -f -n "$shell_owner_bundle" || {
+            plasticine_shell_error 'generated Owner plugin bundle failed Zsh syntax validation; native state retained for diagnosis.'
+            return 1
+        }
+    fi
+    plasticine_shell_prompt_check || return 1
+    [ "$shell_prompt_route" = existing ] || {
+        plasticine_shell_error 'Antidote synchronization did not produce a usable Powerlevel10k plugin.'
+        return 1
+    }
 }
 
 plasticine_shell_transition() {

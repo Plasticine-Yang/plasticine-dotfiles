@@ -2,7 +2,6 @@
 set -eu
 
 readonly_repo_url='https://github.com/Plasticine-Yang/plasticine-dotfiles.git'
-readonly_chezmoi_version='v2.72.1'
 # Empty in the source checkout. scripts/build-release.sh replaces this exact
 # assignment with the full commit published by a GitHub Release.
 readonly_repo_revision=''
@@ -23,52 +22,40 @@ Interactive mode:
   install.sh
 
 Non-interactive mode:
-  install.sh -y [--github-ssh --github-ssh-key <path>] [--lazygit] [--shell]
+  install.sh -y [--git-config] [--github-ssh --github-ssh-key <path>] [--fnm] [--herdr] [--lazygit] [--neovim] [--shell]
 
 Options:
   -y, --yes                       Run without prompts and apply changes
+      --git-config                Configure shared Git preferences and local override inclusion
       --github-ssh                Configure GitHub SSH
       --github-ssh-key <path>     Private key to copy to ~/.ssh/id_github
       --github-ssh-test           Test GitHub SSH after applying
       --replace-github-ssh-key    Allow replacement of a different existing key
+      --herdr                     Install or update Herdr from its stable channel
       --lazygit                   Prepare Lazygit if missing and configure its alias
+      --fnm                       Install or update fnm through the permitted platform route
+      --neovim                    Install/update Neovim, configure it, and update plugins
       --shell                     Configure Zsh, install missing reviewed tools, and attempt chsh last
   -h, --help                      Show this help
 EOF
 }
 
-chezmoi_is_compatible() {
-    "$1" --version 2>/dev/null | awk '{
-        for (i = 1; i <= NF; i++) {
-            if ($i ~ /^v[0-9]+\.[0-9]+\.[0-9]+/) {
-                sub(/^v/, "", $i)
-                sub(/[^0-9.].*$/, "", $i)
-                version = $i
-                break
-            }
-        }
-    }
-    END {
-        if (version == "") exit 1
-        split(version, part, /\./)
-        if (part[1] > 2 ||
-            (part[1] == 2 && part[2] > 72) ||
-            (part[1] == 2 && part[2] == 72 && part[3] >= 1)) exit 0
-        exit 1
-    }'
-}
-
 yes=0
+git_config=0
 github_ssh=0
 github_ssh_key=''
 github_ssh_test=0
 replace_github_ssh_key=0
 shell=0
 lazygit=0
+fnm=0
+neovim=0
+herdr=0
 
 while [ "$#" -gt 0 ]; do
     case $1 in
         -y|--yes) yes=1 ;;
+        --git-config) git_config=1 ;;
         --github-ssh) github_ssh=1 ;;
         --github-ssh-key)
             [ "$#" -ge 2 ] || { error '--github-ssh-key requires a path.'; exit 2; }
@@ -79,7 +66,10 @@ while [ "$#" -gt 0 ]; do
         --github-ssh-test) github_ssh_test=1 ;;
         --replace-github-ssh-key) replace_github_ssh_key=1 ;;
         --shell) shell=1 ;;
+        --herdr) herdr=1 ;;
         --lazygit) lazygit=1 ;;
+        --fnm) fnm=1 ;;
+        --neovim) neovim=1 ;;
         -h|--help) usage; exit 0 ;;
         *) error "Unknown option: $1"; usage >&2; exit 2 ;;
     esac
@@ -100,6 +90,10 @@ if [ "$(id -u)" -eq 0 ]; then
     error 'Run as the target user, not root.'
     exit 1
 fi
+if [ "$neovim" -eq 1 ] && { [ -n "${NVIM_APPNAME:-}" ] || [ -n "${XDG_CONFIG_HOME:-}" ]; }; then
+    error 'neovim: NVIM_APPNAME and XDG_CONFIG_HOME are unsupported; managed configuration must be ~/.config/nvim.'
+    exit 1
+fi
 
 for command_name in ssh ssh-keygen git; do
     command -v "$command_name" >/dev/null 2>&1 || {
@@ -111,7 +105,8 @@ done
 if [ "$yes" -eq 0 ]; then
     if [ "$github_ssh" -eq 1 ] || [ -n "$github_ssh_key" ] ||
        [ "$github_ssh_test" -eq 1 ] || [ "$replace_github_ssh_key" -eq 1 ] ||
-       [ "$shell" -eq 1 ] || [ "$lazygit" -eq 1 ]; then
+       [ "$shell" -eq 1 ] || [ "$lazygit" -eq 1 ] || [ "$fnm" -eq 1 ] ||
+       [ "$neovim" -eq 1 ] || [ "$herdr" -eq 1 ] || [ "$git_config" -eq 1 ]; then
         error 'Tool options require -y; run without options for interactive selection.'
         exit 2
     fi
@@ -129,30 +124,13 @@ else
     fi
 fi
 
-chezmoi_bin=${PLASTICINE_CHEZMOI_BIN:-}
-if [ -n "$chezmoi_bin" ]; then
-    case $chezmoi_bin in
-        */*) ;;
-        *) chezmoi_bin=$(command -v "$chezmoi_bin" 2>/dev/null || true) ;;
-    esac
-fi
-if [ -z "$chezmoi_bin" ] && command -v chezmoi >/dev/null 2>&1; then
-    chezmoi_bin=$(command -v chezmoi)
-fi
-if [ -n "$chezmoi_bin" ] && ! chezmoi_is_compatible "$chezmoi_bin"; then
-    log "Ignoring incompatible chezmoi: $chezmoi_bin"
-    chezmoi_bin=''
-fi
-if [ -z "$chezmoi_bin" ]; then
-    command -v curl >/dev/null 2>&1 || { error 'curl is required to install chezmoi.'; exit 1; }
-    install_bin_dir=$HOME/.local/bin
-    log "Installing chezmoi $readonly_chezmoi_version to $install_bin_dir..."
-    sh -c "$(curl --proto '=https' --proto-redir '=https' -fsSL https://get.chezmoi.io)" -- \
-        -b "$install_bin_dir" -t "$readonly_chezmoi_version"
-    chezmoi_bin=$install_bin_dir/chezmoi
-fi
-[ -x "$chezmoi_bin" ] || { error "chezmoi is not executable: $chezmoi_bin"; exit 1; }
-chezmoi_is_compatible "$chezmoi_bin" || { error 'Installed chezmoi version is incompatible.'; exit 1; }
+[ -f "$(dirname -- "$0")/lib/chezmoi-bootstrap.sh" ] || { error 'The installer does not contain lib/chezmoi-bootstrap.sh.'; exit 1; }
+# shellcheck disable=SC1091
+. "$(dirname -- "$0")/lib/chezmoi-bootstrap.sh"
+plasticine_chezmoi_bootstrap "$HOME" "${PLASTICINE_CHEZMOI_BIN:-}" || exit 1
+# Assigned by plasticine_chezmoi_bootstrap from the sourced module.
+# shellcheck disable=SC2154
+: "${chezmoi_bin:?}"
 
 source_dir=${PLASTICINE_CHEZMOI_SOURCE_DIR:-$HOME/.local/share/chezmoi}
 config_file=${PLASTICINE_CHEZMOI_CONFIG_FILE:-$HOME/.config/chezmoi/chezmoi.toml}
@@ -231,8 +209,11 @@ done < "$integration_catalog"
 if [ "$yes" -eq 1 ]; then
     export PLASTICINE_NONINTERACTIVE=1
     tools=''
+    if [ "$git_config" -eq 1 ]; then
+        tools=git-config
+    fi
     if [ "$github_ssh" -eq 1 ]; then
-        tools=github-ssh
+        tools="${tools:+$tools }github-ssh"
         export PLASTICINE_GITHUB_SSH_KEY="$github_ssh_key"
     else
         export PLASTICINE_GITHUB_SSH_KEY=''
@@ -242,6 +223,15 @@ if [ "$yes" -eq 1 ]; then
     fi
     if [ "$lazygit" -eq 1 ]; then
         tools="${tools:+$tools }lazygit"
+    fi
+    if [ "$fnm" -eq 1 ]; then
+        tools="${tools:+$tools }fnm"
+    fi
+    if [ "$neovim" -eq 1 ]; then
+        tools="${tools:+$tools }neovim"
+    fi
+    if [ "$herdr" -eq 1 ]; then
+        tools="${tools:+$tools }herdr"
     fi
     export PLASTICINE_TOOLS="$tools"
     export PLASTICINE_GITHUB_SSH_TEST=$github_ssh_test
@@ -283,6 +273,9 @@ set -- -S "$source_dir" -D "$destination_dir" -c "$config_file" --persistent-sta
 
 shell_selected=0
 lazygit_selected=0
+fnm_selected=0
+neovim_selected=0
+herdr_selected=0
 zsh_integration_selected=0
 shell_antidote_route=''
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"shell"/); exit } END { exit !found }' "$config_file"; then
@@ -290,6 +283,15 @@ if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"shell"/); exit } END { exit !f
 fi
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"lazygit"/); exit } END { exit !found }' "$config_file"; then
     lazygit_selected=1
+fi
+if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"fnm"/); exit } END { exit !found }' "$config_file"; then
+    fnm_selected=1
+fi
+if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"neovim"/); exit } END { exit !found }' "$config_file"; then
+    neovim_selected=1
+fi
+if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"herdr"/); exit } END { exit !found }' "$config_file"; then
+    herdr_selected=1
 fi
 if [ "$shell_selected" -eq 1 ] || [ "$lazygit_selected" -eq 1 ]; then
     zsh_integration_selected=1
@@ -315,6 +317,37 @@ if [ "$lazygit_selected" -eq 1 ]; then
     plasticine_lazygit_preview
 fi
 
+if [ "$fnm_selected" -eq 1 ]; then
+    [ -f "$source_dir/lib/fnm-bootstrap.sh" ] || {
+        error 'The source repository does not contain lib/fnm-bootstrap.sh.'
+        exit 1
+    }
+    # shellcheck disable=SC1091
+    . "$source_dir/lib/fnm-bootstrap.sh"
+    plasticine_fnm_plan "$destination_dir" || exit 1
+    log 'Previewing fnm maintenance...'
+    plasticine_fnm_preview
+    # Assigned by plasticine_fnm_plan from the sourced module.
+    # shellcheck disable=SC2154
+    if [ "$fnm_os" = Darwin ] && [ "$fnm_brew_route" = bootstrap ] &&
+        ! plasticine_fnm_terminal; then
+        error 'fnm: Homebrew bootstrap needs a native terminal; install Homebrew interactively, then retry. --yes cannot supply credentials.'
+        exit 1
+    fi
+fi
+
+if [ "$herdr_selected" -eq 1 ]; then
+    [ -f "$source_dir/lib/herdr-bootstrap.sh" ] || {
+        error 'The source repository does not contain lib/herdr-bootstrap.sh.'
+        exit 1
+    }
+    # shellcheck disable=SC1091
+    . "$source_dir/lib/herdr-bootstrap.sh"
+    plasticine_herdr_plan "$destination_dir" || exit 1
+    log 'Previewing Herdr toolchain...'
+    plasticine_herdr_preview
+fi
+
 if [ "$shell_selected" -eq 1 ]; then
     [ -f "$source_dir/lib/shell-bootstrap.sh" ] || {
         error 'The source repository does not contain lib/shell-bootstrap.sh.'
@@ -330,6 +363,16 @@ if [ "$shell_selected" -eq 1 ]; then
         error 'shell: Homebrew bootstrap needs a native terminal; install Homebrew interactively, then retry. --yes cannot supply credentials.'
         exit 1
     fi
+fi
+if [ "$neovim_selected" -eq 1 ]; then
+    [ -f "$source_dir/lib/neovim-bootstrap.sh" ] || {
+        error 'The source repository does not contain lib/neovim-bootstrap.sh.'
+        exit 1
+    }
+    # shellcheck disable=SC1091
+    . "$source_dir/lib/neovim-bootstrap.sh"
+    plasticine_neovim_plan "$destination_dir" || exit 1
+    plasticine_neovim_preview || exit 1
 fi
 
 log 'Previewing changes...'

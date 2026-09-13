@@ -1,0 +1,52 @@
+{{- if or (has "fnm" .tools) (has "herdr" .tools) (has "lazygit" .tools) (has "neovim" .tools) (has "shell" .tools) -}}
+#!/bin/sh
+set -eu
+
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
+
+# This is the only selected-tool mutation stage. Configuration backup, mode
+# normalization and application begin only after every selected tool succeeds.
+{{- if has "fnm" .tools }}
+# shellcheck disable=SC1091
+. "$source_dir/lib/fnm-bootstrap.sh"
+plasticine_fnm_plan "$dest_dir" || exit 1
+plasticine_fnm_prepare || {
+    plasticine_fnm_error 'permitted route failed; tool preparation completed only in part; no selected configuration applied.'
+    exit 1
+}
+{{- end }}
+{{- if has "herdr" .tools }}
+# shellcheck disable=SC1091
+. "$source_dir/lib/herdr-bootstrap.sh"
+plasticine_herdr_plan "$dest_dir" || exit 1
+plasticine_herdr_prepare || {
+    plasticine_herdr_error 'official installer/native updater route failed; tool preparation completed only in part; no selected configuration applied.'
+    exit 1
+}
+{{- end }}
+{{- if has "lazygit" .tools }}
+# shellcheck disable=SC1091
+. "$source_dir/lib/lazygit-bootstrap.sh"
+plasticine_lazygit_plan "$dest_dir" || exit 1
+plasticine_lazygit_prepare || {
+    plasticine_lazygit_error 'official release route failed; tool preparation completed only in part; no selected configuration applied.'
+    exit 1
+}
+{{- end }}
+{{- if has "shell" .tools }}
+# shellcheck disable=SC1091
+. "$source_dir/lib/shell-bootstrap.sh"
+plasticine_shell_plan "$dest_dir" || exit 1
+plasticine_shell_prepare || {
+    plasticine_shell_error 'official route failed; tool preparation completed only in part; no selected configuration applied.'
+    exit 1
+}
+{{- end }}
+{{- if has "neovim" .tools }}
+# shellcheck disable=SC1091
+. "$source_dir/lib/neovim-bootstrap.sh"
+plasticine_neovim_plan "$dest_dir" || exit 1
+plasticine_neovim_prepare || exit 1
+{{- end }}
+{{- end }}

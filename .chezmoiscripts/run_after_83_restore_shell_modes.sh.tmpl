@@ -1,0 +1,10 @@
+{{- if has "shell" .tools -}}
+#!/bin/sh
+set -eu
+
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+pending_modes=$dest_dir/.plasticine/backups/shell/pending-modes
+
+{{ template "whole-file-protection" . }}
+plasticine_whole_file_restore_modes "$pending_modes" "$dest_dir" shell
+{{- end }}

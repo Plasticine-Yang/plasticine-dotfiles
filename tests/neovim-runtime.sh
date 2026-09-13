@@ -1,0 +1,88 @@
+#!/bin/sh
+set -eu
+
+# Exercise the shipped configuration in a real Neovim process. Plugin modules
+# are deterministic local fixtures: this suite must not depend on the network.
+repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
+nvim_bin=${NVIM_BIN:-$(command -v nvim 2>/dev/null || true)}
+[ -n "$nvim_bin" ] || { printf '%s\n' 'Neovim runtime tests require nvim.' >&2; exit 1; }
+runtime_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-neovim-runtime.XXXXXX")
+trap 'rm -rf "$runtime_root"' EXIT HUP INT TERM
+home=$runtime_root/home
+config=$home/.config/nvim
+lazy=$home/.local/share/nvim/lazy/lazy.nvim
+mkdir -p "$home/.config" "$lazy/lua/lazy" "$lazy/colors" \
+    "$lazy/lua/neoscroll" "$lazy/lua/nvim-surround" \
+    "$lazy/lua/nvim-autopairs" "$lazy/lua/nvim-tree" \
+    "$lazy/lua/toggleterm"
+cp -R "$repo_dir/dot_config/nvim" "$config"
+# The installed Plasticine launcher deliberately supplies its own XDG roots.
+# Mirror the fixtures there so the runtime suite also works through that public
+# launcher, while distribution-provided `nvim` uses the standard paths above.
+mkdir -p "$home/.plasticine/config" "$home/.plasticine/runtime/nvim/data/nvim/lazy"
+cp -R "$config" "$home/.plasticine/config/nvim"
+ln -s "$lazy" "$home/.plasticine/runtime/nvim/data/nvim/lazy/lazy.nvim"
+
+cat > "$lazy/lua/lazy/init.lua" <<'EOF'
+local M = {}
+function M.setup(specs, opts)
+  assert(opts.local_spec == false)
+  vim.g.fixture_lazy_setup = 1
+  for _, spec in ipairs(specs) do
+    if spec[1] == 'smoka7/hop.nvim' then
+      assert(spec.opts.keys == 'etovxqpdygfblzhckisuran')
+      vim.g.fixture_hop_spec = 1
+    elseif spec[1] == 'windwp/nvim-autopairs' and spec.config == true then
+      require('nvim-autopairs').setup({})
+    end
+    if type(spec.config) == 'function' then spec.config() end
+  end
+end
+return M
+EOF
+cat > "$lazy/lua/neoscroll/init.lua" <<'EOF'
+return { setup = function(opts) assert(opts.hide_cursor); vim.g.fixture_neoscroll = 1 end }
+EOF
+cat > "$lazy/lua/nvim-surround/init.lua" <<'EOF'
+return { setup = function() vim.g.fixture_surround = 1 end }
+EOF
+cat > "$lazy/lua/nvim-autopairs/init.lua" <<'EOF'
+return { setup = function() vim.g.fixture_autopairs = 1 end }
+EOF
+cat > "$lazy/lua/nvim-tree/init.lua" <<'EOF'
+return { setup = function(opts)
+  assert(type(opts.on_attach) == 'function')
+  vim.api.nvim_create_user_command('NvimTreeToggle', function() end, {})
+  vim.g.fixture_nvim_tree = 1
+end }
+EOF
+cat > "$lazy/lua/nvim-tree/api.lua" <<'EOF'
+local noop = function() end
+return {
+  config = { mappings = { default_on_attach = noop } },
+  node = { open = { edit = noop, vertical = noop, horizontal = noop }, navigate = { parent_close = noop } },
+  fs = { rename = noop, create = noop, remove = noop, copy = { node = noop, filename = noop, relative_path = noop }, cut = noop, paste = noop },
+  tree = { toggle_hidden_filter = noop, reload = noop, toggle_help = noop, open = noop, close = noop },
+}
+EOF
+cat > "$lazy/lua/toggleterm/init.lua" <<'EOF'
+return { setup = function(opts) assert(opts.direction == 'float'); vim.g.fixture_toggleterm = 1 end }
+EOF
+cat > "$lazy/lua/toggleterm/terminal.lua" <<'EOF'
+local Terminal = {}
+function Terminal:new(opts)
+  assert(opts.direction == 'float' or opts.direction == 'horizontal' or opts.direction == 'vertical')
+  return { toggle = function() vim.g.fixture_terminal_toggles = (vim.g.fixture_terminal_toggles or 0) + 1 end }
+end
+return { Terminal = Terminal }
+EOF
+cat > "$lazy/colors/tokyonight.vim" <<'EOF'
+let g:colors_name = 'tokyonight-fixture'
+EOF
+
+HOME=$home PLASTICINE_HOME=$home/.plasticine XDG_CONFIG_HOME=$home/.config XDG_DATA_HOME=$home/.local/share \
+    XDG_STATE_HOME=$home/.local/state XDG_CACHE_HOME=$home/.cache \
+    "$nvim_bin" --headless \
+    '+lua local ok, err = pcall(function() local expected = { "fixture_lazy_setup", "fixture_neoscroll", "fixture_surround", "fixture_autopairs", "fixture_hop_spec", "fixture_nvim_tree", "fixture_toggleterm" }; for _, name in ipairs(expected) do assert(vim.g[name] == 1, name .. " was not configured") end; assert(vim.g.colors_name == "tokyonight-fixture"); assert(vim.fn.maparg("<C-n>", "n") ~= ""); assert(vim.fn.exists(":NvimTreeToggle") == 2); assert(type(_FLOAT_TERM) == "function"); assert(type(_HORIZONTAL_TERM) == "function"); assert(type(_VERTICAL_TERM) == "function"); _FLOAT_TERM(); _HORIZONTAL_TERM(); _VERTICAL_TERM(); assert(vim.g.fixture_terminal_toggles == 3) end); if not ok then io.stderr:write(tostring(err) .. "\n"); vim.cmd("cquit") end' \
+    '+qa'
+printf '%s\n' 'deterministic real-Neovim runtime tests passed'

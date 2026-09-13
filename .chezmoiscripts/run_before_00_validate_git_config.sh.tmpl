@@ -1,0 +1,15 @@
+{{- if has "git-config" .tools -}}
+#!/bin/sh
+set -eu
+
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+git_config=$dest_dir/.gitconfig
+backup_root=$dest_dir/.plasticine/backups
+backup_dir=$backup_root/git-config
+
+{{ template "whole-file-protection" . }}
+plasticine_whole_file_validate_file "$git_config" git-config
+plasticine_whole_file_validate_dir "$dest_dir/.plasticine" git-config
+plasticine_whole_file_validate_dir "$backup_root" git-config
+plasticine_whole_file_validate_dir "$backup_dir" git-config
+{{- end }}

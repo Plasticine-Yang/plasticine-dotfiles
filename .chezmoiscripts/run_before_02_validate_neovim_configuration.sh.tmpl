@@ -1,0 +1,23 @@
+{{- if has "neovim" .tools -}}
+#!/bin/sh
+set -eu
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+{{ template "whole-file-protection" . }}
+if [ -n "${NVIM_APPNAME:-}" ] || [ -n "${XDG_CONFIG_HOME:-}" ]; then
+    printf '%s\n' 'plasticine-dotfiles: neovim: NVIM_APPNAME and XDG_CONFIG_HOME are unsupported; managed configuration must be ~/.config/nvim.' >&2
+    exit 1
+fi
+plasticine_whole_file_validate_dir "$dest_dir/.config" neovim
+plasticine_whole_file_validate_dir "$dest_dir/.config/nvim" neovim
+plasticine_whole_file_validate_dir "$dest_dir/.config/nvim/lua" neovim
+plasticine_whole_file_validate_dir "$dest_dir/.config/nvim/lua/plugins-config" neovim
+if [ -e "$dest_dir/.config/nvim/init.vim" ] || [ -L "$dest_dir/.config/nvim/init.vim" ]; then
+    printf '%s\n' 'plasticine-dotfiles: neovim: competing ~/.config/nvim/init.vim entrypoint must be migrated or removed by the Owner.' >&2
+    exit 1
+fi
+for relative in init.lua lua/basic.lua lua/keybindings.lua lua/colorschema.lua lua/plugins.lua \
+    lua/plugins-config/neoscroll.lua lua/plugins-config/nvim-tree.lua \
+    lua/plugins-config/surround.lua lua/plugins-config/toggleterm.lua; do
+    plasticine_whole_file_validate_file "$dest_dir/.config/nvim/$relative" neovim
+done
+{{- end }}

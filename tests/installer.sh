@@ -74,6 +74,39 @@ cat > "$protect_bin/lazygit" <<'EOF'
 printf '%s\n' 'lazygit version installer-fixture'
 EOF
 chmod +x "$protect_bin/lazygit"
+cat > "$protect_bin/curl" <<'EOF'
+#!/bin/sh
+case $* in
+    *api.github.com/repos/neovim/neovim/releases/latest*)
+        output=
+        previous=
+        for argument in "$@"; do
+            [ "$previous" != -o ] || output=$argument
+            previous=$argument
+        done
+        payload='
+  "tag_name": "v0.12.4",
+  "name": "nvim-macos-arm64.tar.gz",
+  "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "browser_download_url": "https://github.com/neovim/neovim/releases/download/v0.12.4/nvim-macos-arm64.tar.gz"
+'
+        if [ -n "$output" ]; then printf '%s\n' "$payload" > "$output"; else printf '%s\n' "$payload"; fi
+        ;;
+    *) printf 'installer fixture blocked curl: %s\n' "$*" >&2; exit 99 ;;
+esac
+EOF
+cat > "$protect_bin/nvim" <<'EOF'
+#!/bin/sh
+case $1 in
+    --version) printf '%s\n' 'NVIM v0.12.4' ;;
+    --headless) printf '%s\n' "$*" >> "$PLASTICINE_TEST_NVIM_CALLS" ;;
+    *) exit 99 ;;
+esac
+EOF
+chmod +x "$protect_bin/curl" "$protect_bin/nvim"
+mkdir -p "$test_root/external-nvim/bin"
+cp "$protect_bin/nvim" "$test_root/external-nvim/bin/nvim"
+protect_bin=$test_root/external-nvim/bin:$protect_bin
 
 run_installer() {
     scenario_dir=$1
@@ -81,6 +114,8 @@ run_installer() {
     PATH=$protect_bin:$PATH \
     PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
     PLASTICINE_DOTFILES_REPO_URL=$origin_repo \
+    PLASTICINE_TEST_NVIM_CALLS=$scenario_dir/nvim-calls \
+    PLASTICINE_NEOVIM_OS=Darwin PLASTICINE_NEOVIM_ARCH=arm64 \
     PLASTICINE_CHEZMOI_SOURCE_DIR=$scenario_dir/data/chezmoi \
     PLASTICINE_CHEZMOI_CONFIG_FILE=$scenario_dir/config/chezmoi.toml \
     PLASTICINE_CHEZMOI_STATE_FILE=$scenario_dir/config/chezmoistate.boltdb \
@@ -98,6 +133,50 @@ test ! -e "$empty_dir/home/.ssh"
 test ! -e "$empty_dir/home/install.sh"
 test ! -e "$empty_dir/home/scripts"
 test ! -e "$empty_dir/home/.github"
+test ! -e "$empty_dir/home/.config"
+
+neovim_dir=$test_root/neovim
+mkdir -p "$neovim_dir/home"
+run_installer "$neovim_dir" -y --neovim >/dev/null
+test "$(find "$neovim_dir/home/.config/nvim" -type f | wc -l | tr -d ' ')" -eq 9
+grep -Fq 'Lazy! sync' "$neovim_dir/nvim-calls"
+test ! -e "$neovim_dir/home/.zshrc"
+test ! -e "$neovim_dir/home/.zsh_plugins.txt"
+
+# Git configuration is independently selectable through the real installer.
+# It neither selects GitHub SSH/shell nor touches the Owner's local override.
+git_config_dir=$test_root/git-config
+mkdir -p "$git_config_dir/home"
+printf '%s\n' '[user]' 'name = installer-local-owner' \
+    '[plasticine]' 'marker = installer-local-marker-09' > "$git_config_dir/home/.gitconfig.local"
+cp "$git_config_dir/home/.gitconfig.local" "$git_config_dir/local-before"
+run_installer "$git_config_dir" -y --git-config > "$git_config_dir/output"
+grep -Fq 'tools = ["git-config"]' "$git_config_dir/config/chezmoi.toml"
+test "$(HOME=$git_config_dir/home GIT_CONFIG_NOSYSTEM=1 git config --global --includes --get user.name)" = installer-local-owner
+test "$(HOME=$git_config_dir/home GIT_CONFIG_NOSYSTEM=1 git config --global --includes --get user.email)" = 975036719@qq.com
+cmp -s "$git_config_dir/local-before" "$git_config_dir/home/.gitconfig.local"
+test ! -e "$git_config_dir/home/.ssh"
+test ! -e "$git_config_dir/home/.zshrc"
+if grep -Fq 'installer-local-marker-09' "$git_config_dir/output"; then
+    printf '%s\n' 'Git config installer Preview traversed the local override.' >&2
+    exit 1
+fi
+
+# CLI option order denotes a set, including the independent Git configuration
+# and GitHub SSH Features.
+for order in git-first ssh-first; do
+    combination=$test_root/git-config-$order
+    mkdir -p "$combination/home" "$combination/key"
+    ssh-keygen -q -t ed25519 -N '' -C installer-git-combination -f "$combination/key/id_ed25519"
+    case $order in
+        git-first) set -- --git-config --github-ssh --github-ssh-key "$combination/key/id_ed25519" ;;
+        ssh-first) set -- --github-ssh --github-ssh-key "$combination/key/id_ed25519" --git-config ;;
+    esac
+    run_installer "$combination" -y "$@" >/dev/null
+    grep -Fq 'tools = ["git-config","github-ssh"]' "$combination/config/chezmoi.toml"
+    test -f "$combination/home/.gitconfig"
+    test -f "$combination/home/.ssh/config.d/00-plasticine-github.conf"
+done
 
 # An explicitly configured executable name resolves through PATH; callers do
 # not have to discover and pass its absolute path themselves.
@@ -214,7 +293,13 @@ set env(PATH) "$env(PLASTICINE_TEST_PROTECT):$env(PATH)"
 spawn $env(PLASTICINE_TEST_INSTALLER)
 expect "选择要处理的工具"
 after 300
+send "\033\[B"
+after 200
 send " "
+after 200
+send "\033\[B"
+after 200
+send "\033\[B"
 after 200
 send "\033\[B"
 after 200
@@ -279,6 +364,10 @@ set env(PATH) "$env(PLASTICINE_TEST_CANCEL_BIN):/usr/bin:/bin"
 spawn $env(PLASTICINE_TEST_INSTALLER)
 expect "选择要处理的工具"
 after 300
+send "\033\[B"
+after 200
+send "\033\[B"
+after 200
 send "\033\[B"
 after 200
 send " "

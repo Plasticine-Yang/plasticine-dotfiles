@@ -49,7 +49,7 @@ cat > "$healthy_bin/lazygit" <<'EOF'
 [ -z "${PLASTICINE_TEST_LAZYGIT_UNHEALTHY:-}" ] || exit 9
 [ "${1:-}" = --version ] || exit 99
 printf '%s\n' healthy >> "$PLASTICINE_TEST_LAZYGIT_PROBES"
-printf '%s\n' 'lazygit version 99.0.0'
+printf '%s\n' 'lazygit version 1.2.3'
 EOF
 chmod +x "$healthy_bin/lazygit"
 base_path=$PATH
@@ -112,12 +112,25 @@ esac
 exec /bin/ln "$@"
 EOF
 chmod +x "$release_bin/ln"
+cat > "$release_bin/mv" <<'EOF'
+#!/bin/sh
+if [ "${PLASTICINE_TEST_UPGRADE_RACE:-}" = 1 ]; then
+    for target_arg do target=$target_arg; done
+    case $target in
+        */.local/bin/lazygit) printf '%s\n' competing-upgrade-owner > "$target"; exit 94 ;;
+    esac
+fi
+exec /bin/mv "$@"
+EOF
+chmod +x "$release_bin/mv"
 
 run_installer() {
     scenario=$1
     shift
-    PATH=$healthy_bin:$protect_bin:$base_path \
+    PATH=$healthy_bin:$release_bin:$protect_bin:$base_path \
     PLASTICINE_TEST_LAZYGIT_PROBES=$test_root/lazygit-probes \
+    PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture \
+    PLASTICINE_TEST_RELEASE_CALLS=$scenario/release-calls \
     PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
     PLASTICINE_DOTFILES_REPO_URL=$origin_repo \
     PLASTICINE_CHEZMOI_SOURCE_DIR=$scenario/data/chezmoi \
@@ -257,8 +270,108 @@ PATH=$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin
     PLASTICINE_CHEZMOI_DEST_DIR=$missing/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=amd64 \
     PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$missing/release-calls \
     "$repo_dir/install.sh" -y --lazygit >/dev/null
-test ! -s "$missing/release-calls" || fail 'healthy release rerun used the network'
+test "$(wc -l < "$missing/release-calls" | tr -d ' ')" -eq 1 || fail 'current release rerun did not perform exactly one stable metadata query'
+grep -Fq '/releases/latest' "$missing/release-calls" || fail 'current release rerun did not resolve stable metadata'
+test ! "$(grep -c '/download/' "$missing/release-calls")" -ne 0 || fail 'current release rerun downloaded an artifact'
 test "$before_release_hash" = "$(shasum -a 256 "$missing/home/.local/bin/lazygit" | awk '{print $1}')" || fail 'healthy release binary changed'
+
+# A supported direct installation at the managed destination is upgraded only
+# after the verified candidate is ready. An outdated executable owned elsewhere
+# is rejected instead of being shadowed.
+upgrade=$test_root/upgrade; mkdir -p "$upgrade/home/.local/bin"; : > "$upgrade/calls"
+cat > "$upgrade/home/.local/bin/lazygit" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = --version ] || exit 99
+printf '%s\n' 'lazygit version 1.2.2'
+EOF
+chmod 755 "$upgrade/home/.local/bin/lazygit"
+old_upgrade_hash=$(shasum -a 256 "$upgrade/home/.local/bin/lazygit" | awk '{print $1}')
+PATH=$upgrade/home/.local/bin:$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
+    PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$upgrade/data/chezmoi \
+    PLASTICINE_CHEZMOI_CONFIG_FILE=$upgrade/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$upgrade/config/state \
+    PLASTICINE_CHEZMOI_DEST_DIR=$upgrade/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
+    PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$upgrade/calls \
+    "$repo_dir/install.sh" -y --lazygit >/dev/null
+test "$old_upgrade_hash" != "$(shasum -a 256 "$upgrade/home/.local/bin/lazygit" | awk '{print $1}')" || fail 'outdated managed direct installation was not upgraded'
+test "$("$upgrade/home/.local/bin/lazygit" --version)" = 'lazygit version 1.2.3' || fail 'upgrade did not reach resolved stable target'
+
+upgrade_race=$test_root/upgrade-race; mkdir -p "$upgrade_race/home/.local/bin"; : > "$upgrade_race/calls"
+cat > "$upgrade_race/home/.local/bin/lazygit" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = --version ] || exit 99
+printf '%s\n' 'lazygit version 1.2.2'
+EOF
+chmod 755 "$upgrade_race/home/.local/bin/lazygit"
+if PATH=$upgrade_race/home/.local/bin:$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
+    PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$upgrade_race/data/chezmoi \
+    PLASTICINE_CHEZMOI_CONFIG_FILE=$upgrade_race/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$upgrade_race/config/state \
+    PLASTICINE_CHEZMOI_DEST_DIR=$upgrade_race/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
+    PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$upgrade_race/calls \
+    PLASTICINE_TEST_UPGRADE_RACE=1 "$repo_dir/install.sh" -y --lazygit >/dev/null 2>"$upgrade_race/err"; then fail 'upgrade publication race succeeded'; fi
+test "$(cat "$upgrade_race/home/.local/bin/lazygit")" = competing-upgrade-owner || fail 'upgrade race clobbered the competing owner target'
+test ! -e "$upgrade_race/home/.zshrc" || fail 'upgrade race applied configuration'
+test -z "$(find "$upgrade_race/home/.local/bin" -name '.lazygit.plasticine.*' -print)" || fail 'upgrade race left publication staging'
+
+unsupported_owner=$test_root/unsupported-owner; mkdir -p "$unsupported_owner/home" "$unsupported_owner/bin"; : > "$unsupported_owner/calls"
+cp "$upgrade/home/.local/bin/lazygit" "$unsupported_owner/bin/lazygit"
+sed 's/1\.2\.3/1.2.2/' "$unsupported_owner/bin/lazygit" > "$unsupported_owner/bin/lazygit.tmp"
+mv "$unsupported_owner/bin/lazygit.tmp" "$unsupported_owner/bin/lazygit"; chmod 755 "$unsupported_owner/bin/lazygit"
+unsupported_before=$(shasum -a 256 "$unsupported_owner/bin/lazygit" | awk '{print $1}')
+if PATH=$unsupported_owner/bin:$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
+    PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$unsupported_owner/data/chezmoi \
+    PLASTICINE_CHEZMOI_CONFIG_FILE=$unsupported_owner/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$unsupported_owner/config/state \
+    PLASTICINE_CHEZMOI_DEST_DIR=$unsupported_owner/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
+    PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$unsupported_owner/calls \
+    "$repo_dir/install.sh" -y --lazygit >/dev/null 2>"$unsupported_owner/err"; then fail 'outdated unsupported owner succeeded'; fi
+grep -Fq 'unsupported owner path' "$unsupported_owner/err" || fail 'unsupported owner error was not actionable'
+test "$unsupported_before" = "$(shasum -a 256 "$unsupported_owner/bin/lazygit" | awk '{print $1}')" || fail 'unsupported owner executable changed'
+test ! -e "$unsupported_owner/home/.local/bin/lazygit" || fail 'unsupported owner was shadowed by a second installation'
+test ! -e "$unsupported_owner/home/.zshrc" || fail 'unsupported owner failure applied configuration'
+
+for version_case in prerelease custom newer; do
+    version_scenario=$test_root/version-$version_case; mkdir -p "$version_scenario/home" "$version_scenario/bin"; : > "$version_scenario/release-calls"
+    case $version_case in prerelease) observed='1.2.4-rc.1' ;; custom) observed='custom-build' ;; newer) observed='2.0.0' ;; esac
+    cat > "$version_scenario/bin/lazygit" <<EOF
+#!/bin/sh
+[ "\${1:-}" = --version ] || exit 99
+printf '%s\n' 'lazygit version $observed'
+EOF
+    chmod 755 "$version_scenario/bin/lazygit"
+    if PATH=$version_scenario/bin:$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
+        PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$version_scenario/data/chezmoi \
+        PLASTICINE_CHEZMOI_CONFIG_FILE=$version_scenario/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$version_scenario/config/state \
+        PLASTICINE_CHEZMOI_DEST_DIR=$version_scenario/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
+        PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$version_scenario/release-calls \
+        "$repo_dir/install.sh" -y --lazygit >/dev/null 2>"$version_scenario/err"; then fail "$version_case existing version succeeded"; fi
+    test ! -e "$version_scenario/home/.local/bin/lazygit" || fail "$version_case existing version was shadowed"
+    test ! -e "$version_scenario/home/.zshrc" || fail "$version_case failure applied configuration"
+done
+
+# Currency lookup failure is fatal even when the existing executable is healthy.
+lookup_failure=$test_root/lookup-failure; mkdir -p "$lookup_failure/home"; : > "$lookup_failure/release-calls"
+if PLASTICINE_TEST_CURL_FAIL=metadata run_installer "$lookup_failure" -y --lazygit >/dev/null 2>"$lookup_failure/err"; then fail 'metadata failure accepted a healthy existing executable'; fi
+unset PLASTICINE_TEST_CURL_FAIL
+grep -Fq 'metadata download failed' "$lookup_failure/err" || fail 'metadata failure was not actionable'
+test ! -e "$lookup_failure/home/.zshrc" || fail 'metadata failure applied configuration'
+
+# A newly published stable target is observed on the next invocation and the
+# same managed direct installation converges to it.
+next_fixture=$test_root/next-release-fixture
+cp -R "$release_fixture" "$next_fixture"
+sed 's/1\.2\.3/1.2.4/' "$release_fixture/payload/lazygit" > "$next_fixture/payload/lazygit"
+chmod 755 "$next_fixture/payload/lazygit"
+tar -czf "$next_fixture/lazygit_1.2.4_linux_x86_64.tar.gz" -C "$next_fixture/payload" lazygit
+next_checksum=$(shasum -a 256 "$next_fixture/lazygit_1.2.4_linux_x86_64.tar.gz" | awk '{print $1}')
+printf '%s  %s\n' "$next_checksum" lazygit_1.2.4_linux_x86_64.tar.gz >> "$next_fixture/checksums.txt"
+printf '%s\n' '{"tag_name":"v1.2.4"}' > "$next_fixture/latest.json"
+: > "$upgrade/calls"
+PATH=$upgrade/home/.local/bin:$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
+    PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$upgrade/data/chezmoi \
+    PLASTICINE_CHEZMOI_CONFIG_FILE=$upgrade/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$upgrade/config/state \
+    PLASTICINE_CHEZMOI_DEST_DIR=$upgrade/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
+    PLASTICINE_TEST_RELEASE_FIXTURE=$next_fixture PLASTICINE_TEST_RELEASE_CALLS=$upgrade/calls \
+    "$repo_dir/install.sh" -y --lazygit >/dev/null
+test "$("$upgrade/home/.local/bin/lazygit" --version)" = 'lazygit version 1.2.4' || fail 'next invocation did not install newly published stable target'
 
 # Planning maps every reviewed OS/architecture spelling without network or writes.
 for platform in Darwin:x86_64:darwin:x86_64 Darwin:arm64:darwin:arm64 Linux:amd64:linux:x86_64 Linux:aarch64:linux:arm64; do
@@ -315,7 +428,7 @@ for member_case in missing duplicate; do
         "$repo_dir/install.sh" -y --lazygit >/dev/null 2>"$member_scenario/err"; then
         fail "$member_case archive member succeeded"
     fi
-    grep -Fq 'exactly one member named lazygit' "$member_scenario/err" || fail "$member_case archive error was not actionable"
+    grep -Fq 'exactly one member named lazygit' "$member_scenario/err" || { cat "$member_scenario/err" >&2; fail "$member_case archive error was not actionable"; }
     test ! -e "$member_scenario/home/.local/bin/lazygit" || fail "$member_case archive published a binary"
     test ! -e "$member_scenario/home/.zshrc" || fail "$member_case archive applied configuration"
 done
@@ -397,15 +510,31 @@ for race_platform in Linux:x86_64 Darwin:arm64; do
 done
 
 # When Lazygit succeeds before a later selected tool fails, its healthy binary
-# remains. A rerun resumes from that observation without another download.
+# remains. A rerun resolves metadata again but avoids artifact downloads.
 partial=$test_root/partial-rerun
 partial_bin=$partial/bin
 mkdir -p "$partial/home/.antidote" "$partial_bin"; : > "$partial/calls"; : > "$partial/bundle-fails"
+git -C "$partial/home/.antidote" init -q
+git -C "$partial/home/.antidote" remote add origin https://github.com/mattmc3/antidote.git
 printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$partial/os-release"
+ssh-keygen -q -t ed25519 -N '' -C partial-gate -f "$partial/github-key"
+printf '%s\n' 'owner zshrc before preparation' > "$partial/home/.zshrc"
+printf '%s\n' 'owner plugins before preparation' > "$partial/home/.zsh_plugins.txt"
+cp "$partial/home/.zshrc" "$partial/zshrc-before"
+cp "$partial/home/.zsh_plugins.txt" "$partial/plugins-before"
+chmod 640 "$partial/home/.zshrc"
+chmod 600 "$partial/home/.zsh_plugins.txt"
 real_zsh=$(command -v zsh)
 cat > "$partial_bin/getent" <<EOF
 #!/bin/sh
 printf 'owner:x:%s:%s:Owner:%s:%s\n' "$(id -u)" "$(id -u)" '$partial/home' '$real_zsh'
+EOF
+cat > "$partial_bin/git" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = -C ] && [ "${2##*/}" = .antidote ] && [ "${3:-}" = pull ]; then
+    exit 0
+fi
+exec /usr/bin/git "$@"
 EOF
 cat > "$partial_bin/chsh" <<'EOF'
 #!/bin/sh
@@ -431,10 +560,13 @@ antidote() {
             print -r -- : > "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
             return 0
             ;;
+        update) return 0 ;;
         *) return 1 ;;
     esac
 }
 EOF
+git -C "$partial/home/.antidote" add antidote.zsh
+git -C "$partial/home/.antidote" -c user.name=test -c user.email=test@example.com commit -qm fixture
 chmod +x "$partial_bin"/*
 if PATH=$release_bin:$partial_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
     PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$partial/data/chezmoi \
@@ -442,14 +574,24 @@ if PATH=$release_bin:$partial_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_
     PLASTICINE_CHEZMOI_DEST_DIR=$partial/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
     PLASTICINE_SHELL_OS=Linux PLASTICINE_SHELL_ARCH=x86_64 PLASTICINE_SHELL_OS_RELEASE=$partial/os-release PLASTICINE_SHELL_ZSH=$real_zsh \
     PLASTICINE_SHELL_TTY=0 PLASTICINE_TEST_BUNDLE_FAILS=$partial/bundle-fails PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$partial/calls \
-    "$repo_dir/install.sh" -y --lazygit --shell >/dev/null 2>"$partial/first-err"; then
+    "$repo_dir/install.sh" -y --github-ssh --github-ssh-key "$partial/github-key" --lazygit --shell \
+    >/dev/null 2>"$partial/first-err"; then
     fail 'later shell failure was treated as success'
 fi
 if [ ! -x "$partial/home/.local/bin/lazygit" ]; then
     cat "$partial/first-err" >&2
     fail 'partial success did not retain healthy Lazygit'
 fi
-test ! -e "$partial/home/.zshrc" || fail 'partial failure applied combined configuration'
+grep -Fq '# >>> Plasticine shell >>>' "$partial/home/.zshrc" || fail 'post-configuration plugin failure lost applied .zshrc'
+cmp -s "$repo_dir/dot_zsh_plugins.txt" "$partial/home/.zsh_plugins.txt" || fail 'post-configuration plugin failure lost applied declarations'
+test "$(file_mode "$partial/home/.zshrc")" = 644 || fail 'post-configuration plugin failure did not leave .zshrc at its managed mode'
+test "$(file_mode "$partial/home/.zsh_plugins.txt")" = 644 || fail 'post-configuration plugin failure did not leave declarations at their managed mode'
+grep -Fxq '640 .zshrc' "$partial/home/.plasticine/backups/integration-blocks/pending-mode" ||
+    fail 'post-configuration plugin failure did not retain pending .zshrc mode state'
+grep -Fxq '600 .zsh_plugins.txt' "$partial/home/.plasticine/backups/shell/pending-modes" ||
+    fail 'post-configuration plugin failure did not retain pending declaration mode state'
+test -d "$partial/home/.plasticine/backups" || fail 'post-configuration plugin failure did not preserve recoverable backups'
+test -e "$partial/home/.ssh" || fail 'post-configuration plugin failure lost earlier selected configuration effects'
 rm "$partial/bundle-fails"; : > "$partial/calls"
 PATH=$release_bin:$partial_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
     PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$partial/data/chezmoi \
@@ -457,9 +599,17 @@ PATH=$release_bin:$partial_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin
     PLASTICINE_CHEZMOI_DEST_DIR=$partial/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
     PLASTICINE_SHELL_OS=Linux PLASTICINE_SHELL_ARCH=x86_64 PLASTICINE_SHELL_OS_RELEASE=$partial/os-release PLASTICINE_SHELL_ZSH=$real_zsh \
     PLASTICINE_SHELL_TTY=0 PLASTICINE_TEST_BUNDLE_FAILS=$partial/bundle-fails PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$partial/calls \
-    "$repo_dir/install.sh" -y --lazygit --shell >/dev/null
-test ! -s "$partial/calls" || fail 'partial-success rerun redownloaded healthy Lazygit'
-test -f "$partial/home/.zshrc" || fail 'partial-success rerun did not apply configuration'
+    "$repo_dir/install.sh" -y --github-ssh --github-ssh-key "$partial/github-key" --lazygit --shell >/dev/null
+test "$(wc -l < "$partial/calls" | tr -d ' ')" -eq 1 || fail 'partial-success rerun did not perform exactly one metadata query'
+test ! "$(grep -c '/download/' "$partial/calls")" -ne 0 || fail 'partial-success rerun redownloaded current Lazygit'
+grep -Fq "# >>> Plasticine shell >>>" "$partial/home/.zshrc" || fail 'partial-success rerun did not apply configuration'
+cmp -s "$partial/github-key" "$partial/home/.ssh/id_github" || fail 'partial-success rerun did not apply GitHub SSH configuration'
+test "$(file_mode "$partial/home/.zshrc")" = 640 || fail 'partial-success rerun did not restore .zshrc mode'
+test "$(file_mode "$partial/home/.zsh_plugins.txt")" = 600 || fail 'partial-success rerun did not restore declaration mode'
+test ! -e "$partial/home/.plasticine/backups/integration-blocks/pending-mode" ||
+    fail 'partial-success rerun left pending .zshrc mode state'
+test ! -e "$partial/home/.plasticine/backups/shell/pending-modes" ||
+    fail 'partial-success rerun left pending declaration mode state'
 
 for unsupported in FreeBSD:x86_64 Linux:riscv64; do
     old_ifs=$IFS; IFS=:; set -- $unsupported; IFS=$old_ifs

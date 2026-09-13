@@ -4,7 +4,7 @@
 
 **Blocked by:** 07 — Separate tool preparation from configuration effects.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Retain the existing independently selectable shell interface and reviewed installation routes. Zsh remains a healthy system installation or is prepared through the existing APT route; it is not forced to the newest upstream release.
 - [ ] Check and update an existing Antidote through its positively identified permitted native owner rather than accepting health alone. Refresh native metadata for Homebrew-backed updates and update only the selected formula, never all packages.

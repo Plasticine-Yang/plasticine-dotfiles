@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 
+{{ template "whole-file-protection" . }}
 {{ template "zshrc-integration-blocks" . }}
 
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-zshrc.XXXXXX")
