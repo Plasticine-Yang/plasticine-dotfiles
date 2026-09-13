@@ -1,4 +1,4 @@
-{{- if or (has "lazygit" .tools) (has "shell" .tools) -}}
+{{- if or (has "herdr" .tools) (has "lazygit" .tools) (has "shell" .tools) -}}
 #!/bin/sh
 set -eu
 
@@ -7,6 +7,15 @@ source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
 
 # This is the only selected-tool mutation stage. Configuration backup, mode
 # normalization and application begin only after every selected tool succeeds.
+{{- if has "herdr" .tools }}
+# shellcheck disable=SC1091
+. "$source_dir/lib/herdr-bootstrap.sh"
+plasticine_herdr_plan "$dest_dir" || exit 1
+plasticine_herdr_prepare || {
+    plasticine_herdr_error 'official installer/native updater route failed; tool preparation completed only in part; no selected configuration applied.'
+    exit 1
+}
+{{- end }}
 {{- if has "lazygit" .tools }}
 # shellcheck disable=SC1091
 . "$source_dir/lib/lazygit-bootstrap.sh"

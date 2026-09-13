@@ -22,7 +22,7 @@ Interactive mode:
   install.sh
 
 Non-interactive mode:
-  install.sh -y [--github-ssh --github-ssh-key <path>] [--lazygit] [--shell]
+  install.sh -y [--github-ssh --github-ssh-key <path>] [--herdr] [--lazygit] [--shell]
 
 Options:
   -y, --yes                       Run without prompts and apply changes
@@ -30,6 +30,7 @@ Options:
       --github-ssh-key <path>     Private key to copy to ~/.ssh/id_github
       --github-ssh-test           Test GitHub SSH after applying
       --replace-github-ssh-key    Allow replacement of a different existing key
+      --herdr                     Install or update Herdr from its stable channel
       --lazygit                   Prepare Lazygit if missing and configure its alias
       --shell                     Configure Zsh, install missing reviewed tools, and attempt chsh last
   -h, --help                      Show this help
@@ -43,6 +44,7 @@ github_ssh_test=0
 replace_github_ssh_key=0
 shell=0
 lazygit=0
+herdr=0
 
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -57,6 +59,7 @@ while [ "$#" -gt 0 ]; do
         --github-ssh-test) github_ssh_test=1 ;;
         --replace-github-ssh-key) replace_github_ssh_key=1 ;;
         --shell) shell=1 ;;
+        --herdr) herdr=1 ;;
         --lazygit) lazygit=1 ;;
         -h|--help) usage; exit 0 ;;
         *) error "Unknown option: $1"; usage >&2; exit 2 ;;
@@ -89,7 +92,7 @@ done
 if [ "$yes" -eq 0 ]; then
     if [ "$github_ssh" -eq 1 ] || [ -n "$github_ssh_key" ] ||
        [ "$github_ssh_test" -eq 1 ] || [ "$replace_github_ssh_key" -eq 1 ] ||
-       [ "$shell" -eq 1 ] || [ "$lazygit" -eq 1 ]; then
+       [ "$shell" -eq 1 ] || [ "$lazygit" -eq 1 ] || [ "$herdr" -eq 1 ]; then
         error 'Tool options require -y; run without options for interactive selection.'
         exit 2
     fi
@@ -204,6 +207,9 @@ if [ "$yes" -eq 1 ]; then
     if [ "$lazygit" -eq 1 ]; then
         tools="${tools:+$tools }lazygit"
     fi
+    if [ "$herdr" -eq 1 ]; then
+        tools="${tools:+$tools }herdr"
+    fi
     export PLASTICINE_TOOLS="$tools"
     export PLASTICINE_GITHUB_SSH_TEST=$github_ssh_test
     export PLASTICINE_REPLACE_GITHUB_SSH_KEY=$replace_github_ssh_key
@@ -244,6 +250,7 @@ set -- -S "$source_dir" -D "$destination_dir" -c "$config_file" --persistent-sta
 
 shell_selected=0
 lazygit_selected=0
+herdr_selected=0
 zsh_integration_selected=0
 shell_antidote_route=''
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"shell"/); exit } END { exit !found }' "$config_file"; then
@@ -251,6 +258,9 @@ if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"shell"/); exit } END { exit !f
 fi
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"lazygit"/); exit } END { exit !found }' "$config_file"; then
     lazygit_selected=1
+fi
+if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"herdr"/); exit } END { exit !found }' "$config_file"; then
+    herdr_selected=1
 fi
 if [ "$shell_selected" -eq 1 ] || [ "$lazygit_selected" -eq 1 ]; then
     zsh_integration_selected=1
@@ -274,6 +284,18 @@ if [ "$lazygit_selected" -eq 1 ]; then
     plasticine_lazygit_plan "$destination_dir" || exit 1
     log 'Previewing Lazygit toolchain...'
     plasticine_lazygit_preview
+fi
+
+if [ "$herdr_selected" -eq 1 ]; then
+    [ -f "$source_dir/lib/herdr-bootstrap.sh" ] || {
+        error 'The source repository does not contain lib/herdr-bootstrap.sh.'
+        exit 1
+    }
+    # shellcheck disable=SC1091
+    . "$source_dir/lib/herdr-bootstrap.sh"
+    plasticine_herdr_plan "$destination_dir" || exit 1
+    log 'Previewing Herdr toolchain...'
+    plasticine_herdr_preview
 fi
 
 if [ "$shell_selected" -eq 1 ]; then
