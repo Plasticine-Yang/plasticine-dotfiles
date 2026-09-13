@@ -89,7 +89,9 @@ PLASTICINE_DOTFILES_REPO_URL="$PWD" ./install.sh
 
 ## Lazygit（`--lazygit`）
 
-已有的 `lazygit` 只要通过 `lazygit --version` 健康检查，就保留当前版本和安装归属，不升级、不替换。缺失时，Plasticine 在 apply 阶段从 `jesseduffield/lazygit` 的最新 GitHub Release 下载当前 macOS/Linux、`x86_64`/`arm64` 对应的归档及同一 Release 的 `checksums.txt`，验证 SHA-256 后只提取 `lazygit`，以 `0755` 原子发布到 `~/.local/bin/lazygit`。该校验和与归档处于同一 GitHub Release 信任边界，不是独立签名。此路线不调用 Homebrew、APT、`sudo`、`go install` 或第三方安装器，也不需要凭据或终端提示。
+每次确认 apply 都会查询 `jesseduffield/lazygit` 的最新官方 stable GitHub Release；Preview、dry-run 和取消不会查询 release metadata。缺失时，Plasticine 下载当前 macOS/Linux、`x86_64`/`arm64` 对应归档及同一 Release 的 `checksums.txt`，验证 SHA-256、归档成员与候选版本后，以 `0755` 原子 no-clobber 发布到 `~/.local/bin/lazygit`。已由该路径直接安装的旧 stable 版本会在候选完整验证后重新校验活动目标，再以同目录原子替换升级；当前版本只查询 metadata，不下载或替换归档。该校验和与归档处于同一 GitHub Release 信任边界，不是独立签名。此路线不调用 Homebrew、APT、`sudo`、`go install` 或第三方安装器，也不需要凭据或终端提示。
+
+不健康、无法解析版本、prerelease/custom、比当前 stable target 更新或位于其他路径的旧安装不会被静默替换、降级或用第二份安装遮蔽；请使用其原有 owner 更新，或明确移除该安装后重试。metadata、下载、校验、解包、候选健康、竞态检测或最终版本校验失败都会使本次 Feature 失败，即使旧二进制仍能运行；候选准备失败保留活动安装。fresh publication 后的最终检查失败也保留已发布路径并给出修复/重试指引，不依据早先归属自动删除它。
 
 下载、Release 元数据、校验、解压、发布或安装后健康检查失败时不会改用其他安装路线，也不会应用别名。一次调用选择多个工具时，会先完成所有工具准备，再开始任何受管配置的备份、权限调整或写入；若较后的工具准备失败，较早完成的健康工具会保留，但本次配置仍保持未应用。修复网络、上游资源或本机文件系统问题后可以重跑同一命令，从观测到的健康状态继续。如果发布后的健康检查失败，报错中所列路径会被保留：若它已被其他 Owner 替换，应修复该 Owner 文件；若它仍是本次发布的不健康文件，必须先修复或删除它，再重跑。
 
