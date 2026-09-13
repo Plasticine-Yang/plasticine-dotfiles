@@ -1,6 +1,6 @@
 # plasticine-dotfiles
 
-使用 [chezmoi](https://www.chezmoi.io/) 在 macOS 和 Linux 上选择并恢复个人开发环境。目前支持 GitHub SSH 配置、Lazygit 和 Zsh 环境。
+使用 [chezmoi](https://www.chezmoi.io/) 在 macOS 和 Linux 上选择并恢复个人开发环境。目前支持 GitHub SSH 配置、fnm、Lazygit 和 Zsh 环境。
 
 ## 一行安装
 
@@ -14,7 +14,7 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
 
 chezmoi 维护和 source 获取属于安装器前置工作，会发生在 Feature 确认之前；之后取消 Feature 应用不会撤销已经完成的前置更新。外部安装归属的当前版本可以直接使用，但过期版本必须由原归属更新，安装器不会覆盖它或另装一个遮蔽副本。元数据、下载、SHA-256、候选健康或发布失败都会停止安装并尽量保留原有可用命令。`PLASTICINE_CHEZMOI_BIN` 仍是测试/显式 executable override：安装器验证所需接口，但不接管、更新或联网检查这个显式路径。
 
-安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 GitHub SSH、Lazygit（`lazygit`）和 Zsh 环境（`shell`）；初始选择为空，不选择某个工具表示本次不处理它。
+安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 GitHub SSH、fnm（`fnm`）、Lazygit（`lazygit`）和 Zsh 环境（`shell`）；初始选择为空，不选择某个工具表示本次不处理它。
 
 ## 自动化调用
 
@@ -49,6 +49,18 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
 ```
 
 `--lazygit`、`--shell` 与 `--github-ssh` 可以任意组合，工具集合与顺序无关。工具选项必须配合 `-y`；不带 `-y` 使用工具选项会被拒绝并提示改用交互选择。
+
+单独保持 fnm 当前，或同时选择 shell 以复用现有守卫式激活：
+
+```sh
+sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)" -- \
+  -y --fnm
+
+sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)" -- \
+  -y --fnm --shell
+```
+
+`--fnm` 不隐式选择 `shell`；四种 Feature 可以任意组合且选项顺序无关。
 
 已有不同的 `~/.ssh/id_github` 时，自动化调用还需要显式传入 `--replace-github-ssh-key`。可通过 `--github-ssh-test` 在应用后测试连接。`-y` 不会启用 chezmoi 的强制覆盖，配置冲突仍会停止安装，也不会代替 Homebrew、`sudo` 或 `chsh` 的原生凭据提示。
 
@@ -104,6 +116,16 @@ alias lg='lazygit'
 缺失区块按固定工具顺序插到文件开头，已有合法区块原地更新；区块外字节和原文件权限保持不变。一次 apply 即使多个区块同时变化，也只在 `~/.plasticine/backups/integration-blocks/` 生成一个权限为 `0600` 的 `.zshrc` 全量备份；满足状态的重跑不会改写或新增备份。所有选中区块在任何工具安装前验证，所有选中工具健康后才允许备份和配置应用。
 
 Lazygit 的配置、缓存、日志、仓库状态和 `~/.config/lazygit` 都不归 Plasticine 管理，也不会被检查、导入、备份或删除；旧 `~/.plasticine-dotfiles` 及其运行时状态同样不会清理。安装路线不修改 `PATH`：只选 Lazygit 的 Owner 需要自行确保 `~/.local/bin` 已在 `PATH` 中；同时选择 `shell` 时，共享 Zsh 配置会提供现有的 `~/.local/bin` 默认值。
+
+## fnm（`--fnm`）
+
+每次 apply 都建立当次当前目标。macOS 先运行 `brew update` 刷新元数据，以 Homebrew 最新可用的稳定 `fnm` formula 为目标，只在缺失时 `brew install fnm`、过期时 `brew upgrade fnm`；formula 可能落后于上游 Release，因此只称为“Homebrew 当前”，不宣称等于上游最新。缺少 Homebrew 时复用经审查的官方 bootstrap：它需要原生终端，Homebrew 可能要求管理员凭据或 Apple Command Line Tools，`-y` 不会代答。
+
+Linux 完整下载 `https://fnm.vercel.app/install` 后才执行，传入 `--skip-shell --install-dir <临时候选目录>`，不传固定 `--release`，也不回退到 APT、Homebrew 或其他包管理器。候选先通过 `fnm --version` 健康/稳定版本检查，再发布到 `~/.local/bin/fnm`；首次发布 no-clobber，直接安装更新会在替换前重验目标。官方脚本及其后续下载属于同一上游信任边界，Plasticine 没有额外的独立签名验证。下载、脚本、元数据、Homebrew、候选、发布或最终健康失败都会返回非零；准备失败会保留原有可用命令，原生工具已经完成的效果则保留并可安全重跑。
+
+已是当前目标时不会替换命令。稳定版本比当前目标更新、预发布/自定义/无法解析的版本、不健康命令会拒绝降级或接管；允许路线之外的旧 owner 必须通过原 owner 更新，不会在 `~/.local/bin` 另装遮蔽副本。Preview 只报告本地观测、路线、后续网络和权限影响；目标查询和工具变更只在确认后的 apply 发生，取消与 dry-run 不执行它们。
+
+只选择 `--fnm` 不读取或编辑 `.zshrc`，也不添加 shell integration。请自行确保 `~/.local/bin` 在 `PATH`，并按需配置原生 `fnm env --shell zsh` 激活；同时选择 `--shell` 时会复用已有的唯一守卫式激活，失败输出不会被 `eval`，且不会启用 `--use-on-cd`。安装只维护 manager：Node 版本、默认 Node、项目版本声明、`FNM_DIR` 和 fnm 原生 runtime/state 都不会被检查、迁移或修改。
 
 ## Zsh 环境（`--shell`）
 
@@ -183,11 +205,13 @@ CHEZMOI_BIN=/path/to/chezmoi ./tests/installer.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/shell.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/lazygit.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/lazygit-runtime.sh
+CHEZMOI_BIN=/path/to/chezmoi ./tests/fnm.sh
+./tests/fnm-runtime.sh
 ./tests/shell-runtime.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/release.sh
 ```
 
-`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、登录 shell 切换与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/lazygit-runtime.sh` 用真实 Zsh 证明 `lg` 的调用、Owner 后置覆盖、组合顺序和收敛；`tests/shell-runtime.sh` 用真实 Zsh 在临时 HOME 中启动交互式和非交互式 shell，验证受管片段的运行时行为。两个 runtime 套件都需要本机存在 `zsh`。
+`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、登录 shell 切换与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/fnm.sh` 覆盖 Linux 官方脚本候选发布和 macOS Homebrew currency 路线；`tests/lazygit-runtime.sh` 与 `tests/shell-runtime.sh` 使用真实 Zsh，后者包含受控 fnm 的成功/失败激活、Owner 后续代码继续执行和单次初始化验证。runtime 套件需要本机存在 `zsh`。
 
 ## 发布
 
