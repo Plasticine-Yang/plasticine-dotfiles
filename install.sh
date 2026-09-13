@@ -2,7 +2,6 @@
 set -eu
 
 readonly_repo_url='https://github.com/Plasticine-Yang/plasticine-dotfiles.git'
-readonly_chezmoi_version='v2.72.1'
 # Empty in the source checkout. scripts/build-release.sh replaces this exact
 # assignment with the full commit published by a GitHub Release.
 readonly_repo_revision=''
@@ -35,27 +34,6 @@ Options:
       --shell                     Configure Zsh, install missing reviewed tools, and attempt chsh last
   -h, --help                      Show this help
 EOF
-}
-
-chezmoi_is_compatible() {
-    "$1" --version 2>/dev/null | awk '{
-        for (i = 1; i <= NF; i++) {
-            if ($i ~ /^v[0-9]+\.[0-9]+\.[0-9]+/) {
-                sub(/^v/, "", $i)
-                sub(/[^0-9.].*$/, "", $i)
-                version = $i
-                break
-            }
-        }
-    }
-    END {
-        if (version == "") exit 1
-        split(version, part, /\./)
-        if (part[1] > 2 ||
-            (part[1] == 2 && part[2] > 72) ||
-            (part[1] == 2 && part[2] == 72 && part[3] >= 1)) exit 0
-        exit 1
-    }'
 }
 
 yes=0
@@ -129,30 +107,13 @@ else
     fi
 fi
 
-chezmoi_bin=${PLASTICINE_CHEZMOI_BIN:-}
-if [ -n "$chezmoi_bin" ]; then
-    case $chezmoi_bin in
-        */*) ;;
-        *) chezmoi_bin=$(command -v "$chezmoi_bin" 2>/dev/null || true) ;;
-    esac
-fi
-if [ -z "$chezmoi_bin" ] && command -v chezmoi >/dev/null 2>&1; then
-    chezmoi_bin=$(command -v chezmoi)
-fi
-if [ -n "$chezmoi_bin" ] && ! chezmoi_is_compatible "$chezmoi_bin"; then
-    log "Ignoring incompatible chezmoi: $chezmoi_bin"
-    chezmoi_bin=''
-fi
-if [ -z "$chezmoi_bin" ]; then
-    command -v curl >/dev/null 2>&1 || { error 'curl is required to install chezmoi.'; exit 1; }
-    install_bin_dir=$HOME/.local/bin
-    log "Installing chezmoi $readonly_chezmoi_version to $install_bin_dir..."
-    sh -c "$(curl --proto '=https' --proto-redir '=https' -fsSL https://get.chezmoi.io)" -- \
-        -b "$install_bin_dir" -t "$readonly_chezmoi_version"
-    chezmoi_bin=$install_bin_dir/chezmoi
-fi
-[ -x "$chezmoi_bin" ] || { error "chezmoi is not executable: $chezmoi_bin"; exit 1; }
-chezmoi_is_compatible "$chezmoi_bin" || { error 'Installed chezmoi version is incompatible.'; exit 1; }
+[ -f "$(dirname -- "$0")/lib/chezmoi-bootstrap.sh" ] || { error 'The installer does not contain lib/chezmoi-bootstrap.sh.'; exit 1; }
+# shellcheck disable=SC1091
+. "$(dirname -- "$0")/lib/chezmoi-bootstrap.sh"
+plasticine_chezmoi_bootstrap "$HOME" "${PLASTICINE_CHEZMOI_BIN:-}" || exit 1
+# Assigned by plasticine_chezmoi_bootstrap from the sourced module.
+# shellcheck disable=SC2154
+: "${chezmoi_bin:?}"
 
 source_dir=${PLASTICINE_CHEZMOI_SOURCE_DIR:-$HOME/.local/share/chezmoi}
 config_file=${PLASTICINE_CHEZMOI_CONFIG_FILE:-$HOME/.config/chezmoi/chezmoi.toml}

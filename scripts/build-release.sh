@@ -23,6 +23,7 @@ esac
 }
 mkdir -p "$output_dir"
 
+rendered_installer=$output_dir/.install.sh.rendered
 awk -v revision="$revision" '
     /^readonly_repo_revision=\x27\x27$/ {
         print "readonly_repo_revision=\x27" revision "\x27"
@@ -31,10 +32,26 @@ awk -v revision="$revision" '
     }
     { print }
     END { if (replaced != 1) exit 1 }
-' "$repo_dir/install.sh" > "$output_dir/install.sh" || {
+' "$repo_dir/install.sh" > "$rendered_installer" || {
     printf '%s\n' 'failed to render the release revision into install.sh' >&2
     exit 1
 }
+awk -v module="$repo_dir/lib/chezmoi-bootstrap.sh" '
+    /^\[ -f .*lib\/chezmoi-bootstrap\.sh/ {
+        while ((getline line < module) > 0) print line
+        close(module)
+        getline
+        getline
+        replaced++
+        next
+    }
+    { print }
+    END { if (replaced != 1) exit 1 }
+' "$rendered_installer" > "$output_dir/install.sh" || {
+    printf '%s\n' 'failed to inline the chezmoi bootstrap into release install.sh' >&2
+    exit 1
+}
+rm -f "$rendered_installer"
 chmod 755 "$output_dir/install.sh"
 
 (
