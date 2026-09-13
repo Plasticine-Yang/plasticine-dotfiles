@@ -58,6 +58,9 @@ for argument do file=$argument; done
 case ${file##*/} in
     chezmoi_2.72.1_linux_amd64.tar.gz) printf '%s  %s\n' 9f97d32caca166e5c92160ec3a9325519809c38963121cef38173142065c981f "$file" ;;
     chezmoi_2.72.1_linux-musl_amd64.tar.gz) printf '%s  %s\n' b961e2972d6fcd1002f9b986d4a61dc5da288e96aab226434fd5b20a7de80cf9 "$file" ;;
+    chezmoi_2.72.1_linux_arm64.tar.gz) printf '%s  %s\n' 75508ef41216b6d64f3145986b751729d7f92d09c6bad77d51cf2895ab35a508 "$file" ;;
+    chezmoi_2.72.1_darwin_amd64.tar.gz) printf '%s  %s\n' bf0f0e048291efe126cb8bc51cf566057b92755cd53ce82c45efa11d2f8f4898 "$file" ;;
+    chezmoi_2.72.1_darwin_arm64.tar.gz) printf '%s  %s\n' 938d422091cc001e68fe3fd7efea9b923a36facbf2b8db67063639abbaf72de2 "$file" ;;
     *) exec /usr/bin/shasum "$@" ;;
 esac
 EOF
@@ -99,7 +102,7 @@ run_direct() {
     PLASTICINE_TEST_CHEZMOI_CALLS=$scenario/calls \
     PLASTICINE_TEST_CHEZMOI_TARGET=$scenario/home/.local/bin/chezmoi \
     PLASTICINE_TEST_CHEZMOI_PUBLISH=${PLASTICINE_TEST_CHEZMOI_PUBLISH:-} \
-    PLASTICINE_CHEZMOI_OS=Linux PLASTICINE_CHEZMOI_ARCH=x86_64 PLASTICINE_CHEZMOI_LIBC=${PLASTICINE_CHEZMOI_LIBC:-glibc} \
+    PLASTICINE_CHEZMOI_OS=${PLASTICINE_CHEZMOI_OS:-Linux} PLASTICINE_CHEZMOI_ARCH=${PLASTICINE_CHEZMOI_ARCH:-x86_64} PLASTICINE_CHEZMOI_LIBC=${PLASTICINE_CHEZMOI_LIBC:-glibc} \
     PLASTICINE_DOTFILES_REPO_URL=$origin PLASTICINE_CHEZMOI_SOURCE_DIR=$scenario/source \
     PLASTICINE_CHEZMOI_CONFIG_FILE=$scenario/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$scenario/config/state \
     PLASTICINE_CHEZMOI_DEST_DIR=$scenario/home "$repo_dir/install.sh" -y "$@"
@@ -129,10 +132,16 @@ if PLASTICINE_TEST_CHEZMOI_FAIL=download run_direct "$broken" 2.73.0 >/dev/null 
 [ ! -e "$broken/source" ] || fail 'download failure acquired source'
 unset PLASTICINE_TEST_CHEZMOI_FAIL
 
-# Linux libc selection uses the pinned musl asset only where upstream publishes it.
-musl=$test_root/musl; mkdir -p "$musl/home"; : > "$musl/calls"
-PLASTICINE_CHEZMOI_LIBC=musl run_direct "$musl" 2.73.0 >/dev/null
-grep -Fq '/v2.72.1/chezmoi_2.72.1_linux-musl_amd64.tar.gz' "$musl/calls" || fail 'musl x86_64 did not select the reviewed pinned asset'
+# Every supported platform route selects its exact reviewed pinned asset.
+for route in Linux:x86_64:glibc:linux_amd64 Linux:x86_64:musl:linux-musl_amd64 Linux:arm64:glibc:linux_arm64 Darwin:x86_64:glibc:darwin_amd64 Darwin:arm64:glibc:darwin_arm64; do
+    old_ifs=$IFS; IFS=:; set -- $route; IFS=$old_ifs
+    platform=$test_root/platform-$1-$2-$3; mkdir -p "$platform/home"; : > "$platform/calls"
+    PLASTICINE_CHEZMOI_OS=$1 PLASTICINE_CHEZMOI_ARCH=$2 PLASTICINE_CHEZMOI_LIBC=$3 \
+        run_direct "$platform" 2.73.0 >/dev/null
+    grep -Fq "/v2.72.1/chezmoi_2.72.1_$4.tar.gz" "$platform/calls" || \
+        fail "$1/$2/$3 did not select the reviewed pinned asset"
+done
+# Linux musl arm64 remains unsupported because upstream publishes no reviewed asset.
 unsupported_musl=$test_root/unsupported-musl; mkdir -p "$unsupported_musl/home"; : > "$unsupported_musl/calls"
 if HOME=$unsupported_musl/home PATH=$fixture_bin:/usr/bin:/bin PLASTICINE_TEST_CHEZMOI_FIXTURE=$fixture \
     PLASTICINE_TEST_CHEZMOI_CALLS=$unsupported_musl/calls PLASTICINE_CHEZMOI_OS=Linux PLASTICINE_CHEZMOI_ARCH=arm64 \

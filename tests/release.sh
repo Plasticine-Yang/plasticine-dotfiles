@@ -21,6 +21,67 @@ asset_dir=$test_root/assets
 CHEZMOI_BIN=${CHEZMOI_BIN:-$(command -v chezmoi)} \
     "$repo_dir/scripts/verify-release.sh" "$asset_dir" "$revision" "$origin_repo"
 
+# Exercise the generated installer's inlined bootstrap for both a missing and
+# an older managed chezmoi without relying on a live Release download.
+release_fixture=$test_root/release-fixture
+release_fixture_bin=$test_root/release-fixture-bin
+mkdir -p "$release_fixture/payload" "$release_fixture_bin"
+real_chezmoi=${CHEZMOI_BIN:-$(command -v chezmoi)}
+cat > "$release_fixture/payload/chezmoi" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = --version ]; then printf '%s\n' 'chezmoi version v2.72.1'; exit 0; fi
+exec '@REAL_CHEZMOI@' "$@"
+EOF
+sed "s|@REAL_CHEZMOI@|$real_chezmoi|" "$release_fixture/payload/chezmoi" > "$release_fixture/payload/chezmoi.rendered"
+mv "$release_fixture/payload/chezmoi.rendered" "$release_fixture/payload/chezmoi"
+chmod 755 "$release_fixture/payload/chezmoi"
+tar -czf "$release_fixture/chezmoi_2.72.1_linux_amd64.tar.gz" -C "$release_fixture/payload" chezmoi
+cat > "$release_fixture_bin/curl" <<'EOF'
+#!/bin/sh
+output=''; url=''
+while [ "$#" -gt 0 ]; do
+    case $1 in -o) output=$2; shift ;; http*) url=$1 ;; esac
+    shift
+done
+printf '%s\n' "$url" >> "$PLASTICINE_TEST_RELEASE_CALLS"
+case $url in
+    */v2.72.1/chezmoi_2.72.1_linux_amd64.tar.gz) cp "$PLASTICINE_TEST_RELEASE_FIXTURE/chezmoi_2.72.1_linux_amd64.tar.gz" "$output" ;;
+    *) exit 98 ;;
+esac
+EOF
+cat > "$release_fixture_bin/shasum" <<'EOF'
+#!/bin/sh
+for argument do file=$argument; done
+case ${file##*/} in
+    chezmoi_2.72.1_linux_amd64.tar.gz) printf '%s  %s\n' 9f97d32caca166e5c92160ec3a9325519809c38963121cef38173142065c981f "$file" ;;
+    *) exec /usr/bin/shasum "$@" ;;
+esac
+EOF
+chmod +x "$release_fixture_bin"/*
+generated=$test_root/generated-bootstrap
+mkdir -p "$generated/home"
+run_generated_bootstrap() {
+    HOME=$generated/home PATH=$release_fixture_bin:/usr/bin:/bin \
+    PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$generated/calls \
+    PLASTICINE_CHEZMOI_OS=Linux PLASTICINE_CHEZMOI_ARCH=x86_64 PLASTICINE_CHEZMOI_LIBC=glibc \
+    PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$generated/source \
+    PLASTICINE_CHEZMOI_CONFIG_FILE=$generated/config/chezmoi.toml \
+    PLASTICINE_CHEZMOI_STATE_FILE=$generated/config/chezmoistate.boltdb \
+    PLASTICINE_CHEZMOI_DEST_DIR=$generated/home "$asset_dir/install.sh" -y >/dev/null
+}
+: > "$generated/calls"
+run_generated_bootstrap
+[ "$("$generated/home/.local/bin/chezmoi" --version)" = 'chezmoi version v2.72.1' ]
+grep -Fxq 'https://github.com/twpayne/chezmoi/releases/download/v2.72.1/chezmoi_2.72.1_linux_amd64.tar.gz' "$generated/calls"
+sed 's/v2.72.1/v2.72.0/' "$release_fixture/payload/chezmoi" > "$generated/home/.local/bin/chezmoi"
+chmod 755 "$generated/home/.local/bin/chezmoi"
+old_hash=$(shasum -a 256 "$generated/home/.local/bin/chezmoi" | awk '{print $1}')
+: > "$generated/calls"
+run_generated_bootstrap
+[ "$("$generated/home/.local/bin/chezmoi" --version)" = 'chezmoi version v2.72.1' ]
+[ "$old_hash" != "$(shasum -a 256 "$generated/home/.local/bin/chezmoi" | awk '{print $1}')" ]
+grep -Fxq 'https://github.com/twpayne/chezmoi/releases/download/v2.72.1/chezmoi_2.72.1_linux_amd64.tar.gz' "$generated/calls"
+
 # Install the first release into a persistent scenario so the next generated
 # release can prove that an existing detached source advances explicitly.
 upgrade_dir=$test_root/upgrade
@@ -52,10 +113,15 @@ grep -Fq 'neovim_version=0.12.5' "$upgrade_dir/source/lib/neovim-bootstrap.sh"
 grep -Fq 'bce0f56eda1f1b1db6eee8f4133d7a38813ea07933837dd1777411ca384c6875' "$upgrade_dir/source/lib/neovim-bootstrap.sh"
 grep -Fq 'chezmoi_version=2.72.1' "$asset_dir/install.sh"
 grep -Fq '9f97d32caca166e5c92160ec3a9325519809c38963121cef38173142065c981f' "$asset_dir/install.sh"
-if grep -Fq 'api.github.com' "$asset_dir/install.sh"; then
-    printf '%s\n' 'generated installer contains a GitHub API dependency' >&2
-    exit 1
-fi
+for production_source in "$asset_dir/install.sh" \
+    "$upgrade_dir/source/lib/chezmoi-bootstrap.sh" \
+    "$upgrade_dir/source/lib/lazygit-bootstrap.sh" \
+    "$upgrade_dir/source/lib/neovim-bootstrap.sh"; do
+    if grep -Fq 'api.github.com' "$production_source"; then
+        printf 'production source contains a GitHub API dependency: %s\n' "$production_source" >&2
+        exit 1
+    fi
+done
 grep -Fq 'antidote update' "$upgrade_dir/source/lib/shell-bootstrap.sh"
 
 # Advancing main after the asset was built must not change what it installs.
