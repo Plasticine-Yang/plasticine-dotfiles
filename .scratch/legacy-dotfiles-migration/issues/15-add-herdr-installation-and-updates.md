@@ -1,0 +1,24 @@
+# 15: Add Herdr through its official installer and native updater
+
+**What to build:** Let the Owner independently select Herdr, bootstrap a missing command through the official script, and bring a supported existing direct installation to the current stable release through its native updater. Installation must not launch Herdr, create sessions, or silently consent to disrupting running work.
+
+**Blocked by:** 07 — Separate tool preparation from configuration effects.
+
+**Status:** ready-for-agent
+
+- [ ] Add Herdr to interactive and explicit non-interactive Feature Selection. It works alone and with other Features without requiring shell, fnm, Lazygit, or their later update tickets.
+- [ ] During confirmed apply, establish the current stable target and distinguish missing, outdated, current, unhealthy, prerelease/custom, and unsupported-owner installations. An older runnable command is not successful currency; an unchanged current target does not trigger unnecessary replacement.
+- [ ] Bootstrap missing Herdr by fully downloading and then executing the official installer, not by reimplementing its release downloader or using a package manager. Use its supported installation-directory override for private candidate preparation.
+- [ ] Preserve upstream's binary integrity checks and report their actual trust limits. Validate the staged command using its noninteractive version interface before publishing it through the conventional user command location.
+- [ ] Retain safe fresh publication with target/parent validation and no-clobber behavior. Abort on detectable publication races, do not overwrite an Owner-created target, and do not delete a pathname after failure merely because it previously represented a candidate from this invocation.
+- [ ] For a positively identified supported direct installation, use the native Herdr update route and verify the resulting version against the resolved stable target. Do not treat a no-op or declined native update as success when the installed command remains outdated.
+- [ ] Do not silently switch an Owner-selected channel, downgrade custom/prerelease installations, mutate prohibited package-manager owners, or install a second copy to shadow them. A demonstrably current other-owner executable can remain unchanged; unsupported required updates produce actionable guidance.
+- [ ] Keep native updater intervention explicit. Do not fabricate confirmation, proactively stop sessions or servers, request experimental live handoff, or interpret Plasticine's non-interactive confirmation as authorization for native process control. If an unattended update cannot safely complete, return failure with retry guidance.
+- [ ] Use only safe noninteractive health/version probes during installation. Never launch the default terminal UI or a server as a health check, create a session, install agent integrations, or generate Herdr configuration.
+- [ ] Do not create aliases or edit shell startup files. Standalone selection reports command-location/PATH requirements, while combined shell selection can use the existing shared PATH behavior without a new Integration Block.
+- [ ] Preserve Herdr configuration, native session and plugin data, caches, and existing Owner state. Updating the command does not authorize importing legacy state or cleaning native directories.
+- [ ] Preview describes the official installer/native updater, network access, destination, stable-channel intent, and possible native prompts without performing latest-target queries. Cancellation and dry-run perform no selected Herdr update; unselected Herdr is not inspected by feature-specific work.
+- [ ] Latest lookup, installer, checksum, candidate-health, native-update, or final-target verification failure returns nonzero with accurate remaining-state information. Respect the selected-tool preparation gate before applying any combined managed configuration and do not simulate global rollback.
+- [ ] Test missing/current/outdated direct installations, unsupported owners, channel conflicts, metadata failures, native updater no-op/decline, noninteractive prompt refusal, installer/verification/publication failures, and target races through the installer and chezmoi entrypoints using controlled upstream and filesystem fixtures.
+- [ ] Make fixture UI/server/session-control commands fail the test if invoked unexpectedly. Verify current-target convergence, a new target on the next invocation, selected-only isolation, absence of unrequested shell edits, and preservation of configuration/session sentinels.
+- [ ] Document the official installation route, native update ownership, stable-target semantics, PATH responsibility, prompt handling, lack of runtime configuration management, and recovery. Run focused and existing integration regressions without live downloads or starting a real Herdr server.
