@@ -1173,7 +1173,16 @@ for distro_spec in 'debian 13 arm64 0' 'ubuntu 24.04 aarch64 0' 'ubuntu 26.04 ar
         if [ "$2" = 26.04 ]; then
             grep -Fq best-effort "$linux_plat/stdout"
         fi
-        test ! -s "$linux_plat/fake-bin/calls"
+        grep -Fq 'git pull --ff-only' "$linux_plat/fake-bin/calls" ||
+            fail "supported $1 $2 $3 did not update the existing Antidote checkout."
+        grep -Fq 'bundle bundle' "$linux_plat/fake-bin/calls" ||
+            fail "supported $1 $2 $3 did not synchronize the managed plugin declarations."
+        grep -Fq update "$linux_plat/fake-bin/calls" ||
+            fail "supported $1 $2 $3 did not run the native plugin update."
+        if grep -Eq 'apt-get |git clone|brew install|chsh ' "$linux_plat/fake-bin/calls"; then
+            cat "$linux_plat/fake-bin/calls" >&2
+            fail "supported $1 $2 $3 reinstalled healthy tools or changed the login shell."
+        fi
     else
         test "$plat_status" -ne 0 || fail "unsupported $1 $2 $3 was accepted."
         test ! -s "$linux_plat/fake-bin/calls"

@@ -161,6 +161,9 @@ plasticine_neovim_prepare() {
     [ "$neovim_actual" = "$neovim_expected" ] || { plasticine_neovim_error 'GitHub Release asset SHA-256 digest mismatch; active installation was left untouched.'; return 1; }
     tar -tzf "$neovim_archive" > "$neovim_work_dir/members" 2>/dev/null || { plasticine_neovim_error 'archive listing failed; active installation was left untouched.'; return 1; }
     awk -v root="$neovim_archive_root/" 'NF == 0 || index($0, root) != 1 || $0 ~ /(^|\/)\.\.(\/|$)/ {bad=1} END {exit bad}' "$neovim_work_dir/members" || { plasticine_neovim_error 'archive contains an unsafe or unexpected member path; active installation was left untouched.'; return 1; }
+    tar -tvzf "$neovim_archive" > "$neovim_work_dir/member-details" 2>/dev/null || { plasticine_neovim_error 'archive detail listing failed; active installation was left untouched.'; return 1; }
+    awk 'substr($0, 1, 1) == "l" || substr($0, 1, 1) == "h" { unsafe=1 } END { exit unsafe }' \
+        "$neovim_work_dir/member-details" || { plasticine_neovim_error 'archive contains a symbolic-link or hard-link member; active installation was left untouched.'; return 1; }
     if ! mkdir "$neovim_extract" || ! tar -xzf "$neovim_archive" -C "$neovim_extract"; then
         plasticine_neovim_error 'archive extraction failed; active installation was left untouched.'
         return 1

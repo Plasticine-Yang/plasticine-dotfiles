@@ -39,6 +39,33 @@ EOF
 }
 make_archive 0.12.4
 make_archive 0.12.5
+unsafe_root=$test_root/unsafe/nvim-linux-x86_64
+mkdir -p "$unsafe_root/bin" "$unsafe_root/share/nvim/runtime"
+cp "$test_root/build-0.12.4/nvim-linux-x86_64/bin/nvim" "$unsafe_root/bin/nvim"
+cp "$test_root/build-0.12.4/nvim-linux-x86_64/share/nvim/runtime/filetype.lua" "$unsafe_root/share/nvim/runtime/filetype.lua"
+ln -s /tmp/escape "$unsafe_root/share/nvim/runtime/unsafe-link"
+tar -czf "$fixture_assets/symlink.tar.gz" -C "$test_root/unsafe" nvim-linux-x86_64
+rm "$unsafe_root/share/nvim/runtime/unsafe-link"
+ln "$unsafe_root/share/nvim/runtime/filetype.lua" "$unsafe_root/share/nvim/runtime/unsafe-hardlink"
+tar -czf "$fixture_assets/hardlink.tar.gz" -C "$test_root/unsafe" nvim-linux-x86_64
+printf '%s\n' 'not an archive' > "$fixture_assets/malformed.tar.gz"
+for archive in symlink hardlink malformed; do
+    shasum -a 256 "$fixture_assets/$archive.tar.gz" | awk '{print $1}' > "$fixture_assets/$archive.sha"
+done
+cat > "$fixture_bin/tar" <<'EOF'
+#!/bin/sh
+case $* in *-xzf*) [ "${PLASTICINE_NEOVIM_FAIL_EXTRACT:-0}" != 1 ] || exit 42 ;; esac
+exec /usr/bin/tar "$@"
+EOF
+cat > "$fixture_bin/ln" <<'EOF'
+#!/bin/sh
+[ "${PLASTICINE_NEOVIM_FAIL_PUBLICATION:-0}" != 1 ] || {
+    for destination do :; done
+    case $destination in */.local/opt/neovim) exit 42 ;; esac
+}
+exec /bin/ln "$@"
+EOF
+chmod 755 "$fixture_bin/tar" "$fixture_bin/ln"
 
 cat > "$fixture_bin/curl" <<'EOF'
 #!/bin/sh
@@ -52,7 +79,8 @@ printf '%s\n' curl >> "$PLASTICINE_NEOVIM_TEST_CALLS"
 case $* in
   *api.github.com/repos/neovim/neovim/releases/latest*)
     version=${PLASTICINE_NEOVIM_TEST_VERSION:-0.12.4}
-    digest=$(cat "$PLASTICINE_NEOVIM_TEST_ASSETS/$version.sha")
+    archive=${PLASTICINE_NEOVIM_ARCHIVE_FIXTURE:-$version}
+    digest=$(cat "$PLASTICINE_NEOVIM_TEST_ASSETS/$archive.sha")
     [ "${PLASTICINE_NEOVIM_BAD_DIGEST:-0}" != 1 ] || digest=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     payload="  \"tag_name\": \"v$version\",
   \"name\": \"nvim-linux-x86_64.tar.gz\",
@@ -63,7 +91,8 @@ case $* in
     ;;
   *github.com/neovim/neovim/releases/download/*)
     [ -z "${PLASTICINE_NEOVIM_RACE_TARGET:-}" ] || mkdir -p "$PLASTICINE_NEOVIM_RACE_TARGET"
-    cp "$PLASTICINE_NEOVIM_TEST_ASSETS/${PLASTICINE_NEOVIM_TEST_VERSION:-0.12.4}.tar.gz" "$output"
+    archive=${PLASTICINE_NEOVIM_ARCHIVE_FIXTURE:-${PLASTICINE_NEOVIM_TEST_VERSION:-0.12.4}}
+    cp "$PLASTICINE_NEOVIM_TEST_ASSETS/$archive.tar.gz" "$output"
     ;;
   *) exit 99 ;;
 esac
@@ -112,10 +141,16 @@ apply_case "$fresh" "$test_root/fresh-state" env PLASTICINE_NEOVIM_TEST_VERSION=
 [ -f "$fresh/.config/nvim/lua/local.lua" ]
 
 # Preparation failures preserve an existing direct installation and precede configuration.
-for scenario in metadata digest; do
+for scenario in metadata digest symlink hardlink malformed extraction candidate-health; do
     failed=$test_root/$scenario-home
     cp -R "$fresh" "$failed"; rm -rf "$failed/.config"; : > "$failed/calls"
-    flag=PLASTICINE_NEOVIM_BAD_METADATA=1; [ "$scenario" != digest ] || flag=PLASTICINE_NEOVIM_BAD_DIGEST=1
+    case $scenario in
+        metadata) flag=PLASTICINE_NEOVIM_BAD_METADATA=1 ;;
+        digest) flag=PLASTICINE_NEOVIM_BAD_DIGEST=1 ;;
+        symlink|hardlink|malformed) flag=PLASTICINE_NEOVIM_ARCHIVE_FIXTURE=$scenario ;;
+        extraction) flag=PLASTICINE_NEOVIM_FAIL_EXTRACT=1 ;;
+        candidate-health) flag=PLASTICINE_NEOVIM_FAIL_HEADLESS=1 ;;
+    esac
     if apply_case "$failed" "$test_root/$scenario-state" env PLASTICINE_NEOVIM_TEST_VERSION=0.12.4 "$flag" >/dev/null 2>&1; then
         printf 'preparation failure unexpectedly succeeded: %s\n' "$scenario" >&2; exit 1
     fi
@@ -139,6 +174,19 @@ if apply_case "$race" "$test_root/race-state" env PLASTICINE_NEOVIM_RACE_TARGET=
     printf '%s\n' 'destination race unexpectedly succeeded.' >&2; exit 1
 fi
 [ ! -e "$race/.local/bin/nvim" ] && [ ! -e "$race/.config/nvim/init.lua" ]
+
+# A failed authorized upgrade switch preserves the active complete distribution.
+publication=$test_root/publication-home
+mkdir -p "$publication"; : > "$publication/calls"
+apply_case "$publication" "$test_root/publication-state" env PLASTICINE_NEOVIM_TEST_VERSION=0.12.4 >/dev/null
+rm -rf "$publication/.config"; : > "$publication/calls"
+before_publication=$("$publication/.local/bin/nvim" --version)
+if apply_case "$publication" "$test_root/publication-state" env \
+    PLASTICINE_NEOVIM_TEST_VERSION=0.12.5 PLASTICINE_NEOVIM_FAIL_PUBLICATION=1 >/dev/null 2>&1; then
+    printf '%s\n' 'publication failure unexpectedly succeeded.' >&2; exit 1
+fi
+[ "$("$publication/.local/bin/nvim" --version)" = "$before_publication" ]
+[ ! -e "$publication/.config/nvim/init.lua" ]
 
 # Local conflicts and unsupported environments/platforms stop before mutation.
 conflict=$test_root/conflict-home; mkdir -p "$conflict/.config/nvim"; printf 'set number\n' > "$conflict/.config/nvim/init.vim"
