@@ -1,0 +1,9 @@
+[user]
+	name = plasticine
+	email = 975036719@qq.com
+[init]
+	defaultBranch = main
+[pull]
+	rebase = true
+[include]
+	path = ~/.gitconfig.local

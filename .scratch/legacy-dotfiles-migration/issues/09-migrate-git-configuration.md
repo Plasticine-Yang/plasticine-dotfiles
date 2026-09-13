@@ -4,7 +4,7 @@
 
 **Blocked by:** 07 — Separate tool preparation from configuration effects.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Add Git configuration to interactive selection and the explicit non-interactive Feature Selection interface. It works alone and with existing Features in any option order; it does not implicitly select GitHub SSH or shell.
 - [ ] Preserve the legacy shared identity and the agreed default initial branch and pull-rebase settings. Keep the Owner-controlled local override include last so native Git precedence allows local values to win.

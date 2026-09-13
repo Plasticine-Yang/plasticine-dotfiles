@@ -99,6 +99,41 @@ test ! -e "$empty_dir/home/install.sh"
 test ! -e "$empty_dir/home/scripts"
 test ! -e "$empty_dir/home/.github"
 
+# Git configuration is independently selectable through the real installer.
+# It neither selects GitHub SSH/shell nor touches the Owner's local override.
+git_config_dir=$test_root/git-config
+mkdir -p "$git_config_dir/home"
+printf '%s\n' '[user]' 'name = installer-local-owner' \
+    '[plasticine]' 'marker = installer-local-marker-09' > "$git_config_dir/home/.gitconfig.local"
+cp "$git_config_dir/home/.gitconfig.local" "$git_config_dir/local-before"
+run_installer "$git_config_dir" -y --git-config > "$git_config_dir/output"
+grep -Fq 'tools = ["git-config"]' "$git_config_dir/config/chezmoi.toml"
+test "$(HOME=$git_config_dir/home GIT_CONFIG_NOSYSTEM=1 git config --global --includes --get user.name)" = installer-local-owner
+test "$(HOME=$git_config_dir/home GIT_CONFIG_NOSYSTEM=1 git config --global --includes --get user.email)" = 975036719@qq.com
+cmp -s "$git_config_dir/local-before" "$git_config_dir/home/.gitconfig.local"
+test ! -e "$git_config_dir/home/.ssh"
+test ! -e "$git_config_dir/home/.zshrc"
+if grep -Fq 'installer-local-marker-09' "$git_config_dir/output"; then
+    printf '%s\n' 'Git config installer Preview traversed the local override.' >&2
+    exit 1
+fi
+
+# CLI option order denotes a set, including the independent Git configuration
+# and GitHub SSH Features.
+for order in git-first ssh-first; do
+    combination=$test_root/git-config-$order
+    mkdir -p "$combination/home" "$combination/key"
+    ssh-keygen -q -t ed25519 -N '' -C installer-git-combination -f "$combination/key/id_ed25519"
+    case $order in
+        git-first) set -- --git-config --github-ssh --github-ssh-key "$combination/key/id_ed25519" ;;
+        ssh-first) set -- --github-ssh --github-ssh-key "$combination/key/id_ed25519" --git-config ;;
+    esac
+    run_installer "$combination" -y "$@" >/dev/null
+    grep -Fq 'tools = ["git-config","github-ssh"]' "$combination/config/chezmoi.toml"
+    test -f "$combination/home/.gitconfig"
+    test -f "$combination/home/.ssh/config.d/00-plasticine-github.conf"
+done
+
 # An explicitly configured executable name resolves through PATH; callers do
 # not have to discover and pass its absolute path themselves.
 command_name_dir=$test_root/command-name

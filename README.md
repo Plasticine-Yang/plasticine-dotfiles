@@ -1,6 +1,6 @@
 # plasticine-dotfiles
 
-使用 [chezmoi](https://www.chezmoi.io/) 在 macOS 和 Linux 上选择并恢复个人开发环境。目前支持 GitHub SSH 配置、Lazygit 和 Zsh 环境。
+使用 [chezmoi](https://www.chezmoi.io/) 在 macOS 和 Linux 上选择并恢复个人开发环境。目前支持 Git 配置、GitHub SSH 配置、Lazygit 和 Zsh 环境。
 
 ## 一行安装
 
@@ -14,7 +14,7 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
 
 chezmoi 维护和 source 获取属于安装器前置工作，会发生在 Feature 确认之前；之后取消 Feature 应用不会撤销已经完成的前置更新。外部安装归属的当前版本可以直接使用，但过期版本必须由原归属更新，安装器不会覆盖它或另装一个遮蔽副本。元数据、下载、SHA-256、候选健康或发布失败都会停止安装并尽量保留原有可用命令。`PLASTICINE_CHEZMOI_BIN` 仍是测试/显式 executable override：安装器验证所需接口，但不接管、更新或联网检查这个显式路径。
 
-安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 GitHub SSH、Lazygit（`lazygit`）和 Zsh 环境（`shell`）；初始选择为空，不选择某个工具表示本次不处理它。
+安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 Git 配置（`git-config`）、GitHub SSH、Lazygit（`lazygit`）和 Zsh 环境（`shell`）；初始选择为空，不选择某个工具表示本次不处理它。
 
 ## 自动化调用
 
@@ -29,6 +29,13 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
 ```sh
 sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)" -- \
   -y --github-ssh --github-ssh-key /absolute/path/to/id_ed25519
+```
+
+单独应用共享 Git 配置：
+
+```sh
+sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)" -- \
+  -y --git-config
 ```
 
 单独配置 Zsh 环境，或与其他工具一起配置：
@@ -48,7 +55,7 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
   -y --lazygit
 ```
 
-`--lazygit`、`--shell` 与 `--github-ssh` 可以任意组合，工具集合与顺序无关。工具选项必须配合 `-y`；不带 `-y` 使用工具选项会被拒绝并提示改用交互选择。
+`--git-config`、`--lazygit`、`--shell` 与 `--github-ssh` 可以任意组合，工具集合与顺序无关。工具选项必须配合 `-y`；不带 `-y` 使用工具选项会被拒绝并提示改用交互选择。
 
 已有不同的 `~/.ssh/id_github` 时，自动化调用还需要显式传入 `--replace-github-ssh-key`。可通过 `--github-ssh-test` 在应用后测试连接。`-y` 不会启用 chezmoi 的强制覆盖，配置冲突仍会停止安装，也不会代替 Homebrew、`sudo` 或 `chsh` 的原生凭据提示。
 
@@ -86,6 +93,14 @@ PLASTICINE_DOTFILES_REPO_URL="$PWD" ./install.sh
 - 私钥内容不会写入仓库、chezmoi 配置或 diff；本机 chezmoi 配置仅记录源路径和公钥指纹。
 
 连接测试是可选项，会运行 `ssh -T git@github.com`，并使用 OpenSSH 的 `accept-new` 主机密钥策略。
+
+## Git 配置（`--git-config`）
+
+该 Feature 整体管理 `~/.gitconfig`，设置共享身份 `plasticine <975036719@qq.com>`、默认初始分支 `main` 和 `pull.rebase = true`，并把 `~/.gitconfig.local` 作为最后一个 include。公司或机器专属身份可写在这个本地 override 中，其值会按 Git 原生优先级覆盖共享值。Plasticine 不读取、预览、备份、创建、合并或改写 `~/.gitconfig.local`。
+
+替换已有普通 `~/.gitconfig` 前，Preview 会展示整个受管文件差异，并在 `~/.plasticine/backups/git-config/` 创建权限为 `0600` 的原文件备份；备份目录为 `0700`，目标原有权限会在应用后恢复。内容相同的重跑不会改写文件或重复备份。目标或备份父路径是符号链接、文件/目录类型不符时，应用会在任何已选工具变化前停止；修复路径后重跑即可。
+
+`--git-config` 与 GitHub SSH 完全独立，不安装或更新 Git、OpenSSH，不添加凭据存储、URL rewrite，也不清理旧 checkout 或任何本地 Git 数据。
 
 ## Lazygit（`--lazygit`）
 

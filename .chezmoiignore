@@ -20,6 +20,9 @@ plasticine-demo/**
 .ssh
 .ssh/**
 {{ end }}
+{{ if not (has "git-config" .tools) }}
+.gitconfig
+{{ end }}
 {{ if ne (trim (includeTemplate "zsh-integration-selected" .)) "true" }}
 .zshrc
 {{ end }}
