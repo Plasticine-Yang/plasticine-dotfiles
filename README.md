@@ -10,7 +10,9 @@
 sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)"
 ```
 
-安装器支持 macOS 和 Linux，会在需要时将已验证的 chezmoi 版本安装到 `~/.local/bin/chezmoi`，然后使用 chezmoi 的默认 source、config 和 state 路径。
+安装器支持 macOS 和 Linux。每次调用都会先查询 chezmoi 官方 GitHub Release 的最新稳定版本：缺失时把完整校验过的归档安装到 `~/.local/bin/chezmoi`，该直接安装过期时安全更新，已经是目标版本时不替换。然后安装器使用 chezmoi 的默认 source、config 和 state 路径。
+
+chezmoi 维护和 source 获取属于安装器前置工作，会发生在 Feature 确认之前；之后取消 Feature 应用不会撤销已经完成的前置更新。外部安装归属的当前版本可以直接使用，但过期版本必须由原归属更新，安装器不会覆盖它或另装一个遮蔽副本。元数据、下载、SHA-256、候选健康或发布失败都会停止安装并尽量保留原有可用命令。`PLASTICINE_CHEZMOI_BIN` 仍是测试/显式 executable override：安装器验证所需接口，但不接管、更新或联网检查这个显式路径。
 
 安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 GitHub SSH、Lazygit（`lazygit`）和 Zsh 环境（`shell`）；初始选择为空，不选择某个工具表示本次不处理它。
 
@@ -176,6 +178,7 @@ fi
 
 ```sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/integration.sh
+CHEZMOI_BIN=/path/to/chezmoi ./tests/chezmoi.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/installer.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/shell.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/lazygit.sh

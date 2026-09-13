@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Remove the fixed bootstrap release as desired state. Every installer invocation checks the current official stable target, including invocations with an already-compatible chezmoi or an empty Feature Selection.
 - [ ] Use a coherent resolved release for one bootstrap operation and report its source, observed installed version, intended action, and result. Do not add a version-selection flag, persistent tool lock, or fallback release.
