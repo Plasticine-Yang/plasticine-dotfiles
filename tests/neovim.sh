@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+# Normal scenarios exercise the default managed Neovim location. Explicit
+# rejection cases below reintroduce each unsupported override independently.
+unset NVIM_APPNAME XDG_CONFIG_HOME
+
 repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
 chezmoi_bin=${CHEZMOI_BIN:-$(command -v chezmoi 2>/dev/null || true)}
 [ -n "$chezmoi_bin" ] || { printf '%s\n' 'neovim tests require chezmoi.' >&2; exit 1; }
@@ -8,6 +12,26 @@ case $chezmoi_bin in /*) ;; */*) chezmoi_bin=$(cd -- "$(dirname -- "$chezmoi_bin
 [ -n "$chezmoi_bin" ] && [ -x "$chezmoi_bin" ] || { printf '%s\n' 'neovim tests require chezmoi.' >&2; exit 1; }
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-neovim-test.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
+for override in nvim-appname xdg-config-home; do
+    override_root=$test_root/reject-$override
+    mkdir -p "$override_root/home"
+    case $override in
+        nvim-appname) override_env=NVIM_APPNAME=host-nvim ;;
+        xdg-config-home) override_env=XDG_CONFIG_HOME=/tmp/host-config ;;
+    esac
+    if env "$override_env" HOME="$override_root/home" \
+        PLASTICINE_CHEZMOI_BIN="$chezmoi_bin" \
+        PLASTICINE_CHEZMOI_SOURCE_DIR="$override_root/source" \
+        PLASTICINE_CHEZMOI_CONFIG_FILE="$override_root/config/chezmoi.toml" \
+        PLASTICINE_CHEZMOI_STATE_FILE="$override_root/config/chezmoistate.boltdb" \
+        PLASTICINE_CHEZMOI_DEST_DIR="$override_root/home" \
+        "$repo_dir/install.sh" -y --neovim >"$override_root/out" 2>"$override_root/err"; then
+        printf 'unsupported Neovim environment was accepted: %s\n' "$override" >&2
+        exit 1
+    fi
+    grep -Fq 'NVIM_APPNAME and XDG_CONFIG_HOME are unsupported' "$override_root/err"
+    [ ! -e "$override_root/source" ] && [ ! -e "$override_root/config" ]
+done
 config=$test_root/chezmoi.toml
 PLASTICINE_NONINTERACTIVE=1 PLASTICINE_TOOLS=neovim \
     "$chezmoi_bin" -S "$repo_dir" -D "$test_root/home" --persistent-state "$test_root/state" init -C "$config" >/dev/null
