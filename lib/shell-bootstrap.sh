@@ -330,10 +330,10 @@ plasticine_shell_discover_antidote() {
         shell_brew=''
     else
         shell_brew=$(plasticine_shell_resolve brew) || shell_brew=''
-        if [ -z "$shell_brew" ]; then
-            shell_brew=$(plasticine_shell_conventional_brew)
-            [ -e "$shell_brew" ] || [ -L "$shell_brew" ] || shell_brew=''
-        fi
+    fi
+    if [ -z "$shell_brew" ]; then
+        shell_brew=$(plasticine_shell_conventional_brew)
+        [ -e "$shell_brew" ] || [ -L "$shell_brew" ] || shell_brew=''
     fi
     if [ -n "$shell_brew" ]; then
         case $shell_brew in
