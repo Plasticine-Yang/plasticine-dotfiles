@@ -99,6 +99,12 @@ jobs:
       - name: Run integration tests
         run: CHEZMOI_BIN=chezmoi ./tests/integration.sh
 
+      - name: Run combined installation tests
+        run: CHEZMOI_BIN=chezmoi ./tests/combined-installation.sh
+
+      - name: Run chezmoi bootstrap tests
+        run: CHEZMOI_BIN=chezmoi ./tests/chezmoi.sh
+
       - name: Run Git configuration tests
         run: CHEZMOI_BIN=chezmoi ./tests/git-config.sh
 
@@ -116,6 +122,12 @@ jobs:
 
       - name: Run Lazygit runtime tests
         run: CHEZMOI_BIN=chezmoi ./tests/lazygit-runtime.sh
+
+      - name: Run fnm tests
+        run: CHEZMOI_BIN=chezmoi ./tests/fnm.sh
+
+      - name: Run fnm runtime tests
+        run: ./tests/fnm-runtime.sh
 
       - name: Run Neovim tests
         run: CHEZMOI_BIN=chezmoi ./tests/neovim.sh

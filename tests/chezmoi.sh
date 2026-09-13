@@ -3,8 +3,13 @@ set -eu
 
 repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
 real_chezmoi=${CHEZMOI_BIN:-$(command -v chezmoi 2>/dev/null || true)}
+[ -n "$real_chezmoi" ] || { printf '%s\n' 'chezmoi tests require CHEZMOI_BIN or chezmoi on PATH.' >&2; exit 1; }
+case $real_chezmoi in
+    /*) ;;
+    */*) real_chezmoi=$(cd -- "$(dirname -- "$real_chezmoi")" && pwd -P)/${real_chezmoi##*/} ;;
+    *) real_chezmoi=$(command -v "$real_chezmoi" 2>/dev/null || true) ;;
+esac
 [ -n "$real_chezmoi" ] && [ -x "$real_chezmoi" ] || { printf '%s\n' 'chezmoi tests require CHEZMOI_BIN or chezmoi on PATH.' >&2; exit 1; }
-case $real_chezmoi in /*) ;; *) real_chezmoi=$(cd -- "$(dirname -- "$real_chezmoi")" && pwd -P)/${real_chezmoi##*/} ;; esac
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-chezmoi-test.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 fail() { printf 'chezmoi tests: %s\n' "$1" >&2; exit 1; }

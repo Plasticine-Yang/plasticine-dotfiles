@@ -957,6 +957,7 @@ PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_ARCH=arm64 \
     PLASTICINE_SHELL_OS_RELEASE=$linux_chsh_fail/os-release \
     PLASTICINE_SHELL_TTY=1 \
+    PLASTICINE_TEST_CALLS=$linux_chsh_fail/fake-bin/calls \
     scenario_path=$linux_chsh_fail/fake-bin \
     run_installer "$linux_chsh_fail" -y --shell
 scenario_path=''
@@ -1030,13 +1031,17 @@ for failure in apt-fails git-fails bundle-fails; do
         PLASTICINE_SHELL_HIDE_ZSH=1 \
         PLASTICINE_SHELL_APT_ZSH=$linux_fail/fake-bin/zsh \
         PLASTICINE_SHELL_TTY=1 \
+        PLASTICINE_TEST_BUNDLE_FAILS=$linux_fail/fake-bin/bundle-fails \
         scenario_path=$linux_fail/fake-bin \
         run_installer "$linux_fail" -y --shell \
         >"$linux_fail/stdout" 2>"$linux_fail/stderr"; then
         fail "Route failure ($failure) was treated as success."
     fi
     scenario_path=''
-    expect_no_config "$linux_fail" "$failure"
+    case $failure in
+        bundle-fails) expect_config "$linux_fail" "$failure" ;;
+        *) expect_no_config "$linux_fail" "$failure" ;;
+    esac
     if grep -Fq 'chsh ' "$linux_fail/fake-bin/calls"; then
         fail "$failure invoked chsh."
     fi

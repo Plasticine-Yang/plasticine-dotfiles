@@ -37,6 +37,18 @@ run_release_installer() {
 }
 run_release_installer "$asset_dir"
 [ "$(git -C "$upgrade_dir/source" rev-parse HEAD)" = "$revision" ]
+grep -Fq -- '--git-config' "$asset_dir/install.sh"
+grep -Fq -- '--neovim' "$asset_dir/install.sh"
+grep -Fq -- '--fnm' "$asset_dir/install.sh"
+grep -Fq -- '--herdr' "$asset_dir/install.sh"
+for module in lazygit fnm herdr neovim shell; do
+    test -f "$upgrade_dir/source/lib/$module-bootstrap.sh"
+done
+grep -Fq 'stable target' "$upgrade_dir/source/lib/lazygit-bootstrap.sh"
+grep -Fq 'latest available formula' "$upgrade_dir/source/lib/fnm-bootstrap.sh"
+grep -Fq 'stable-release metadata' "$upgrade_dir/source/lib/herdr-bootstrap.sh"
+grep -Fq 'releases/latest' "$upgrade_dir/source/lib/neovim-bootstrap.sh"
+grep -Fq 'antidote update' "$upgrade_dir/source/lib/shell-bootstrap.sh"
 
 # Advancing main after the asset was built must not change what it installs.
 printf '%s\n' 'later main content' >> "$work_repo/README.md"
