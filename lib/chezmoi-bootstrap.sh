@@ -19,13 +19,6 @@ plasticine_chezmoi_version() {
     '
 }
 
-plasticine_chezmoi_stable_version() {
-    printf '%s\n' "$1" | awk '
-        /^[0-9]+\.[0-9]+\.[0-9]+$/ { print; ok=1 }
-        END { exit !ok }
-    '
-}
-
 plasticine_chezmoi_compare() {
     awk -v left="$1" -v right="$2" 'BEGIN {
         split(left, a, "."); split(right, b, ".")
@@ -50,16 +43,6 @@ plasticine_chezmoi_sha() {
     esac
 }
 
-plasticine_chezmoi_checksum() {
-    awk -v wanted="$2" '{
-        name=$NF; sub(/^\*/, "", name)
-        if (name == wanted) {
-            seen++
-            if (NF == 2 && $1 ~ /^[0-9A-Fa-f]{64}$/) { valid++; value=tolower($1) }
-        }
-    } END { if (seen == 1 && valid == 1) print value; else exit 1 }' "$1"
-}
-
 plasticine_chezmoi_validate_destination() {
     for parent in "$chezmoi_home" "$chezmoi_home/.local" "$chezmoi_install_dir"; do
         if [ -e "$parent" ] || [ -L "$parent" ]; then
@@ -75,33 +58,6 @@ plasticine_chezmoi_validate_destination() {
             return 1
         }
     fi
-}
-
-plasticine_chezmoi_resolve_latest() {
-    chezmoi_metadata=$chezmoi_work_dir/latest.json
-    curl -fsSL -H 'Accept: application/vnd.github+json' -o "$chezmoi_metadata" \
-        https://api.github.com/repos/twpayne/chezmoi/releases/latest || {
-        plasticine_chezmoi_error 'latest stable release lookup failed; an older executable is not accepted as current.'
-        return 1
-    }
-    chezmoi_tag=$(awk '{
-        rest=$0
-        while (match(rest, /"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"/)) {
-            value=substr(rest,RSTART,RLENGTH); sub(/^.*"tag_name"[[:space:]]*:[[:space:]]*"/,"",value); sub(/"$/,"",value); count++; tag=value
-            rest=substr(rest,RSTART+RLENGTH)
-        }
-    } END { if (count == 1) print tag; else exit 1 }' "$chezmoi_metadata") || {
-        plasticine_chezmoi_error 'latest release metadata did not contain exactly one tag_name.'
-        return 1
-    }
-    case $chezmoi_tag in
-        v*) chezmoi_latest=${chezmoi_tag#v} ;;
-        *) plasticine_chezmoi_error "latest release tag is not a stable vMAJOR.MINOR.PATCH: $chezmoi_tag"; return 1 ;;
-    esac
-    plasticine_chezmoi_stable_version "$chezmoi_latest" >/dev/null || {
-        plasticine_chezmoi_error "latest release tag is not a stable vMAJOR.MINOR.PATCH: $chezmoi_tag"
-        return 1
-    }
 }
 
 plasticine_chezmoi_bootstrap() {
@@ -147,6 +103,27 @@ plasticine_chezmoi_bootstrap() {
         return 0
     fi
 
+    chezmoi_version=2.72.1
+    chezmoi_tag=v$chezmoi_version
+    if [ "$chezmoi_observed" != missing ]; then
+        chezmoi_comparison=$(plasticine_chezmoi_compare "$chezmoi_observed" "$chezmoi_version")
+        case $chezmoi_comparison in
+            0|1)
+                log "chezmoi prerequisite: pinned baseline $chezmoi_version is satisfied by $chezmoi_bin ($chezmoi_observed); reusing it without release traffic."
+                return 0
+                ;;
+            -1)
+                [ "$chezmoi_owner" = direct ] || {
+                    plasticine_chezmoi_error "$chezmoi_bin is below the supported baseline ($chezmoi_observed < $chezmoi_version) but owned by the $chezmoi_owner route; update it through that owner. It was left untouched and no shadow copy was installed."
+                    return 1
+                }
+                chezmoi_action=update
+                ;;
+        esac
+    else
+        chezmoi_action=install
+    fi
+
     for command_name in curl awk mktemp mkdir chmod tar cp ln mv; do
         command -v "$command_name" >/dev/null 2>&1 || { plasticine_chezmoi_error "missing release-route command: $command_name"; return 1; }
     done
@@ -158,6 +135,23 @@ plasticine_chezmoi_bootstrap() {
     chezmoi_arch=${PLASTICINE_CHEZMOI_ARCH:-$(uname -m)}
     case $chezmoi_os in Darwin) chezmoi_asset_os=darwin ;; Linux) chezmoi_asset_os=linux ;; *) plasticine_chezmoi_error "unsupported platform: $chezmoi_os"; return 1 ;; esac
     case $chezmoi_arch in x86_64|amd64) chezmoi_asset_arch=amd64 ;; arm64|aarch64) chezmoi_asset_arch=arm64 ;; *) plasticine_chezmoi_error "unsupported architecture: $chezmoi_arch"; return 1 ;; esac
+    chezmoi_libc=${PLASTICINE_CHEZMOI_LIBC:-}
+    if [ "$chezmoi_os" = Linux ] && [ -z "$chezmoi_libc" ]; then
+        case $(ldd --version 2>&1 || true) in *musl*) chezmoi_libc=musl ;; *) chezmoi_libc=glibc ;; esac
+    fi
+    if [ "$chezmoi_os" = Linux ] && [ "$chezmoi_libc" = musl ]; then
+        [ "$chezmoi_asset_arch" = amd64 ] || { plasticine_chezmoi_error "unsupported Linux musl architecture: $chezmoi_arch; chezmoi $chezmoi_version publishes no reviewed arm64 musl archive."; return 1; }
+        chezmoi_asset_os=linux-musl
+    fi
+    chezmoi_asset=chezmoi_${chezmoi_version}_${chezmoi_asset_os}_${chezmoi_asset_arch}.tar.gz
+    case $chezmoi_asset in
+        chezmoi_2.72.1_darwin_amd64.tar.gz) chezmoi_expected=bf0f0e048291efe126cb8bc51cf566057b92755cd53ce82c45efa11d2f8f4898 ;;
+        chezmoi_2.72.1_darwin_arm64.tar.gz) chezmoi_expected=938d422091cc001e68fe3fd7efea9b923a36facbf2b8db67063639abbaf72de2 ;;
+        chezmoi_2.72.1_linux_amd64.tar.gz) chezmoi_expected=9f97d32caca166e5c92160ec3a9325519809c38963121cef38173142065c981f ;;
+        chezmoi_2.72.1_linux_arm64.tar.gz) chezmoi_expected=75508ef41216b6d64f3145986b751729d7f92d09c6bad77d51cf2895ab35a508 ;;
+        chezmoi_2.72.1_linux-musl_amd64.tar.gz) chezmoi_expected=b961e2972d6fcd1002f9b986d4a61dc5da288e96aab226434fd5b20a7de80cf9 ;;
+        *) plasticine_chezmoi_error "no reviewed artifact tuple for $chezmoi_asset"; return 1 ;;
+    esac
     chezmoi_observed_hash=''
     if [ "$chezmoi_owner" = direct ]; then
         chezmoi_observed_hash=$(plasticine_chezmoi_sha "$chezmoi_target") || return 1
@@ -167,41 +161,17 @@ plasticine_chezmoi_bootstrap() {
     chezmoi_work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-chezmoi.XXXXXX") || return 1
     trap 'rm -rf "$chezmoi_work_dir"' EXIT
     trap 'rm -rf "$chezmoi_work_dir"; exit 1' HUP INT TERM
-    plasticine_chezmoi_resolve_latest || return 1
-    if [ "$chezmoi_observed" = missing ]; then chezmoi_action=install
-    else
-        chezmoi_comparison=$(plasticine_chezmoi_compare "$chezmoi_observed" "$chezmoi_latest")
-        case $chezmoi_comparison in
-            0) chezmoi_action=reuse ;;
-            -1) chezmoi_action=update ;;
-            *) plasticine_chezmoi_error "installed stable version $chezmoi_observed is newer than latest stable $chezmoi_latest; refusing a downgrade or channel takeover."; return 1 ;;
-        esac
-    fi
-    log "chezmoi prerequisite: source=official GitHub latest stable; observed=$chezmoi_observed; target=$chezmoi_latest; action=$chezmoi_action."
-    if [ "$chezmoi_action" = reuse ]; then
-        log "chezmoi prerequisite: current executable reused without replacement: $chezmoi_bin"
-        return 0
-    fi
-    if [ "$chezmoi_action" = update ] && [ "$chezmoi_owner" != direct ]; then
-        plasticine_chezmoi_error "$chezmoi_bin is outdated ($chezmoi_observed) but owned by the $chezmoi_owner route; update it through that owner to $chezmoi_latest. It was left untouched and no shadow copy was installed."
-        return 1
-    fi
-
-    chezmoi_asset=chezmoi_${chezmoi_latest}_${chezmoi_asset_os}_${chezmoi_asset_arch}.tar.gz
-    chezmoi_checksums=chezmoi_${chezmoi_latest}_checksums.txt
+    log "chezmoi prerequisite: source=reviewed official GitHub Release tuple; observed=$chezmoi_observed; target=$chezmoi_version; action=$chezmoi_action."
     chezmoi_release_url=https://github.com/twpayne/chezmoi/releases/download/$chezmoi_tag
     chezmoi_archive=$chezmoi_work_dir/$chezmoi_asset
-    chezmoi_checksum_file=$chezmoi_work_dir/$chezmoi_checksums
     curl -fsSL -o "$chezmoi_archive" "$chezmoi_release_url/$chezmoi_asset" || { plasticine_chezmoi_error 'release archive download failed; existing executable preserved.'; return 1; }
-    curl -fsSL -o "$chezmoi_checksum_file" "$chezmoi_release_url/$chezmoi_checksums" || { plasticine_chezmoi_error 'release checksum download failed; existing executable preserved.'; return 1; }
-    chezmoi_expected=$(plasticine_chezmoi_checksum "$chezmoi_checksum_file" "$chezmoi_asset") || { plasticine_chezmoi_error 'release checksum entry is missing or ambiguous; existing executable preserved.'; return 1; }
     chezmoi_actual=$(plasticine_chezmoi_sha "$chezmoi_archive") || return 1
     [ "$chezmoi_expected" = "$chezmoi_actual" ] || { plasticine_chezmoi_error 'release archive SHA-256 mismatch; existing executable preserved.'; return 1; }
     [ "$(tar -tzf "$chezmoi_archive" 2>/dev/null | awk '$0 == "chezmoi" {n++} END {print n+0}')" -eq 1 ] || { plasticine_chezmoi_error 'release archive must contain exactly one top-level chezmoi executable.'; return 1; }
     chezmoi_candidate=$chezmoi_work_dir/chezmoi
     tar -xOzf "$chezmoi_archive" chezmoi > "$chezmoi_candidate" || return 1
     chmod 755 "$chezmoi_candidate" || return 1
-    [ "$(plasticine_chezmoi_version "$chezmoi_candidate" || true)" = "$chezmoi_latest" ] || { plasticine_chezmoi_error 'release candidate failed version/health validation; existing executable preserved.'; return 1; }
+    [ "$(plasticine_chezmoi_version "$chezmoi_candidate" || true)" = "$chezmoi_version" ] || { plasticine_chezmoi_error 'release candidate failed version/health validation; existing executable preserved.'; return 1; }
 
     plasticine_chezmoi_validate_destination || return 1
     umask 077
@@ -218,7 +188,7 @@ plasticine_chezmoi_bootstrap() {
         [ "$(plasticine_chezmoi_sha "$chezmoi_target" 2>/dev/null || true)" = "$chezmoi_observed_hash" ] || { rm -f "$chezmoi_stage"; plasticine_chezmoi_error 'installation target changed during preparation; update aborted.'; return 1; }
         mv -f "$chezmoi_stage" "$chezmoi_target" || { rm -f "$chezmoi_stage"; plasticine_chezmoi_error 'atomic replacement failed; inspect the retained destination.'; return 1; }
     fi
-    [ "$(plasticine_chezmoi_version "$chezmoi_target" || true)" = "$chezmoi_latest" ] || { plasticine_chezmoi_error "published executable failed health validation and was retained at $chezmoi_target; repair it before retrying."; return 1; }
+    [ "$(plasticine_chezmoi_version "$chezmoi_target" || true)" = "$chezmoi_version" ] || { plasticine_chezmoi_error "published executable failed health validation and was retained at $chezmoi_target; repair it before retrying."; return 1; }
     chezmoi_bin=$chezmoi_target
-    log "chezmoi prerequisite: $chezmoi_action completed at $chezmoi_bin ($chezmoi_latest)."
+    log "chezmoi prerequisite: $chezmoi_action completed at $chezmoi_bin ($chezmoi_version)."
 }

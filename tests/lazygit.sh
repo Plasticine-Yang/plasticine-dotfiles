@@ -49,7 +49,7 @@ cat > "$healthy_bin/lazygit" <<'EOF'
 [ -z "${PLASTICINE_TEST_LAZYGIT_UNHEALTHY:-}" ] || exit 9
 [ "${1:-}" = --version ] || exit 99
 printf '%s\n' healthy >> "$PLASTICINE_TEST_LAZYGIT_PROBES"
-printf '%s\n' 'lazygit version 1.2.3'
+printf '%s\n' 'lazygit version 0.65.1'
 EOF
 chmod +x "$healthy_bin/lazygit"
 base_path=$PATH
@@ -64,21 +64,13 @@ cat > "$release_fixture/payload/lazygit" <<'EOF'
     case $0 in */.local/bin/lazygit) rm -f "$0"; printf '%s\n' owner-replacement > "$0"; exit 96 ;; esac
 [ "${PLASTICINE_TEST_PUBLISHED_HEALTH_FAIL:-}" != 1 ] ||
     case $0 in */.local/bin/lazygit) exit 96 ;; esac
-printf '%s\n' 'lazygit version 1.2.3'
+printf '%s\n' 'lazygit version 0.65.1'
 EOF
 chmod 755 "$release_fixture/payload/lazygit"
-tar -czf "$release_fixture/lazygit_1.2.3_linux_x86_64.tar.gz" -C "$release_fixture/payload" lazygit
-cp "$release_fixture/lazygit_1.2.3_linux_x86_64.tar.gz" "$release_fixture/lazygit_1.2.3_linux_arm64.tar.gz"
-cp "$release_fixture/lazygit_1.2.3_linux_x86_64.tar.gz" "$release_fixture/lazygit_1.2.3_darwin_x86_64.tar.gz"
-cp "$release_fixture/lazygit_1.2.3_linux_x86_64.tar.gz" "$release_fixture/lazygit_1.2.3_darwin_arm64.tar.gz"
-: > "$release_fixture/checksums.txt"
-for release_asset in "$release_fixture"/*.tar.gz; do
-    release_checksum=$(shasum -a 256 "$release_asset" | awk '{print $1}')
-    printf '%s  %s\n' "$release_checksum" "${release_asset##*/}" >> "$release_fixture/checksums.txt"
-done
-cat > "$release_fixture/latest.json" <<'EOF'
-{"tag_name":"v1.2.3"}
-EOF
+tar -czf "$release_fixture/lazygit_0.65.1_linux_x86_64.tar.gz" -C "$release_fixture/payload" lazygit
+cp "$release_fixture/lazygit_0.65.1_linux_x86_64.tar.gz" "$release_fixture/lazygit_0.65.1_linux_arm64.tar.gz"
+cp "$release_fixture/lazygit_0.65.1_linux_x86_64.tar.gz" "$release_fixture/lazygit_0.65.1_darwin_x86_64.tar.gz"
+cp "$release_fixture/lazygit_0.65.1_linux_x86_64.tar.gz" "$release_fixture/lazygit_0.65.1_darwin_arm64.tar.gz"
 cat > "$release_bin/curl" <<'EOF'
 #!/bin/sh
 output=''
@@ -92,17 +84,36 @@ while [ "$#" -gt 0 ]; do
 done
 printf '%s\n' "$url" >> "$PLASTICINE_TEST_RELEASE_CALLS"
 case ${PLASTICINE_TEST_CURL_FAIL:-}:$url in
-    metadata:*/releases/latest | archive:*/lazygit_*.tar.gz | checksums:*/checksums.txt) exit 97 ;;
+    archive:*/lazygit_*.tar.gz) exit 97 ;;
 esac
 case $url in
-    */releases/latest) source=$PLASTICINE_TEST_RELEASE_FIXTURE/latest.json ;;
-    */checksums.txt) source=$PLASTICINE_TEST_RELEASE_FIXTURE/checksums.txt ;;
     */lazygit_*.tar.gz) source=$PLASTICINE_TEST_RELEASE_FIXTURE/${url##*/} ;;
     *) exit 98 ;;
 esac
 cp "$source" "$output"
 EOF
 chmod +x "$release_bin/curl"
+cat > "$release_bin/shasum" <<'EOF'
+#!/bin/sh
+for argument do file=$argument; done
+case ${file##*/} in
+    archive.tar.gz)
+        if [ "${PLASTICINE_TEST_BAD_DIGEST:-0}" = 1 ]; then
+            printf '%064d  %s\n' 0 "$file"
+            exit
+        fi
+        case ${PLASTICINE_LAZYGIT_OS:-Linux}:${PLASTICINE_LAZYGIT_ARCH:-x86_64} in
+            Darwin:arm64) digest=65a367c6ea9a88efebaaf7998a6835eedb987e04916cef677264ff9b31b1b13e ;;
+            Darwin:*) digest=fde13daf583511aa24c42ca154911643231a5af784c7cdd8117264b2fc035b33 ;;
+            Linux:arm64|Linux:aarch64) digest=49abecdf6adf4f2dfdb11bf7b9bfada267ea523612ed809d1c6d87f6c04000a7 ;;
+            *) digest=02beacbcda0fa342e50ae3480ba8147307353af3fb28e1d5f790e02329c201a6 ;;
+        esac
+        printf '%s  %s\n' "$digest" "$file"
+        ;;
+    *) exec /usr/bin/shasum "$@" ;;
+esac
+EOF
+chmod +x "$release_bin/shasum"
 cat > "$release_bin/ln" <<'EOF'
 #!/bin/sh
 case ${PLASTICINE_TEST_PUBLISH_FAILURE:-} in
@@ -260,8 +271,9 @@ fi
 test -x "$missing/home/.local/bin/lazygit" || fail 'release binary was not published'
 test "$(file_mode "$missing/home/.local/bin/lazygit")" = 755 || fail 'release binary mode is not 0755'
 cmp -s "$lazygit_block" "$missing/home/.zshrc" || fail 'alias was not applied after release health'
-grep -Fq '/releases/latest' "$missing/release-calls" || fail 'latest metadata was not resolved during apply'
-grep -Fq 'checksums.txt' "$missing/release-calls" || fail 'checksums were not downloaded'
+grep -Fxq 'https://github.com/jesseduffield/lazygit/releases/download/v0.65.1/lazygit_0.65.1_linux_x86_64.tar.gz' "$missing/release-calls" || fail 'pinned archive was not requested'
+! grep -Fq 'api.github.com' "$missing/release-calls" || fail 'GitHub API was queried'
+! grep -Fq 'checksums.txt' "$missing/release-calls" || fail 'runtime checksums were downloaded'
 before_release_hash=$(shasum -a 256 "$missing/home/.local/bin/lazygit" | awk '{print $1}')
 : > "$missing/release-calls"
 PATH=$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
@@ -270,9 +282,7 @@ PATH=$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin
     PLASTICINE_CHEZMOI_DEST_DIR=$missing/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=amd64 \
     PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$missing/release-calls \
     "$repo_dir/install.sh" -y --lazygit >/dev/null
-test "$(wc -l < "$missing/release-calls" | tr -d ' ')" -eq 1 || fail 'current release rerun did not perform exactly one stable metadata query'
-grep -Fq '/releases/latest' "$missing/release-calls" || fail 'current release rerun did not resolve stable metadata'
-test ! "$(grep -c '/download/' "$missing/release-calls")" -ne 0 || fail 'current release rerun downloaded an artifact'
+test ! -s "$missing/release-calls" || fail 'satisfied rerun made a release request'
 test "$before_release_hash" = "$(shasum -a 256 "$missing/home/.local/bin/lazygit" | awk '{print $1}')" || fail 'healthy release binary changed'
 
 # A supported direct installation at the managed destination is upgraded only
@@ -282,7 +292,7 @@ upgrade=$test_root/upgrade; mkdir -p "$upgrade/home/.local/bin"; : > "$upgrade/c
 cat > "$upgrade/home/.local/bin/lazygit" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = --version ] || exit 99
-printf '%s\n' 'lazygit version 1.2.2'
+printf '%s\n' 'lazygit version 0.65.0'
 EOF
 chmod 755 "$upgrade/home/.local/bin/lazygit"
 old_upgrade_hash=$(shasum -a 256 "$upgrade/home/.local/bin/lazygit" | awk '{print $1}')
@@ -293,13 +303,13 @@ PATH=$upgrade/home/.local/bin:$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE
     PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$upgrade/calls \
     "$repo_dir/install.sh" -y --lazygit >/dev/null
 test "$old_upgrade_hash" != "$(shasum -a 256 "$upgrade/home/.local/bin/lazygit" | awk '{print $1}')" || fail 'outdated managed direct installation was not upgraded'
-test "$("$upgrade/home/.local/bin/lazygit" --version)" = 'lazygit version 1.2.3' || fail 'upgrade did not reach resolved stable target'
+test "$("$upgrade/home/.local/bin/lazygit" --version)" = 'lazygit version 0.65.1' || fail 'upgrade did not reach resolved stable target'
 
 upgrade_race=$test_root/upgrade-race; mkdir -p "$upgrade_race/home/.local/bin"; : > "$upgrade_race/calls"
 cat > "$upgrade_race/home/.local/bin/lazygit" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = --version ] || exit 99
-printf '%s\n' 'lazygit version 1.2.2'
+printf '%s\n' 'lazygit version 0.65.0'
 EOF
 chmod 755 "$upgrade_race/home/.local/bin/lazygit"
 if PATH=$upgrade_race/home/.local/bin:$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
@@ -314,7 +324,7 @@ test -z "$(find "$upgrade_race/home/.local/bin" -name '.lazygit.plasticine.*' -p
 
 unsupported_owner=$test_root/unsupported-owner; mkdir -p "$unsupported_owner/home" "$unsupported_owner/bin"; : > "$unsupported_owner/calls"
 cp "$upgrade/home/.local/bin/lazygit" "$unsupported_owner/bin/lazygit"
-sed 's/1\.2\.3/1.2.2/' "$unsupported_owner/bin/lazygit" > "$unsupported_owner/bin/lazygit.tmp"
+sed 's/0\.65\.1/0.65.0/' "$unsupported_owner/bin/lazygit" > "$unsupported_owner/bin/lazygit.tmp"
 mv "$unsupported_owner/bin/lazygit.tmp" "$unsupported_owner/bin/lazygit"; chmod 755 "$unsupported_owner/bin/lazygit"
 unsupported_before=$(shasum -a 256 "$unsupported_owner/bin/lazygit" | awk '{print $1}')
 if PATH=$unsupported_owner/bin:$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
@@ -330,7 +340,7 @@ test ! -e "$unsupported_owner/home/.zshrc" || fail 'unsupported owner failure ap
 
 for version_case in prerelease custom newer; do
     version_scenario=$test_root/version-$version_case; mkdir -p "$version_scenario/home" "$version_scenario/bin"; : > "$version_scenario/release-calls"
-    case $version_case in prerelease) observed='1.2.4-rc.1' ;; custom) observed='custom-build' ;; newer) observed='2.0.0' ;; esac
+    case $version_case in prerelease) observed='0.66.0-rc.1' ;; custom) observed='custom-build' ;; newer) observed='2.0.0' ;; esac
     cat > "$version_scenario/bin/lazygit" <<EOF
 #!/bin/sh
 [ "\${1:-}" = --version ] || exit 99
@@ -342,28 +352,26 @@ EOF
         PLASTICINE_CHEZMOI_CONFIG_FILE=$version_scenario/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$version_scenario/config/state \
         PLASTICINE_CHEZMOI_DEST_DIR=$version_scenario/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
         PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$version_scenario/release-calls \
-        "$repo_dir/install.sh" -y --lazygit >/dev/null 2>"$version_scenario/err"; then fail "$version_case existing version succeeded"; fi
+        "$repo_dir/install.sh" -y --lazygit >/dev/null 2>"$version_scenario/err"; then rc=0; else rc=$?; fi
+    case $version_case in
+        newer) [ "$rc" -eq 0 ] || fail 'newer stable existing version was rejected'; test ! -s "$version_scenario/release-calls" || fail 'newer stable made a release request' ;;
+        *) [ "$rc" -ne 0 ] || fail "$version_case existing version succeeded"; test ! -e "$version_scenario/home/.zshrc" || fail "$version_case failure applied configuration" ;;
+    esac
     test ! -e "$version_scenario/home/.local/bin/lazygit" || fail "$version_case existing version was shadowed"
-    test ! -e "$version_scenario/home/.zshrc" || fail "$version_case failure applied configuration"
 done
 
-# Currency lookup failure is fatal even when the existing executable is healthy.
+# A compatible executable succeeds even when any attempted API request would fail.
 lookup_failure=$test_root/lookup-failure; mkdir -p "$lookup_failure/home"; : > "$lookup_failure/release-calls"
-if PLASTICINE_TEST_CURL_FAIL=metadata run_installer "$lookup_failure" -y --lazygit >/dev/null 2>"$lookup_failure/err"; then fail 'metadata failure accepted a healthy existing executable'; fi
+PLASTICINE_TEST_CURL_FAIL=metadata run_installer "$lookup_failure" -y --lazygit >/dev/null 2>"$lookup_failure/err" || fail 'compatible executable depended on metadata'
 unset PLASTICINE_TEST_CURL_FAIL
-grep -Fq 'metadata download failed' "$lookup_failure/err" || fail 'metadata failure was not actionable'
-test ! -e "$lookup_failure/home/.zshrc" || fail 'metadata failure applied configuration'
+[ ! -s "$lookup_failure/release-calls" ] || fail 'compatible executable made a release request'
 
-# A newly published stable target is observed on the next invocation and the
-# same managed direct installation converges to it.
+# A newly published stable target does not change this Base Dotfiles release.
 next_fixture=$test_root/next-release-fixture
 cp -R "$release_fixture" "$next_fixture"
-sed 's/1\.2\.3/1.2.4/' "$release_fixture/payload/lazygit" > "$next_fixture/payload/lazygit"
+sed 's/1\.2\.3/0.66.0/' "$release_fixture/payload/lazygit" > "$next_fixture/payload/lazygit"
 chmod 755 "$next_fixture/payload/lazygit"
-tar -czf "$next_fixture/lazygit_1.2.4_linux_x86_64.tar.gz" -C "$next_fixture/payload" lazygit
-next_checksum=$(shasum -a 256 "$next_fixture/lazygit_1.2.4_linux_x86_64.tar.gz" | awk '{print $1}')
-printf '%s  %s\n' "$next_checksum" lazygit_1.2.4_linux_x86_64.tar.gz >> "$next_fixture/checksums.txt"
-printf '%s\n' '{"tag_name":"v1.2.4"}' > "$next_fixture/latest.json"
+tar -czf "$next_fixture/lazygit_0.66.0_linux_x86_64.tar.gz" -C "$next_fixture/payload" lazygit
 : > "$upgrade/calls"
 PATH=$upgrade/home/.local/bin:$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
     PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$upgrade/data/chezmoi \
@@ -371,7 +379,8 @@ PATH=$upgrade/home/.local/bin:$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE
     PLASTICINE_CHEZMOI_DEST_DIR=$upgrade/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
     PLASTICINE_TEST_RELEASE_FIXTURE=$next_fixture PLASTICINE_TEST_RELEASE_CALLS=$upgrade/calls \
     "$repo_dir/install.sh" -y --lazygit >/dev/null
-test "$("$upgrade/home/.local/bin/lazygit" --version)" = 'lazygit version 1.2.4' || fail 'next invocation did not install newly published stable target'
+test "$("$upgrade/home/.local/bin/lazygit" --version)" = 'lazygit version 0.65.1' || fail 'new upstream release changed the pinned target'
+test ! -s "$upgrade/calls" || fail 'new upstream release caused network traffic'
 
 # Planning maps every reviewed OS/architecture spelling without network or writes.
 for platform in Darwin:x86_64:darwin:x86_64 Darwin:arm64:darwin:arm64 Linux:amd64:linux:x86_64 Linux:aarch64:linux:arm64; do
@@ -405,7 +414,7 @@ for member_case in missing duplicate; do
     member_fixture=$test_root/member-$member_case-fixture
     member_scenario=$test_root/member-$member_case
     cp -R "$release_fixture" "$member_fixture"; mkdir -p "$member_scenario/home" "$member_fixture/member-work"
-    asset=lazygit_1.2.3_linux_x86_64.tar.gz
+    asset=lazygit_0.65.1_linux_x86_64.tar.gz
     case $member_case in
         missing) printf '%s\n' decoy > "$member_fixture/member-work/not-lazygit"; tar -czf "$member_fixture/$asset" -C "$member_fixture/member-work" not-lazygit ;;
         duplicate)
@@ -415,10 +424,6 @@ for member_case in missing duplicate; do
             tar -czf "$member_fixture/$asset" -C "$member_fixture/member-work/one" lazygit -C "$member_fixture/member-work/two" lazygit
             ;;
     esac
-    checksum=$(shasum -a 256 "$member_fixture/$asset" | awk '{print $1}')
-    grep -v "  $asset$" "$member_fixture/checksums.txt" > "$member_fixture/checksums.new"
-    printf '%s  %s\n' "$checksum" "$asset" >> "$member_fixture/checksums.new"
-    mv "$member_fixture/checksums.new" "$member_fixture/checksums.txt"
     : > "$member_scenario/calls"
     if PATH=$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
         PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$member_scenario/data/chezmoi \
@@ -483,7 +488,7 @@ if ! PATH=$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmo
     cat "$post_health_retry/retry-err" >&2
     fail 'post-health retry after removing retained target failed'
 fi
-test "$(wc -l < "$post_health_retry/calls" | tr -d ' ')" -eq 6 || fail 'post-health retry did not perform exactly two release downloads'
+test "$(wc -l < "$post_health_retry/calls" | tr -d ' ')" -eq 2 || fail 'post-health retry did not perform exactly two pinned archive downloads'
 "$post_health_retry/home/.local/bin/lazygit" --version >/dev/null 2>&1 || fail 'post-health retry did not leave a healthy executable'
 cmp -s "$lazygit_block" "$post_health_retry/home/.zshrc" || fail 'post-health retry did not apply the Lazygit alias'
 test -z "$(find "$post_health_retry/home/.local/bin" -name '.lazygit.plasticine.*' -print)" || fail 'post-health retry left publication staging'
@@ -510,7 +515,7 @@ for race_platform in Linux:x86_64 Darwin:arm64; do
 done
 
 # When Lazygit succeeds before a later selected tool fails, its healthy binary
-# remains. A rerun resolves metadata again but avoids artifact downloads.
+# remains. A rerun accepts the compatible binary without release traffic.
 partial=$test_root/partial-rerun
 partial_bin=$partial/bin
 mkdir -p "$partial/home/.antidote" "$partial_bin"; : > "$partial/calls"; : > "$partial/bundle-fails"
@@ -600,8 +605,7 @@ PATH=$release_bin:$partial_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin
     PLASTICINE_SHELL_OS=Linux PLASTICINE_SHELL_ARCH=x86_64 PLASTICINE_SHELL_OS_RELEASE=$partial/os-release PLASTICINE_SHELL_ZSH=$real_zsh \
     PLASTICINE_SHELL_TTY=0 PLASTICINE_TEST_BUNDLE_FAILS=$partial/bundle-fails PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$partial/calls \
     "$repo_dir/install.sh" -y --github-ssh --github-ssh-key "$partial/github-key" --lazygit --shell >/dev/null
-test "$(wc -l < "$partial/calls" | tr -d ' ')" -eq 1 || fail 'partial-success rerun did not perform exactly one metadata query'
-test ! "$(grep -c '/download/' "$partial/calls")" -ne 0 || fail 'partial-success rerun redownloaded current Lazygit'
+test ! -s "$partial/calls" || fail 'partial-success rerun made a release request'
 grep -Fq "# >>> Plasticine shell >>>" "$partial/home/.zshrc" || fail 'partial-success rerun did not apply configuration'
 cmp -s "$partial/github-key" "$partial/home/.ssh/id_github" || fail 'partial-success rerun did not apply GitHub SSH configuration'
 test "$(file_mode "$partial/home/.zshrc")" = 640 || fail 'partial-success rerun did not restore .zshrc mode'
@@ -642,8 +646,8 @@ for platform in Darwin:x86_64:darwin:x86_64 Darwin:arm64:darwin:arm64 Linux:amd6
         plasticine_lazygit_plan "$route_matrix/home"
         plasticine_lazygit_prepare
     ) || fail "release path failed for $fixture_os/$fixture_arch"
-    expected_asset=lazygit_1.2.3_${expected_os}_${expected_arch}.tar.gz
-    grep -Fxq "https://github.com/jesseduffield/lazygit/releases/download/v1.2.3/$expected_asset" "$route_matrix/calls" ||
+    expected_asset=lazygit_0.65.1_${expected_os}_${expected_arch}.tar.gz
+    grep -Fxq "https://github.com/jesseduffield/lazygit/releases/download/v0.65.1/$expected_asset" "$route_matrix/calls" ||
         fail "wrong release asset requested for $fixture_os/$fixture_arch"
     test -x "$route_matrix/home/.local/bin/lazygit" || fail "release was not published for $fixture_os/$fixture_arch"
     cmp -s "$release_fixture/payload/lazygit" "$route_matrix/home/.local/bin/lazygit" ||
@@ -651,46 +655,28 @@ for platform in Darwin:x86_64:darwin:x86_64 Darwin:arm64:darwin:arm64 Linux:amd6
     test "$(file_mode "$route_matrix/home/.local/bin/lazygit")" = 755 || fail "published mode was not 0755 for $fixture_os/$fixture_arch"
 done
 
-# Invalid checksum evidence never publishes a binary or applies the alias.
-for checksum_case in missing duplicate malformed mismatch; do
-    checksum_fixture=$test_root/checksum-$checksum_case-fixture
-    checksum_scenario=$test_root/checksum-$checksum_case
-    cp -R "$release_fixture" "$checksum_fixture"; mkdir -p "$checksum_scenario/home"
-    asset=lazygit_1.2.3_linux_x86_64.tar.gz
-    valid_line=$(grep "  $asset$" "$release_fixture/checksums.txt")
-    grep -v "  $asset$" "$release_fixture/checksums.txt" > "$checksum_fixture/checksums.txt"
-    case $checksum_case in
-        missing) ;;
-        duplicate) printf '%s\n%s\n' "$valid_line" "$valid_line" >> "$checksum_fixture/checksums.txt" ;;
-        malformed) printf '%s  %s\n' abc "$asset" >> "$checksum_fixture/checksums.txt" ;;
-        mismatch) printf '%064d  %s\n' 0 "$asset" >> "$checksum_fixture/checksums.txt" ;;
-    esac
-    : > "$checksum_scenario/calls"
-    if PATH=$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
-        PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$checksum_scenario/data/chezmoi \
-        PLASTICINE_CHEZMOI_CONFIG_FILE=$checksum_scenario/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$checksum_scenario/config/state \
-        PLASTICINE_CHEZMOI_DEST_DIR=$checksum_scenario/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
-        PLASTICINE_TEST_RELEASE_FIXTURE=$checksum_fixture PLASTICINE_TEST_RELEASE_CALLS=$checksum_scenario/calls \
-        "$repo_dir/install.sh" -y --lazygit >/dev/null 2>"$checksum_scenario/err"; then
-        fail "$checksum_case checksum succeeded"
-    fi
-    test ! -e "$checksum_scenario/home/.local/bin/lazygit" || fail "$checksum_case published a binary"
-    test ! -e "$checksum_scenario/home/.zshrc" || fail "$checksum_case applied configuration"
-done
+# A downloaded archive that does not match the reviewed pinned digest never publishes.
+checksum_scenario=$test_root/checksum-mismatch; mkdir -p "$checksum_scenario/home"; : > "$checksum_scenario/calls"
+if PATH=$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
+    PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$checksum_scenario/data/chezmoi \
+    PLASTICINE_CHEZMOI_CONFIG_FILE=$checksum_scenario/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$checksum_scenario/config/state \
+    PLASTICINE_CHEZMOI_DEST_DIR=$checksum_scenario/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
+    PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$checksum_scenario/calls PLASTICINE_TEST_BAD_DIGEST=1 \
+    "$repo_dir/install.sh" -y --lazygit >/dev/null 2>"$checksum_scenario/err"; then
+    fail 'checksum mismatch succeeded'
+fi
+test ! -e "$checksum_scenario/home/.local/bin/lazygit" || fail 'checksum mismatch published a binary'
+test ! -e "$checksum_scenario/home/.zshrc" || fail 'checksum mismatch applied configuration'
 
-# Metadata/download/extraction failures stay before publication and configuration.
-for route_case in metadata archive checksums invalid-tag extraction; do
+# Download/extraction failures stay before publication and configuration.
+for route_case in archive extraction; do
     route_fixture=$test_root/route-$route_case-fixture
     route_scenario=$test_root/route-$route_case
     cp -R "$release_fixture" "$route_fixture"; mkdir -p "$route_scenario/home"
     curl_fail=$route_case
     case $route_case in
-        invalid-tag) printf '%s\n' '{"tag_name":"latest"}' > "$route_fixture/latest.json"; curl_fail='' ;;
-        extraction) printf '%s\n' corrupt > "$route_fixture/lazygit_1.2.3_linux_x86_64.tar.gz"; curl_fail=''
-            checksum=$(shasum -a 256 "$route_fixture/lazygit_1.2.3_linux_x86_64.tar.gz" | awk '{print $1}')
-            grep -v '  lazygit_1.2.3_linux_x86_64.tar.gz$' "$route_fixture/checksums.txt" > "$route_fixture/checksums.new"
-            printf '%s  %s\n' "$checksum" lazygit_1.2.3_linux_x86_64.tar.gz >> "$route_fixture/checksums.new"
-            mv "$route_fixture/checksums.new" "$route_fixture/checksums.txt" ;;
+        extraction) printf '%s\n' corrupt > "$route_fixture/lazygit_0.65.1_linux_x86_64.tar.gz"; curl_fail=''
+            ;;
     esac
     : > "$route_scenario/calls"
     if PATH=$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \

@@ -130,29 +130,16 @@ plasticine_lazygit_preview() {
     printf 'plasticine-dotfiles: lazygit: observed %s/%s; archive mapping %s/%s\n' \
         "$lazygit_host_os" "$lazygit_host_arch" "$lazygit_asset_os" "$lazygit_asset_arch"
     printf '%s\n' \
-        '  Official GitHub stable Release route; target metadata is resolved only during confirmed apply.' \
+        '  Fixed supported baseline: Lazygit 0.65.1 from its exact official versioned GitHub Release asset.' \
         '  A missing tool is installed; an authorized outdated direct installation is safely replaced; a current tool is retained.' \
         '  Existing prerelease, custom, unhealthy, ambiguous, and unsupported-owner installations are not replaced.' \
-        '  network during apply: HTTPS to api.github.com and github.com/jesseduffield/lazygit release assets.' \
-        "  commands during apply: curl metadata; when replacement is needed, curl archive and same-release checksums.txt; $lazygit_sha_command SHA-256 verification; tar streams only the lazygit member." \
+        '  network during apply: HTTPS to the pinned github.com/jesseduffield/lazygit release asset only when replacement is needed.' \
+        "  commands during apply: curl archive; $lazygit_sha_command verification against its reviewed pinned SHA-256; tar streams only the lazygit member." \
         "  destination: $lazygit_target (fresh atomic no-clobber publication; authorized upgrades use checked same-directory atomic replacement)." \
         '  package manager: none; privilege: none; credentials: none; terminal prompt: none.'
     if [ -n "$lazygit_bin" ]; then
         printf '  Observed executable: %s; its version and owner will be classified during apply.\n' "$lazygit_bin"
     fi
-}
-
-plasticine_lazygit_checksum() {
-    awk -v wanted="$2" '
-        {
-            name = $NF; sub(/^\*/, "", name)
-            if (name == wanted) {
-                seen++
-                if (NF == 2 && $1 ~ /^[0-9A-Fa-f]{64}$/) { valid++; value=tolower($1) }
-            }
-        }
-        END { if (seen == 1 && valid == 1) print value; else exit 1 }
-    ' "$1"
 }
 
 plasticine_lazygit_actual_checksum() {
@@ -170,36 +157,20 @@ plasticine_lazygit_prepare() {
     }
     trap 'rm -rf "$lazygit_work_dir"' EXIT
     trap 'rm -rf "$lazygit_work_dir"; exit 1' HUP INT TERM
-    lazygit_metadata=$lazygit_work_dir/latest.json
     lazygit_archive=$lazygit_work_dir/archive.tar.gz
-    lazygit_checksums=$lazygit_work_dir/checksums.txt
     lazygit_extracted=$lazygit_work_dir/lazygit
+    lazygit_version=0.65.1
+    lazygit_tag=v$lazygit_version
+    lazygit_asset=lazygit_${lazygit_version}_${lazygit_asset_os}_${lazygit_asset_arch}.tar.gz
+    case $lazygit_asset in
+        lazygit_0.65.1_darwin_arm64.tar.gz) lazygit_expected=65a367c6ea9a88efebaaf7998a6835eedb987e04916cef677264ff9b31b1b13e ;;
+        lazygit_0.65.1_darwin_x86_64.tar.gz) lazygit_expected=fde13daf583511aa24c42ca154911643231a5af784c7cdd8117264b2fc035b33 ;;
+        lazygit_0.65.1_linux_arm64.tar.gz) lazygit_expected=49abecdf6adf4f2dfdb11bf7b9bfada267ea523612ed809d1c6d87f6c04000a7 ;;
+        lazygit_0.65.1_linux_x86_64.tar.gz) lazygit_expected=02beacbcda0fa342e50ae3480ba8147307353af3fb28e1d5f790e02329c201a6 ;;
+        *) plasticine_lazygit_error "no reviewed artifact tuple for $lazygit_asset"; return 1 ;;
+    esac
 
-    curl -fsSL -H 'Accept: application/vnd.github+json' \
-        -o "$lazygit_metadata" https://api.github.com/repos/jesseduffield/lazygit/releases/latest || {
-        plasticine_lazygit_error 'latest stable-release metadata download failed; existing installation was left untouched and selected configuration was not applied.'
-        return 1
-    }
-    lazygit_tag=$(awk '
-        {
-            rest=$0
-            while (match(rest, /"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"/)) {
-                value=substr(rest, RSTART, RLENGTH); sub(/^.*"tag_name"[[:space:]]*:[[:space:]]*"/, "", value); sub(/"$/, "", value); count++; tag=value
-                rest=substr(rest, RSTART + RLENGTH)
-            }
-        }
-        END {if (count == 1) print tag; else exit 1}
-    ' "$lazygit_metadata") || {
-        plasticine_lazygit_error 'latest stable-release metadata did not contain exactly one tag_name; existing installation was left untouched.'
-        return 1
-    }
-    if ! printf '%s\n' "$lazygit_tag" | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/ {ok=1} END {exit !ok}'; then
-        plasticine_lazygit_error "invalid stable-release tag: $lazygit_tag; prerelease or malformed targets are rejected."
-        return 1
-    fi
-    lazygit_version=${lazygit_tag#v}
-
-    # Re-observe after metadata resolution. Only the managed direct pathname is
+    # Re-observe at confirmed apply. Only the managed direct pathname is
     # an authorized replacement owner; a current executable elsewhere may be
     # retained, but it cannot be updated by publishing a shadowing second copy.
     lazygit_bin=$(plasticine_lazygit_resolve lazygit) || lazygit_bin=''
@@ -221,13 +192,9 @@ plasticine_lazygit_prepare() {
         }
         lazygit_comparison=$(plasticine_lazygit_compare_versions "$lazygit_installed_version" "$lazygit_version")
         case $lazygit_comparison in
-            0)
-                printf 'plasticine-dotfiles: lazygit: current stable target %s is already satisfied by %s; no replacement.\n' "$lazygit_version" "$lazygit_bin"
+            0|1)
+                printf 'plasticine-dotfiles: lazygit: pinned baseline %s is satisfied by stable %s at %s; no release request or replacement.\n' "$lazygit_version" "$lazygit_installed_version" "$lazygit_bin"
                 return 0
-                ;;
-            1)
-                plasticine_lazygit_error "existing stable version $lazygit_installed_version is newer than resolved target $lazygit_version and was left untouched; refusing a downgrade."
-                return 1
                 ;;
             -1)
                 [ "$lazygit_bin" = "$lazygit_target" ] || {
@@ -242,18 +209,9 @@ plasticine_lazygit_prepare() {
         lazygit_publication=fresh
     fi
 
-    lazygit_asset=lazygit_${lazygit_version}_${lazygit_asset_os}_${lazygit_asset_arch}.tar.gz
     lazygit_release_url=https://github.com/jesseduffield/lazygit/releases/download/$lazygit_tag
     curl -fsSL -o "$lazygit_archive" "$lazygit_release_url/$lazygit_asset" || {
         plasticine_lazygit_error "release archive download failed: $lazygit_asset; active installation was left untouched."
-        return 1
-    }
-    curl -fsSL -o "$lazygit_checksums" "$lazygit_release_url/checksums.txt" || {
-        plasticine_lazygit_error 'same-release checksums.txt download failed; active installation was left untouched.'
-        return 1
-    }
-    lazygit_expected=$(plasticine_lazygit_checksum "$lazygit_checksums" "$lazygit_asset") || {
-        plasticine_lazygit_error "checksums.txt must contain exactly one valid SHA-256 entry for $lazygit_asset; active installation was left untouched."
         return 1
     }
     lazygit_actual=$(plasticine_lazygit_actual_checksum "$lazygit_archive") || {

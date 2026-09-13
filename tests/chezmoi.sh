@@ -30,14 +30,14 @@ if [ "${1:-}" = --version ]; then printf '%s\n' 'chezmoi version v@VERSION@'; ex
 exec '@REAL@' "$@"
 EOF
     chmod 755 "$payload/chezmoi"
-    for platform in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
+    for platform in linux_amd64 linux-musl_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
         asset=chezmoi_${version}_${platform}.tar.gz
         tar -czf "$fixture/$asset" -C "$payload" chezmoi
         sum=$(shasum -a 256 "$fixture/$asset" | awk '{print $1}')
         printf '%s  %s\n' "$sum" "$asset" >> "$fixture/chezmoi_${version}_checksums.txt"
     done
 }
-make_release 2.72.2; make_release 2.73.0
+make_release 2.72.1; make_release 2.73.0
 cat > "$fixture_bin/curl" <<'EOF'
 #!/bin/sh
 output=''; url=''
@@ -46,11 +46,19 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 printf '%s\n' "$url" >> "$PLASTICINE_TEST_CHEZMOI_CALLS"
-case ${PLASTICINE_TEST_CHEZMOI_FAIL:-}:$url in metadata:*/releases/latest|download:*/releases/download/*) exit 97 ;; esac
+case ${PLASTICINE_TEST_CHEZMOI_FAIL:-}:$url in download:*/releases/download/*) exit 97 ;; esac
 case $url in
-    */releases/latest) printf '{"tag_name":"v%s"}\n' "$PLASTICINE_TEST_CHEZMOI_RELEASE" > "$output" ;;
     */releases/download/*) cp "$PLASTICINE_TEST_CHEZMOI_FIXTURE/${url##*/}" "$output" ;;
     *) exit 98 ;;
+esac
+EOF
+cat > "$fixture_bin/shasum" <<'EOF'
+#!/bin/sh
+for argument do file=$argument; done
+case ${file##*/} in
+    chezmoi_2.72.1_linux_amd64.tar.gz) printf '%s  %s\n' 9f97d32caca166e5c92160ec3a9325519809c38963121cef38173142065c981f "$file" ;;
+    chezmoi_2.72.1_linux-musl_amd64.tar.gz) printf '%s  %s\n' b961e2972d6fcd1002f9b986d4a61dc5da288e96aab226434fd5b20a7de80cf9 "$file" ;;
+    *) exec /usr/bin/shasum "$@" ;;
 esac
 EOF
 cat > "$fixture_bin/mv" <<'EOF'
@@ -91,7 +99,7 @@ run_direct() {
     PLASTICINE_TEST_CHEZMOI_CALLS=$scenario/calls \
     PLASTICINE_TEST_CHEZMOI_TARGET=$scenario/home/.local/bin/chezmoi \
     PLASTICINE_TEST_CHEZMOI_PUBLISH=${PLASTICINE_TEST_CHEZMOI_PUBLISH:-} \
-    PLASTICINE_CHEZMOI_OS=Linux PLASTICINE_CHEZMOI_ARCH=x86_64 \
+    PLASTICINE_CHEZMOI_OS=Linux PLASTICINE_CHEZMOI_ARCH=x86_64 PLASTICINE_CHEZMOI_LIBC=${PLASTICINE_CHEZMOI_LIBC:-glibc} \
     PLASTICINE_DOTFILES_REPO_URL=$origin PLASTICINE_CHEZMOI_SOURCE_DIR=$scenario/source \
     PLASTICINE_CHEZMOI_CONFIG_FILE=$scenario/config/chezmoi.toml PLASTICINE_CHEZMOI_STATE_FILE=$scenario/config/state \
     PLASTICINE_CHEZMOI_DEST_DIR=$scenario/home "$repo_dir/install.sh" -y "$@"
@@ -99,40 +107,54 @@ run_direct() {
 
 # Missing direct install, current convergence, and a newly published target on the next invocation.
 scenario=$test_root/direct; mkdir -p "$scenario/home"; : > "$scenario/calls"
-run_direct "$scenario" 2.72.2 > "$scenario/out"
-grep -Fq 'observed=missing; target=2.72.2; action=install' "$scenario/out" || fail 'missing action was not reported'
-[ "$("$scenario/home/.local/bin/chezmoi" --version)" = 'chezmoi version v2.72.2' ] || fail 'missing release was not installed'
+run_direct "$scenario" 2.73.0 > "$scenario/out"
+grep -Fq 'observed=missing; target=2.72.1; action=install' "$scenario/out" || fail 'missing action was not reported'
+[ "$("$scenario/home/.local/bin/chezmoi" --version)" = 'chezmoi version v2.72.1' ] || fail 'pinned release was not installed'
+! grep -Fq 'api.github.com' "$scenario/calls" || fail 'bootstrap queried the GitHub API'
 first_hash=$(shasum -a 256 "$scenario/home/.local/bin/chezmoi" | awk '{print $1}')
-: > "$scenario/calls"; run_direct "$scenario" 2.72.2 > "$scenario/current-out"
-[ "$(wc -l < "$scenario/calls" | tr -d ' ')" -eq 1 ] || fail 'current check downloaded release assets'
+: > "$scenario/calls"; run_direct "$scenario" 2.73.0 > "$scenario/current-out"
+[ ! -s "$scenario/calls" ] || fail 'satisfied check made a release request'
 [ "$first_hash" = "$(shasum -a 256 "$scenario/home/.local/bin/chezmoi" | awk '{print $1}')" ] || fail 'current executable was replaced'
-grep -Fq 'action=reuse' "$scenario/current-out" || fail 'reuse was not reported'
+grep -Fq 'reusing it without release traffic' "$scenario/current-out" || fail 'reuse was not reported'
 : > "$scenario/calls"; run_direct "$scenario" 2.73.0 > "$scenario/update-out"
-[ "$("$scenario/home/.local/bin/chezmoi" --version)" = 'chezmoi version v2.73.0' ] || fail 'new release did not update direct installation'
-grep -Fq 'action=update' "$scenario/update-out" || fail 'update was not reported'
+[ "$("$scenario/home/.local/bin/chezmoi" --version)" = 'chezmoi version v2.72.1' ] || fail 'new upstream release changed the pinned target'
+[ ! -s "$scenario/calls" ] || fail 'new upstream release caused network traffic'
 
-# Preparation failures preserve the working executable and stop before source acquisition.
-for failed in metadata download; do
-    broken=$test_root/failed-$failed; mkdir -p "$broken/home/.local/bin"; : > "$broken/calls"
-    write_tool "$broken/home/.local/bin/chezmoi" 2.72.2
-    before=$(shasum -a 256 "$broken/home/.local/bin/chezmoi" | awk '{print $1}')
-    if PLASTICINE_TEST_CHEZMOI_FAIL=$failed run_direct "$broken" 2.73.0 >/dev/null 2>"$broken/err"; then fail "$failed failure succeeded"; fi
-    [ "$before" = "$(shasum -a 256 "$broken/home/.local/bin/chezmoi" | awk '{print $1}')" ] || fail "$failed failure changed working executable"
-    [ ! -e "$broken/source" ] || fail "$failed failure acquired source"
-done
+# Download failure preserves the working executable and stops before source acquisition.
+broken=$test_root/failed-download; mkdir -p "$broken/home/.local/bin"; : > "$broken/calls"
+write_tool "$broken/home/.local/bin/chezmoi" 2.72.0
+before=$(shasum -a 256 "$broken/home/.local/bin/chezmoi" | awk '{print $1}')
+if PLASTICINE_TEST_CHEZMOI_FAIL=download run_direct "$broken" 2.73.0 >/dev/null 2>"$broken/err"; then fail 'download failure succeeded'; fi
+[ "$before" = "$(shasum -a 256 "$broken/home/.local/bin/chezmoi" | awk '{print $1}')" ] || fail 'download failure changed working executable'
+[ ! -e "$broken/source" ] || fail 'download failure acquired source'
+unset PLASTICINE_TEST_CHEZMOI_FAIL
+
+# Linux libc selection uses the pinned musl asset only where upstream publishes it.
+musl=$test_root/musl; mkdir -p "$musl/home"; : > "$musl/calls"
+PLASTICINE_CHEZMOI_LIBC=musl run_direct "$musl" 2.73.0 >/dev/null
+grep -Fq '/v2.72.1/chezmoi_2.72.1_linux-musl_amd64.tar.gz' "$musl/calls" || fail 'musl x86_64 did not select the reviewed pinned asset'
+unsupported_musl=$test_root/unsupported-musl; mkdir -p "$unsupported_musl/home"; : > "$unsupported_musl/calls"
+if HOME=$unsupported_musl/home PATH=$fixture_bin:/usr/bin:/bin PLASTICINE_TEST_CHEZMOI_FIXTURE=$fixture \
+    PLASTICINE_TEST_CHEZMOI_CALLS=$unsupported_musl/calls PLASTICINE_CHEZMOI_OS=Linux PLASTICINE_CHEZMOI_ARCH=arm64 \
+    PLASTICINE_CHEZMOI_LIBC=musl PLASTICINE_DOTFILES_REPO_URL=$origin PLASTICINE_CHEZMOI_SOURCE_DIR=$unsupported_musl/source \
+    PLASTICINE_CHEZMOI_CONFIG_FILE=$unsupported_musl/config PLASTICINE_CHEZMOI_STATE_FILE=$unsupported_musl/state \
+    PLASTICINE_CHEZMOI_DEST_DIR=$unsupported_musl/home "$repo_dir/install.sh" -y >/dev/null 2>"$unsupported_musl/err"; then
+    fail 'unsupported musl arm64 route succeeded'
+fi
+[ ! -s "$unsupported_musl/calls" ] || fail 'unsupported musl arm64 route made a release request'
 
 # Interrupted replacement leaves the previously observed destination and no stale staged file.
 publication=fail
 broken=$test_root/publish-$publication; mkdir -p "$broken/home/.local/bin"; : > "$broken/calls"
-write_tool "$broken/home/.local/bin/chezmoi" 2.72.2
+write_tool "$broken/home/.local/bin/chezmoi" 2.72.0
 if PLASTICINE_TEST_CHEZMOI_PUBLISH=$publication run_direct "$broken" 2.73.0 >/dev/null 2>"$broken/err"; then fail "$publication publication succeeded"; fi
-[ "$("$broken/home/.local/bin/chezmoi" --version)" = 'chezmoi version v2.72.2' ] || fail 'failed update lost old executable'
+[ "$("$broken/home/.local/bin/chezmoi" --version)" = 'chezmoi version v2.72.0' ] || fail 'failed update lost old executable'
 [ -z "$(find "$broken/home/.local/bin" -name '.chezmoi.plasticine.*' -print)" ] || fail "$publication left staging"
 
 # External ownership can satisfy current state, but is never mutated or shadowed when outdated.
 for state in current outdated unhealthy prerelease; do
     external=$test_root/external-$state; mkdir -p "$external/home" "$external/bin"; : > "$external/calls"
-    case $state in current) write_tool "$external/bin/chezmoi" 2.73.0 ;; outdated) write_tool "$external/bin/chezmoi" 2.72.2 ;;
+    case $state in current) write_tool "$external/bin/chezmoi" 2.73.0 ;; outdated) write_tool "$external/bin/chezmoi" 2.72.0 ;;
         unhealthy) write_tool "$external/bin/chezmoi" 2.72.2 no ;; prerelease) write_tool "$external/bin/chezmoi" 2.73.0-rc1 ;; esac
     if HOME=$external/home PATH=$external/bin:$fixture_bin:/usr/bin:/bin PLASTICINE_TEST_CHEZMOI_FIXTURE=$fixture PLASTICINE_TEST_CHEZMOI_RELEASE=2.73.0 \
         PLASTICINE_TEST_CHEZMOI_CALLS=$external/calls PLASTICINE_CHEZMOI_OS=Linux PLASTICINE_CHEZMOI_ARCH=x86_64 \

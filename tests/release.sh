@@ -44,10 +44,18 @@ grep -Fq -- '--herdr' "$asset_dir/install.sh"
 for module in lazygit fnm herdr neovim shell; do
     test -f "$upgrade_dir/source/lib/$module-bootstrap.sh"
 done
-grep -Fq 'stable target' "$upgrade_dir/source/lib/lazygit-bootstrap.sh"
+grep -Fq 'lazygit_version=0.65.1' "$upgrade_dir/source/lib/lazygit-bootstrap.sh"
+grep -Fq '02beacbcda0fa342e50ae3480ba8147307353af3fb28e1d5f790e02329c201a6' "$upgrade_dir/source/lib/lazygit-bootstrap.sh"
 grep -Fq 'latest available formula' "$upgrade_dir/source/lib/fnm-bootstrap.sh"
 grep -Fq 'stable-release metadata' "$upgrade_dir/source/lib/herdr-bootstrap.sh"
-grep -Fq 'releases/latest' "$upgrade_dir/source/lib/neovim-bootstrap.sh"
+grep -Fq 'neovim_version=0.12.5' "$upgrade_dir/source/lib/neovim-bootstrap.sh"
+grep -Fq 'bce0f56eda1f1b1db6eee8f4133d7a38813ea07933837dd1777411ca384c6875' "$upgrade_dir/source/lib/neovim-bootstrap.sh"
+grep -Fq 'chezmoi_version=2.72.1' "$asset_dir/install.sh"
+grep -Fq '9f97d32caca166e5c92160ec3a9325519809c38963121cef38173142065c981f' "$asset_dir/install.sh"
+if grep -Fq 'api.github.com' "$asset_dir/install.sh"; then
+    printf '%s\n' 'generated installer contains a GitHub API dependency' >&2
+    exit 1
+fi
 grep -Fq 'antidote update' "$upgrade_dir/source/lib/shell-bootstrap.sh"
 
 # Advancing main after the asset was built must not change what it installs.

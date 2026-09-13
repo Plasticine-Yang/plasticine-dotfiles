@@ -80,29 +80,13 @@ EOF
 chmod +x "$protect_bin/lazygit"
 cat > "$protect_bin/curl" <<'EOF'
 #!/bin/sh
-case $* in
-    *api.github.com/repos/neovim/neovim/releases/latest*)
-        output=
-        previous=
-        for argument in "$@"; do
-            [ "$previous" != -o ] || output=$argument
-            previous=$argument
-        done
-        payload='
-  "tag_name": "v0.12.4",
-  "name": "nvim-macos-arm64.tar.gz",
-  "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "browser_download_url": "https://github.com/neovim/neovim/releases/download/v0.12.4/nvim-macos-arm64.tar.gz"
-'
-        if [ -n "$output" ]; then printf '%s\n' "$payload" > "$output"; else printf '%s\n' "$payload"; fi
-        ;;
-    *) printf 'installer fixture blocked curl: %s\n' "$*" >&2; exit 99 ;;
-esac
+printf 'installer fixture blocked curl: %s\n' "$*" >&2
+exit 99
 EOF
 cat > "$protect_bin/nvim" <<'EOF'
 #!/bin/sh
 case $1 in
-    --version) printf '%s\n' 'NVIM v0.12.4' ;;
+    --version) printf '%s\n' 'NVIM v0.12.5' ;;
     --headless) printf '%s\n' "$*" >> "$PLASTICINE_TEST_NVIM_CALLS" ;;
     *) exit 99 ;;
 esac

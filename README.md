@@ -10,9 +10,9 @@
 sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)"
 ```
 
-安装器支持 macOS 和 Linux。每次调用都会先查询 chezmoi 官方 GitHub Release 的最新稳定版本：缺失时把完整校验过的归档安装到 `~/.local/bin/chezmoi`，该直接安装过期时安全更新，已经是目标版本时不替换。然后安装器使用 chezmoi 的默认 source、config 和 state 路径。
+安装器支持 macOS 和 Linux。chezmoi 的固定支持基线为 `2.72.1`：缺失或较旧的受管 direct install 会从精确的官方版本化归档安装/升级，并按随该版本审查入库的 SHA-256 验证；健康的同版本或更新 stable 版本直接复用，不查询 Release API、不下载归档，也不会降级。然后安装器使用 chezmoi 的默认 source、config 和 state 路径。Linux x86_64 会按 glibc/musl 选择该 Release 提供的对应资产；没有已审查资产的组合会停止。
 
-chezmoi 维护和 source 获取属于安装器前置工作，会发生在 Feature 确认之前；之后取消 Feature 应用不会撤销已经完成的前置更新。外部安装归属的当前版本可以直接使用，但过期版本必须由原归属更新，安装器不会覆盖它或另装一个遮蔽副本。元数据、下载、SHA-256、候选健康或发布失败都会停止安装并尽量保留原有可用命令。`PLASTICINE_CHEZMOI_BIN` 仍是测试/显式 executable override：安装器验证所需接口，但不接管、更新或联网检查这个显式路径。
+chezmoi 维护和 source 获取属于安装器前置工作，会发生在 Feature 确认之前；之后取消 Feature 应用不会撤销已经完成的前置更新。外部安装归属的合格版本可以直接使用，但低于基线的版本必须由原归属更新，安装器不会覆盖它或另装一个遮蔽副本。下载、SHA-256、候选健康或发布失败都会停止安装并尽量保留原有可用命令。`PLASTICINE_CHEZMOI_BIN` 仍是测试/显式 executable override：安装器验证所需接口，但不接管、更新或联网检查这个显式路径。
 
 安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 Git 配置（`git-config`）、GitHub SSH、fnm（`fnm`）、Herdr（`herdr`）、Lazygit（`lazygit`）、Neovim（`neovim`）和 Zsh 环境（`shell`）；初始选择为空，不选择某个工具表示本次不处理它。
 
@@ -134,9 +134,9 @@ PLASTICINE_DOTFILES_REPO_URL="$PWD" ./install.sh
 
 ## Lazygit（`--lazygit`）
 
-每次确认 apply 都会查询 `jesseduffield/lazygit` 的最新官方 stable GitHub Release；Preview、dry-run 和取消不会查询 release metadata。缺失时，Plasticine 下载当前 macOS/Linux、`x86_64`/`arm64` 对应归档及同一 Release 的 `checksums.txt`，验证 SHA-256、归档成员与候选版本后，以 `0755` 原子 no-clobber 发布到 `~/.local/bin/lazygit`。已由该路径直接安装的旧 stable 版本会在候选完整验证后重新校验活动目标，再以同目录原子替换升级；当前版本只查询 metadata，不下载或替换归档。该校验和与归档处于同一 GitHub Release 信任边界，不是独立签名。此路线不调用 Homebrew、APT、`sudo`、`go install` 或第三方安装器，也不需要凭据或终端提示。
+Lazygit 的固定支持基线为 `0.65.1`。确认 apply 后，缺失或较旧的受管 direct install 才下载 macOS/Linux、`x86_64`/`arm64` 对应的精确官方版本化归档，并按随该版本审查入库的 SHA-256 验证归档、成员和候选版本，再以 `0755` 原子发布到 `~/.local/bin/lazygit`。健康的同版本或更新 stable 版本直接复用，不查询 Release API、不下载归档，也不会降级；Preview、dry-run、取消和未选中 Feature 同样不下载。该 digest 与归档处于同一 GitHub Release 信任边界，不是独立签名。此路线不调用 Homebrew、APT、`sudo`、`go install` 或第三方安装器，也不需要凭据或终端提示。
 
-不健康、无法解析版本、prerelease/custom、比当前 stable target 更新或位于其他路径的旧安装不会被静默替换、降级或用第二份安装遮蔽；请使用其原有 owner 更新，或明确移除该安装后重试。metadata、下载、校验、解包、候选健康、竞态检测或最终版本校验失败都会使本次 Feature 失败，即使旧二进制仍能运行；候选准备失败保留活动安装。fresh publication 后的最终检查失败也保留已发布路径并给出修复/重试指引，不依据早先归属自动删除它。
+不健康、无法解析版本、prerelease/custom 或位于其他路径且低于基线的安装不会被静默替换或用第二份安装遮蔽；请使用其原有 owner 更新，或明确移除该安装后重试。下载、校验、解包、候选健康、竞态检测或最终版本校验失败都会使本次 Feature 失败，即使旧二进制仍能运行；候选准备失败保留活动安装。fresh publication 后的最终检查失败也保留已发布路径并给出修复/重试指引，不依据早先归属自动删除它。
 
 下载、Release 元数据、校验、解压、发布或安装后健康检查失败时不会改用其他安装路线，也不会应用别名。一次调用选择多个工具时，会先完成所有工具准备，再开始任何受管配置的备份、权限调整或写入；若较后的工具准备失败，较早完成的健康工具会保留，但本次配置仍保持未应用。修复网络、上游资源或本机文件系统问题后可以重跑同一命令，从观测到的健康状态继续。如果发布后的健康检查失败，报错中所列路径会被保留：若它已被其他 Owner 替换，应修复该 Owner 文件；若它仍是本次发布的不健康文件，必须先修复或删除它，再重跑。
 
@@ -164,11 +164,11 @@ Linux 完整下载 `https://fnm.vercel.app/install` 后才执行，传入 `--ski
 
 ## Neovim（`--neovim`）
 
-每次确认 apply 都查询 Neovim 官方最新稳定 GitHub Release。macOS 与 Linux 的 `x86_64`/`arm64` 使用对应官方 `tar.gz`；缺失时把完整发行版发布到 `~/.local/opt/neovim`，并以 `~/.local/bin/nvim` 链接提供命令。该路线不会调用 Homebrew、APT、Cargo、AppImage、`sudo` 或第三方安装器；缺少 `curl`、`tar` 或 SHA-256 工具会给出指引并停止。只选择 Neovim 不会编辑 shell 启动文件，因此 Owner 仍需确保 `~/.local/bin` 在 `PATH`。
+Neovim 编辑器发行版的固定支持基线为 `0.12.5`。缺失或较旧的受管 direct install 才下载 macOS/Linux、`x86_64`/`arm64` 对应的精确官方版本化 `tar.gz`，把完整发行版发布到 `~/.local/opt/neovim`，并以 `~/.local/bin/nvim` 链接提供命令。健康的同版本或更新 stable 版本直接复用，不查询 Release API、不下载编辑器归档，也不会降级。该路线不会调用 Homebrew、APT、Cargo、AppImage、`sudo` 或第三方安装器；缺少 `curl`、`tar` 或 SHA-256 工具会给出指引并停止。只选择 Neovim 不会编辑 shell 启动文件，因此 Owner 仍需确保 `~/.local/bin` 在 `PATH`。
 
-Release API 为所选资产提供 SHA-256 digest；Plasticine 在安全检查 archive 成员后验证 digest、完整 runtime 布局、候选版本以及候选能否加载自身 runtime，再发布整个目录。该 digest 与 archive 都处于 GitHub Release 的同一信任边界，并不是独立签名。fresh 发布保持 no-clobber；由上述路径管理的旧稳定版本在候选验证后重验活动目标，再替换完整发行版。当前版本不重复下载或替换 distribution，但仍执行插件同步。
+四个官方资产的 SHA-256 随 `0.12.5` 一并审查入库；Plasticine 在安全检查 archive 成员后验证 digest、完整 runtime 布局、候选版本以及候选能否加载自身 runtime，再发布整个目录。该 digest 与 archive 都处于 GitHub Release 的同一信任边界，并不是独立签名。fresh 发布保持 no-clobber；由上述路径管理的旧稳定版本在候选验证后重验活动目标，再替换完整发行版。合格版本不重复下载或替换 distribution，但仍执行插件同步。
 
-位于其他路径的当前稳定编辑器可以继续使用且不会被修改。其他 owner 的旧版本、不健康/无法比较/预发布/自定义版本以及高于当前稳定目标的版本会被拒绝；安装器不会调用其包管理器、降级、切换 channel 或另装遮蔽副本。下载、metadata、digest、解包、候选 runtime 或发布失败发生在配置写入前，并保留旧 installation；若完整 distribution 已发布而命令链接或最终健康检查失败，诊断会明确保留状态，Owner 修复冲突后可重跑。
+位于其他路径且达到基线的稳定编辑器可以继续使用且不会被修改。其他 owner 的旧版本以及不健康/无法比较/预发布/自定义版本会被拒绝；安装器不会调用其包管理器、降级、切换 channel 或另装遮蔽副本。下载、digest、解包、候选 runtime 或发布失败发生在配置写入前，并保留旧 installation；若完整 distribution 已发布而命令链接或最终健康检查失败，诊断会明确保留状态，Owner 修复冲突后可重跑。
 
 Plasticine 只整体管理以下九个文件：
 
@@ -291,6 +291,6 @@ CHEZMOI_BIN=/path/to/chezmoi ./tests/release.sh
 
 本仓库使用独立的 SemVer 版本线，从 `v0.1.0` 开始。日常提交和 Pull Request 会在 Ubuntu 与 macOS 上执行完整测试；稳定版本只能从 GitHub Actions 的 `Release` workflow 手动触发，并输入 `vMAJOR.MINOR.PATCH` 格式的版本号。
 
-发布流程验证触发时的 `main` commit，生成 `install.sh` 和 `SHA256SUMS`，先创建 draft Release，核对 tag、commit 与附件后再发布。发布版安装器固定到该 Release 的完整 commit；因此历史 Release 的安装内容不会随 `main` 推进而改变，而 `/releases/latest/download/install.sh` 始终选择最新稳定版本。
+发布流程验证触发时的 `main` commit，生成 `install.sh` 和 `SHA256SUMS`，先创建 draft Release，核对 tag、commit 与附件后再发布。发布版安装器固定到该 Release 的完整 commit，并内含 chezmoi `2.72.1` 的版本/完整性数据；随 source 固定的 Lazygit `0.65.1` 与 Neovim `0.12.5` 元组也只会随新的 Base Dotfiles Release 前进。因此历史 Release 的安装内容不会随上游新版本或 `main` 推进而改变，而顶层 `/releases/latest/download/install.sh` 仍只负责选择最新 Base Dotfiles 稳定版本。
 
 发布前应在仓库设置中将 `CI / Test (ubuntu-24.04)` 和 `CI / Test (macos-14)` 配置为 `main` 的 required checks，并启用 GitHub immutable releases。CI 和 Release workflow 中使用的第三方 Actions 固定到完整 commit，由 Dependabot 每月提出更新。

@@ -74,6 +74,15 @@ plasticine_neovim_plan() {
         *) plasticine_neovim_error "unsupported architecture: $neovim_arch; no official archive route or fallback."; return 1 ;; esac
     neovim_asset=nvim-$neovim_asset_os-$neovim_asset_arch.tar.gz
     neovim_archive_root=${neovim_asset%.tar.gz}
+    neovim_version=0.12.5
+    neovim_tag=v$neovim_version
+    case $neovim_asset in
+        nvim-macos-x86_64.tar.gz) neovim_expected=81f4518622cb059b450ee2e498c6a1082a222f6bd89589de5bbcf0c6a68aa3fd ;;
+        nvim-macos-arm64.tar.gz) neovim_expected=65fb000099e47ca1b762584c484cc833f40e30851a0ec450d4174e16317c1f9b ;;
+        nvim-linux-x86_64.tar.gz) neovim_expected=bce0f56eda1f1b1db6eee8f4133d7a38813ea07933837dd1777411ca384c6875 ;;
+        nvim-linux-arm64.tar.gz) neovim_expected=1aa5ca085249580ae0f91eb14f27ec0919773ff2d99a163d03f3d6c21ac29725 ;;
+        *) plasticine_neovim_error "no reviewed artifact tuple for $neovim_asset"; return 1 ;;
+    esac
     for plasticine_neovim_command in curl tar awk sed env mktemp mkdir chmod ln mv rm readlink; do
         command -v "$plasticine_neovim_command" >/dev/null 2>&1 || {
             plasticine_neovim_error "missing command required by the official archive route: $plasticine_neovim_command"; return 1; }
@@ -87,53 +96,22 @@ plasticine_neovim_plan() {
 plasticine_neovim_preview() {
     printf 'plasticine-dotfiles: neovim: observed %s/%s; official archive %s\n' "$neovim_os" "$neovim_arch" "$neovim_asset"
     printf '%s\n' \
-        '  Confirmed apply resolves the latest official stable GitHub Release; Preview does not query it.' \
+        '  Fixed supported baseline: Neovim 0.12.5 from its exact official versioned GitHub Release asset.' \
         '  Missing Neovim is installed; an outdated managed distribution is safely replaced; a current installation is retained.' \
         '  Current external owners may be used without mutation; outdated, prerelease, custom, unhealthy, or ambiguous owners are refused.' \
-        '  network during apply: api.github.com, the selected github.com/neovim/neovim archive, and lazy.nvim/plugin Git repositories.' \
-        "  verification: GitHub Release asset SHA-256 digest, safe archive layout, candidate version and complete runtime; the digest shares GitHub's release trust boundary and is not an independent signature." \
+        '  network during apply: the pinned github.com/neovim/neovim archive only when needed, plus lazy.nvim/plugin Git repositories.' \
+        "  verification: reviewed pinned SHA-256, safe archive layout, candidate version and complete runtime; the digest shares GitHub's release trust boundary and is not an independent signature." \
         "  distribution: $neovim_install_dir; command link: $neovim_target_command; package manager/privilege: none." \
         '  effects after editor preparation: manage exactly nine ~/.config/nvim Lua files, then run native lazy.nvim update/synchronization.'
-}
-
-plasticine_neovim_metadata_fields() {
-    awk -v wanted="$neovim_asset" '
-        /"tag_name"[[:space:]]*:/ {
-            line=$0; sub(/^.*"tag_name"[[:space:]]*:[[:space:]]*"/, "", line); sub(/".*$/, "", line); tags++; tag=line
-        }
-        /"name"[[:space:]]*:/ {
-            line=$0; sub(/^.*"name"[[:space:]]*:[[:space:]]*"/, "", line); sub(/".*$/, "", line); matched=(line == wanted); if (matched) assets++
-        }
-        matched && /"digest"[[:space:]]*:/ {
-            line=$0; sub(/^.*"digest"[[:space:]]*:[[:space:]]*"sha256:/, "", line); sub(/".*$/, "", line); digests++; digest=tolower(line)
-        }
-        matched && /"browser_download_url"[[:space:]]*:/ {
-            line=$0; sub(/^.*"browser_download_url"[[:space:]]*:[[:space:]]*"/, "", line); sub(/".*$/, "", line); urls++; url=line; matched=0
-        }
-        END {
-            if (tags != 1 || tag !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ || assets != 1 || digests != 1 || digest !~ /^[0-9a-f]{64}$/ || urls != 1) exit 1
-            print tag; print digest; print url
-        }' "$1"
 }
 
 plasticine_neovim_prepare() {
     neovim_work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-neovim.XXXXXX") || return 1
     trap 'rm -rf "$neovim_work_dir"' EXIT
     trap 'rm -rf "$neovim_work_dir"; exit 1' HUP INT TERM
-    neovim_metadata=$neovim_work_dir/latest.json
     neovim_archive=$neovim_work_dir/archive.tar.gz
     neovim_extract=$neovim_work_dir/extract
-    curl -fsSL -H 'Accept: application/vnd.github+json' -o "$neovim_metadata" \
-        "${PLASTICINE_NEOVIM_RELEASE_API_URL:-https://api.github.com/repos/neovim/neovim/releases/latest}" || {
-        plasticine_neovim_error 'official stable release lookup failed; active installation and managed configuration were left untouched.'; return 1; }
-    neovim_fields=$(plasticine_neovim_metadata_fields "$neovim_metadata") || {
-        plasticine_neovim_error "release metadata must contain one stable tag and one complete $neovim_asset asset with SHA-256 digest; active installation was left untouched."; return 1; }
-    neovim_tag=$(printf '%s\n' "$neovim_fields" | sed -n '1p')
-    neovim_expected=$(printf '%s\n' "$neovim_fields" | sed -n '2p')
-    neovim_url=$(printf '%s\n' "$neovim_fields" | sed -n '3p')
-    neovim_version=${neovim_tag#v}
-    case $neovim_url in https://github.com/neovim/neovim/releases/download/"$neovim_tag"/"$neovim_asset") ;;
-        *) plasticine_neovim_error "unexpected official asset URL for $neovim_asset; active installation was left untouched."; return 1 ;; esac
+    neovim_url=https://github.com/neovim/neovim/releases/download/$neovim_tag/$neovim_asset
 
     neovim_bin=$(plasticine_neovim_resolve || true)
     neovim_owner=missing
@@ -142,8 +120,7 @@ plasticine_neovim_prepare() {
         [ "$neovim_bin" = "$neovim_target_command" ] && [ -L "$neovim_target_command" ] && [ "$(readlink "$neovim_target_command")" = ../opt/neovim/bin/nvim ] && [ -L "$neovim_install_dir" ] && neovim_owner=direct || neovim_owner=external
         neovim_comparison=$(plasticine_neovim_compare "$neovim_observed" "$neovim_version")
         case $neovim_comparison in
-            0) printf 'plasticine-dotfiles: neovim: current stable %s is already satisfied by %s; distribution retained.\n' "$neovim_version" "$neovim_bin"; return 0 ;;
-            1) plasticine_neovim_error "existing stable $neovim_observed is newer than target $neovim_version; refusing downgrade or channel switch."; return 1 ;;
+            0|1) printf 'plasticine-dotfiles: neovim: pinned baseline %s is satisfied by stable %s at %s; distribution retained without editor release traffic.\n' "$neovim_version" "$neovim_observed" "$neovim_bin"; return 0 ;;
             -1) [ "$neovim_owner" = direct ] || { plasticine_neovim_error "outdated Neovim $neovim_observed at unsupported owner path $neovim_bin; update it with its owner. No shadow installation was created."; return 1; }; neovim_publication=upgrade ;;
         esac
     else

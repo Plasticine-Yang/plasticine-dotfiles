@@ -15,17 +15,13 @@ trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 for override in nvim-appname xdg-config-home; do
     override_root=$test_root/reject-$override
     mkdir -p "$override_root/home"
-    case $override in
-        nvim-appname) override_env=NVIM_APPNAME=host-nvim ;;
-        xdg-config-home) override_env=XDG_CONFIG_HOME=/tmp/host-config ;;
-    esac
-    if env "$override_env" HOME="$override_root/home" \
-        PLASTICINE_CHEZMOI_BIN="$chezmoi_bin" \
-        PLASTICINE_CHEZMOI_SOURCE_DIR="$override_root/source" \
-        PLASTICINE_CHEZMOI_CONFIG_FILE="$override_root/config/chezmoi.toml" \
-        PLASTICINE_CHEZMOI_STATE_FILE="$override_root/config/chezmoistate.boltdb" \
-        PLASTICINE_CHEZMOI_DEST_DIR="$override_root/home" \
-        "$repo_dir/install.sh" -y --neovim >"$override_root/out" 2>"$override_root/err"; then
+    if (
+        export HOME="$override_root/home" PLASTICINE_CHEZMOI_BIN="$chezmoi_bin"
+        export PLASTICINE_CHEZMOI_SOURCE_DIR="$override_root/source" PLASTICINE_CHEZMOI_CONFIG_FILE="$override_root/config/chezmoi.toml"
+        export PLASTICINE_CHEZMOI_STATE_FILE="$override_root/config/chezmoistate.boltdb" PLASTICINE_CHEZMOI_DEST_DIR="$override_root/home"
+        case $override in nvim-appname) export NVIM_APPNAME=host-nvim ;; xdg-config-home) export XDG_CONFIG_HOME=/tmp/host-config ;; esac
+        "$repo_dir/install.sh" -y --neovim
+    ) >"$override_root/out" 2>"$override_root/err"; then
         printf 'unsupported Neovim environment was accepted: %s\n' "$override" >&2
         exit 1
     fi
@@ -52,7 +48,20 @@ done
 if [ -x /usr/bin/shasum ]; then
     cat > "$fixture_system_bin/shasum" <<'EOF'
 #!/bin/sh
-exec /usr/bin/shasum "$@"
+for argument do file=$argument; done
+case ${file##*/} in
+    archive.tar.gz)
+        [ "${PLASTICINE_NEOVIM_BAD_DIGEST:-0}" != 1 ] || { printf '%064d  %s\n' 0 "$file"; exit; }
+        case ${PLASTICINE_NEOVIM_OS:-Linux}:${PLASTICINE_NEOVIM_ARCH:-x86_64} in
+            Darwin:arm64) digest=65fb000099e47ca1b762584c484cc833f40e30851a0ec450d4174e16317c1f9b ;;
+            Darwin:*) digest=81f4518622cb059b450ee2e498c6a1082a222f6bd89589de5bbcf0c6a68aa3fd ;;
+            Linux:arm64|Linux:aarch64) digest=1aa5ca085249580ae0f91eb14f27ec0919773ff2d99a163d03f3d6c21ac29725 ;;
+            *) digest=bce0f56eda1f1b1db6eee8f4133d7a38813ea07933837dd1777411ca384c6875 ;;
+        esac
+        printf '%s  %s\n' "$digest" "$file"
+        ;;
+    *) exec /usr/bin/shasum "$@" ;;
+esac
 EOF
     chmod 755 "$fixture_system_bin/shasum"
 fi
@@ -79,10 +88,17 @@ EOF
 }
 make_archive 0.12.4
 make_archive 0.12.5
+for platform in macos-x86_64 macos-arm64 linux-x86_64 linux-arm64; do
+    platform_root=$test_root/platform-$platform/nvim-$platform
+    mkdir -p "$platform_root/bin" "$platform_root/share/nvim/runtime"
+    cp "$test_root/build-0.12.5/nvim-linux-x86_64/bin/nvim" "$platform_root/bin/nvim"
+    cp "$test_root/build-0.12.5/nvim-linux-x86_64/share/nvim/runtime/filetype.lua" "$platform_root/share/nvim/runtime/filetype.lua"
+    tar -czf "$fixture_assets/nvim-$platform.tar.gz" -C "$test_root/platform-$platform" "nvim-$platform"
+done
 unsafe_root=$test_root/unsafe/nvim-linux-x86_64
 mkdir -p "$unsafe_root/bin" "$unsafe_root/share/nvim/runtime"
-cp "$test_root/build-0.12.4/nvim-linux-x86_64/bin/nvim" "$unsafe_root/bin/nvim"
-cp "$test_root/build-0.12.4/nvim-linux-x86_64/share/nvim/runtime/filetype.lua" "$unsafe_root/share/nvim/runtime/filetype.lua"
+cp "$test_root/build-0.12.5/nvim-linux-x86_64/bin/nvim" "$unsafe_root/bin/nvim"
+cp "$test_root/build-0.12.5/nvim-linux-x86_64/share/nvim/runtime/filetype.lua" "$unsafe_root/share/nvim/runtime/filetype.lua"
 ln -s /tmp/escape "$unsafe_root/share/nvim/runtime/unsafe-link"
 tar -czf "$fixture_assets/symlink.tar.gz" -C "$test_root/unsafe" nvim-linux-x86_64
 rm "$unsafe_root/share/nvim/runtime/unsafe-link"
@@ -111,28 +127,21 @@ cat > "$fixture_bin/curl" <<'EOF'
 #!/bin/sh
 output=
 previous=
+request_url=
 for argument in "$@"; do
     [ "$previous" != -o ] || output=$argument
+    case $argument in http*) request_url=$argument ;; esac
     previous=$argument
 done
 printf '%s\n' curl >> "$PLASTICINE_NEOVIM_TEST_CALLS"
+printf '%s\n' "$request_url" >> "$PLASTICINE_NEOVIM_TEST_CALLS"
 case $* in
-  *api.github.com/repos/neovim/neovim/releases/latest*)
-    version=${PLASTICINE_NEOVIM_TEST_VERSION:-0.12.4}
-    archive=${PLASTICINE_NEOVIM_ARCHIVE_FIXTURE:-$version}
-    digest=$(cat "$PLASTICINE_NEOVIM_TEST_ASSETS/$archive.sha")
-    [ "${PLASTICINE_NEOVIM_BAD_DIGEST:-0}" != 1 ] || digest=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    payload="  \"tag_name\": \"v$version\",
-  \"name\": \"nvim-linux-x86_64.tar.gz\",
-  \"digest\": \"sha256:$digest\",
-  \"browser_download_url\": \"https://github.com/neovim/neovim/releases/download/v$version/nvim-linux-x86_64.tar.gz\""
-    [ "${PLASTICINE_NEOVIM_BAD_METADATA:-0}" != 1 ] || payload='{"tag_name":"nightly"}'
-    if [ -n "$output" ]; then printf '%s\n' "$payload" > "$output"; else printf '%s\n' "$payload"; fi
-    ;;
-  *github.com/neovim/neovim/releases/download/*)
+  *api.github.com*) exit 98 ;;
+  *github.com/neovim/neovim/releases/download/v0.12.5/*)
     [ -z "${PLASTICINE_NEOVIM_RACE_TARGET:-}" ] || mkdir -p "$PLASTICINE_NEOVIM_RACE_TARGET"
-    archive=${PLASTICINE_NEOVIM_ARCHIVE_FIXTURE:-${PLASTICINE_NEOVIM_TEST_VERSION:-0.12.4}}
-    cp "$PLASTICINE_NEOVIM_TEST_ASSETS/$archive.tar.gz" "$output"
+    archive=${PLASTICINE_NEOVIM_ARCHIVE_FIXTURE:-${request_url##*/}}
+    case $archive in *.tar.gz) ;; *) archive=$archive.tar.gz ;; esac
+    cp "$PLASTICINE_NEOVIM_TEST_ASSETS/$archive" "$output"
     ;;
   *) exit 99 ;;
 esac
@@ -145,6 +154,18 @@ apply_case() {
         PLASTICINE_NEOVIM_TEST_ASSETS=$fixture_assets PLASTICINE_NEOVIM_TEST_CALLS=$case_home/calls \
         "$@" "$chezmoi_bin" -S "$repo_dir" -D "$case_home" -c "$config" --persistent-state "$case_state" apply --no-tty
 }
+
+# Every declared platform route requests its exact pinned asset through the
+# supported direct chezmoi-apply seam.
+for platform in Darwin:x86_64:macos-x86_64 Darwin:arm64:macos-arm64 Linux:x86_64:linux-x86_64 Linux:arm64:linux-arm64; do
+    old_ifs=$IFS; IFS=:; set -- $platform; IFS=$old_ifs
+    route_home=$test_root/route-$1-$2; mkdir -p "$route_home"; : > "$route_home/calls"
+    PATH=$fixture_bin:$fixture_system_bin PLASTICINE_NEOVIM_OS=$1 PLASTICINE_NEOVIM_ARCH=$2 \
+        PLASTICINE_NEOVIM_TEST_ASSETS=$fixture_assets PLASTICINE_NEOVIM_TEST_CALLS=$route_home/calls \
+        "$chezmoi_bin" -S "$repo_dir" -D "$route_home" -c "$config" --persistent-state "$test_root/route-$1-$2-state" apply --no-tty >/dev/null
+    grep -Fq "https://github.com/neovim/neovim/releases/download/v0.12.5/nvim-$3.tar.gz" "$route_home/calls" || {
+        printf 'wrong Neovim pinned route for %s/%s\n' "$1" "$2" >&2; exit 1; }
+done
 
 # Preview is local: no metadata, download, or editor execution.
 preview_home=$test_root/preview-home
@@ -170,31 +191,25 @@ distribution_before=$(find -L "$fresh/.local/opt/neovim" -type f -exec shasum -a
 apply_case "$fresh" "$test_root/fresh-state" env >/dev/null
 distribution_after=$(find -L "$fresh/.local/opt/neovim" -type f -exec shasum -a 256 {} + | sort | shasum -a 256 | awk '{print $1}')
 [ "$distribution_before" = "$distribution_after" ]
-[ "$(grep -c '^curl$' "$fresh/calls")" -eq 1 ]
-[ -f "$fresh/.config/nvim/lua/local.lua" ]
-
-# A later stable target upgrades the authorized complete distribution in place.
-: > "$fresh/calls"
-apply_case "$fresh" "$test_root/fresh-state" env PLASTICINE_NEOVIM_TEST_VERSION=0.12.5 >/dev/null
-[ "$("$fresh/.local/bin/nvim" --version)" = 'NVIM v0.12.5' ]
-[ -f "$fresh/.local/opt/neovim/share/nvim/runtime/filetype.lua" ]
+[ "$(grep -c '^curl$' "$fresh/calls" || true)" -eq 0 ]
 [ -f "$fresh/.config/nvim/lua/local.lua" ]
 
 # Preparation failures preserve an existing direct installation and precede configuration.
-for scenario in metadata digest symlink hardlink malformed extraction candidate-health; do
+for scenario in digest symlink hardlink malformed extraction candidate-health; do
     failed=$test_root/$scenario-home
     cp -R "$fresh" "$failed"; rm -rf "$failed/.config"; : > "$failed/calls"
+    sed 's/NVIM v0.12.5/NVIM v0.12.4/' "$failed/.local/opt/neovim/bin/nvim" > "$failed/old-nvim"
+    mv "$failed/old-nvim" "$failed/.local/opt/neovim/bin/nvim"; chmod 755 "$failed/.local/opt/neovim/bin/nvim"
     case $scenario in
-        metadata) flag=PLASTICINE_NEOVIM_BAD_METADATA=1 ;;
         digest) flag=PLASTICINE_NEOVIM_BAD_DIGEST=1 ;;
         symlink|hardlink|malformed) flag=PLASTICINE_NEOVIM_ARCHIVE_FIXTURE=$scenario ;;
         extraction) flag=PLASTICINE_NEOVIM_FAIL_EXTRACT=1 ;;
-        candidate-health) flag=PLASTICINE_NEOVIM_FAIL_HEADLESS=1 ;;
+        candidate-health) flag=PLASTICINE_NEOVIM_ARCHIVE_FIXTURE=0.12.4 ;;
     esac
-    if apply_case "$failed" "$test_root/$scenario-state" env PLASTICINE_NEOVIM_TEST_VERSION=0.12.4 "$flag" >/dev/null 2>&1; then
+    if apply_case "$failed" "$test_root/$scenario-state" env "$flag" >/dev/null 2>&1; then
         printf 'preparation failure unexpectedly succeeded: %s\n' "$scenario" >&2; exit 1
     fi
-    [ "$("$failed/.local/bin/nvim" --version)" = 'NVIM v0.12.5' ]
+    [ "$("$failed/.local/bin/nvim" --version)" = 'NVIM v0.12.4' ]
     [ ! -e "$failed/.config/nvim/init.lua" ]
 done
 
@@ -218,11 +233,13 @@ fi
 # A failed authorized upgrade switch preserves the active complete distribution.
 publication=$test_root/publication-home
 mkdir -p "$publication"; : > "$publication/calls"
-apply_case "$publication" "$test_root/publication-state" env PLASTICINE_NEOVIM_TEST_VERSION=0.12.4 >/dev/null
+apply_case "$publication" "$test_root/publication-state" env >/dev/null
+sed 's/NVIM v0.12.5/NVIM v0.12.4/' "$publication/.local/opt/neovim/bin/nvim" > "$publication/old-nvim"
+mv "$publication/old-nvim" "$publication/.local/opt/neovim/bin/nvim"; chmod 755 "$publication/.local/opt/neovim/bin/nvim"
 rm -rf "$publication/.config"; : > "$publication/calls"
 before_publication=$("$publication/.local/bin/nvim" --version)
 if apply_case "$publication" "$test_root/publication-state" env \
-    PLASTICINE_NEOVIM_TEST_VERSION=0.12.5 PLASTICINE_NEOVIM_FAIL_PUBLICATION=1 >/dev/null 2>&1; then
+    PLASTICINE_NEOVIM_FAIL_PUBLICATION=1 >/dev/null 2>&1; then
     printf '%s\n' 'publication failure unexpectedly succeeded.' >&2; exit 1
 fi
 [ "$("$publication/.local/bin/nvim" --version)" = "$before_publication" ]
