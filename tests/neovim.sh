@@ -65,6 +65,10 @@ esac
 EOF
     chmod 755 "$fixture_system_bin/shasum"
 fi
+if [ -x /usr/bin/sha256sum ]; then
+    cp "$fixture_system_bin/shasum" "$fixture_system_bin/sha256sum"
+    chmod 755 "$fixture_system_bin/sha256sum"
+fi
 make_archive() {
     version=$1
     root=$test_root/build-$version/nvim-linux-x86_64

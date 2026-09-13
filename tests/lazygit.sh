@@ -113,7 +113,8 @@ case ${file##*/} in
     *) exec /usr/bin/shasum "$@" ;;
 esac
 EOF
-chmod +x "$release_bin/shasum"
+cp "$release_bin/shasum" "$release_bin/sha256sum"
+chmod +x "$release_bin/shasum" "$release_bin/sha256sum"
 cat > "$release_bin/ln" <<'EOF'
 #!/bin/sh
 case ${PLASTICINE_TEST_PUBLISH_FAILURE:-} in
