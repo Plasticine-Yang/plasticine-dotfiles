@@ -107,7 +107,7 @@ Lazygit 的配置、缓存、日志、仓库状态和 `~/.config/lazygit` 都不
 
 ## Zsh 环境（`--shell`）
 
-`--shell` 准备一套可用的 Zsh 体验：准备 Zsh 与 Antidote、通过 Antidote 获取 Powerlevel10k、写入受管配置，最后才尝试切换登录 shell。
+`--shell` 准备一套可用且保持当前的 Zsh 体验：Zsh 本体保留系统/APT 例外；每次 apply 都通过 Antidote 的原生机制更新 Antidote、Powerlevel10k 和声明的插件，最后才尝试切换登录 shell。
 
 ### 受管路径
 
@@ -145,9 +145,9 @@ fi
 ### 工具归属
 
 - macOS 使用系统 Zsh；Debian/Ubuntu 使用已有的健康 Zsh，缺失时通过审查过的 APT 路径安装 `zsh`。
-- Antidote 使用已有的健康安装；缺失时 macOS 使用 Homebrew，Debian/Ubuntu 使用官方 Git checkout（`~/.antidote`）。
-- Powerlevel10k 通过 Antidote 的插件机制获取（`antidote bundle romkatv/powerlevel10k kind:clone`）；Plasticine 不复制、不固定它的 checkout。
-- 已存在但不健康的 Zsh、Antidote、Git、Homebrew 或 Powerlevel10k 会被原样保留并以可操作的错误结束，不会更换安装归属，也没有自动回退路径。
+- macOS 的 Antidote 由 Homebrew 管理：每次选择 shell 时先刷新 metadata，只安装或升级 `antidote` formula，绝不执行 broad upgrade。Debian/Ubuntu 使用官方 Git checkout（`~/.antidote`），每次以 `git pull --ff-only` 跟随其当前 upstream；存在本地改动、未知 remote 或非 Git owner 时停止并要求 Owner 处理，不会 reset、接管或切换路线。
+- Powerlevel10k 与其余受管/Owner 可选插件都通过 Antidote 的原生 `bundle` 和 `update` 操作同步到各自移动 upstream；仓库不固定 tag/commit，也不复制或接管 checkout。同步使用受管声明文件但不 source Owner 的 `~/.zshrc`。
+- 已存在但不健康的 Zsh、Antidote、Git、Homebrew 或 Powerlevel10k 会被原样保留并以可操作的错误结束，不会更换安装归属，也没有自动回退路径。metadata 查询、Antidote 更新、任一插件同步或最终运行时检查失败同样返回失败；已完成的配置和 native state 会保留，修复具体 upstream/checkout 后重跑即可继续。
 - Antidote 自己拥有它的 checkout、生成的 bundle、插件克隆、缓存、快照、补全 dump 和编译文件；`~/.zsh_plugins.local.txt` 也属于 Owner。Plasticine 既不管理、也不备份或删除这些运行时状态。
 - `fnm` 只做守卫式激活：已经安装时执行 `fnm env --shell zsh`；命令失败时不会执行它的输出，只会以交互式警告提示，也不会安装、升级或迁移 fnm 及其状态。未安装 fnm 时保持静默。macOS 上若 fnm 只存在于 Homebrew 前缀中，仅在这种情况下把该前缀的可执行目录加入 `PATH`，不移动任何文件。Zellij 别名仍属于未来迁移。
 
@@ -156,7 +156,7 @@ fi
 - Debian/Ubuntu：`sudo apt-get update` 与 `sudo apt-get install -y --no-upgrade <packages>`；只有这两个子命令使用 `sudo`。没有可用终端时改用 `sudo -n`，需要凭据时会失败并提示在原生终端重试。
 - macOS：缺少 Homebrew 时先预览，再用官方安装脚本引导 Homebrew；这一步需要原生终端，而且 Homebrew 自身可能要求管理员凭据或 Apple Command Line Tools。Plasticine 不会用 `sudo bash` 执行它。
 - `--yes` 只跳过 Plasticine 自己的最终确认，不会代替 Homebrew、`sudo` 或 `chsh` 的原生提示；无法提供凭据时安装以错误结束，而不是伪造输入。
-- 预览先列出所选路径、网络访问、包管理器改动、可能的提权以及将要执行的 `chsh` 命令，然后才请求确认。取消确认只会跳过 apply：已克隆的 chezmoi source 和已记录的工具选择会保留，但不会写入 `~/.zshrc`、`~/.zsh_plugins.txt`、`~/.p10k.zsh` 或 `~/.plasticine`，也不会调用任何安装命令或 `chsh`。
+- 预览先列出所选路径、Antidote/插件更新意图、网络访问、包管理器改动、可能的提权以及将要执行的 `chsh` 命令，然后才请求确认。取消确认不会查询最新 shell upstream 或运行 native updater：已克隆的 chezmoi source 和已记录的工具选择会保留，但不会写入 `~/.zshrc`、`~/.zsh_plugins.txt`、`~/.p10k.zsh` 或 `~/.plasticine`，也不会调用任何安装命令或 `chsh`。
 - 上游安装脚本的行为部分不透明；失败时直接报错，不会自动改用其他路径。
 
 ### 登录 shell（`chsh`）

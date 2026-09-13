@@ -16,6 +16,12 @@ trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 
 protect_bin=$test_root/protect-bin
 mkdir -p "$protect_bin"
+real_git=$(command -v git)
+cat > "$protect_bin/git" <<EOF
+#!/bin/sh
+if [ "\${1:-}" = -C ] && [ "\${2##*/}" = .antidote ] && [ "\${3:-}" = pull ]; then exit 0; fi
+exec '$real_git' "\$@"
+EOF
 cat > "$protect_bin/chsh" <<'EOF'
 #!/bin/sh
 printf '%s\n' 'plasticine tests: host chsh blocked' >&2
@@ -51,6 +57,8 @@ printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_os_release"
 
 write_antidote() {
     mkdir -p "$1/.antidote"
+    git -C "$1/.antidote" init -q
+    git -C "$1/.antidote" remote add origin https://github.com/mattmc3/antidote.git
     mkdir -p "$1/.cache/antidote/github.com/romkatv/powerlevel10k"
     printf '%s\n' ':' > "$1/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
     cat > "$1/.antidote/antidote.zsh" <<'EOF'
@@ -69,19 +77,19 @@ antidote() {
             return 1
             ;;
         bundle)
-            if [[ $* == 'bundle romkatv/powerlevel10k kind:clone' ]]; then
-                mkdir -p "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k"
-                print -r -- ':' > "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
-                return 0
-            fi
-            return 1
+            mkdir -p "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k"
+            print -r -- ':' > "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
+            return 0
             ;;
+        update) return 0 ;;
         *)
             return 1
             ;;
     esac
 }
 EOF
+    git -C "$1/.antidote" add antidote.zsh
+    git -C "$1/.antidote" -c user.name=test -c user.email=test@example.com commit -qm fixture
 }
 
 write_config() {
