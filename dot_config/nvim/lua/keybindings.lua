@@ -1,0 +1,25 @@
+local opt = { noremap = true, silent = true }
+local map = vim.keymap.set
+vim.g.mapleader = ' '
+vim.g.maplocalleader = ' '
+map('n', 'J', '5j', opt)
+map('n', 'K', '5k', opt)
+map('n', 'j', 'jzz', opt)
+map('n', 'k', 'kzz', opt)
+map('n', '<C-d>', '<C-d>zz', opt)
+map('n', '<C-u>', '<C-u>zz', opt)
+map('n', '<C-f>', '<C-f>zz', opt)
+map('n', '<C-b>', '<C-b>zz', opt)
+map({ 'n', 'v', 'o' }, '<S-h>', '^', opt)
+map({ 'n', 'v', 'o' }, '<S-l>', '$', opt)
+map('n', '<C-s>', '<cmd>write<CR>', opt)
+map('n', 'qq', '<cmd>quit!<CR>', opt)
+map('n', '<C-n>', '<cmd>NvimTreeToggle<CR>', opt)
+map('n', '<C-t>', function() _FLOAT_TERM() end, opt)
+map('n', '<leader>th', function() _HORIZONTAL_TERM() end, opt)
+map('n', '<leader>tv', function() _VERTICAL_TERM() end, opt)
+map('i', 'jk', '<Esc>', opt)
+map('i', '<C-h>', '<Esc>i', opt)
+map('i', '<C-j>', '<Esc>ja', opt)
+map('i', '<C-k>', '<Esc>ka', opt)
+map('i', '<C-l>', '<Esc>la', opt)

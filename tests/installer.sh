@@ -74,6 +74,24 @@ cat > "$protect_bin/lazygit" <<'EOF'
 printf '%s\n' 'lazygit version installer-fixture'
 EOF
 chmod +x "$protect_bin/lazygit"
+cat > "$protect_bin/curl" <<'EOF'
+#!/bin/sh
+case $* in
+    *api.github.com/repos/neovim/neovim/releases/latest*)
+        printf '%s\n' '{"tag_name":"v0.12.4"}'
+        ;;
+    *) printf 'installer fixture blocked curl: %s\n' "$*" >&2; exit 99 ;;
+esac
+EOF
+cat > "$protect_bin/nvim" <<'EOF'
+#!/bin/sh
+case $1 in
+    --version) printf '%s\n' 'NVIM v0.12.4' ;;
+    --headless) printf '%s\n' "$*" >> "$PLASTICINE_TEST_NVIM_CALLS" ;;
+    *) exit 99 ;;
+esac
+EOF
+chmod +x "$protect_bin/curl" "$protect_bin/nvim"
 
 run_installer() {
     scenario_dir=$1
@@ -81,6 +99,7 @@ run_installer() {
     PATH=$protect_bin:$PATH \
     PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
     PLASTICINE_DOTFILES_REPO_URL=$origin_repo \
+    PLASTICINE_TEST_NVIM_CALLS=$scenario_dir/nvim-calls \
     PLASTICINE_CHEZMOI_SOURCE_DIR=$scenario_dir/data/chezmoi \
     PLASTICINE_CHEZMOI_CONFIG_FILE=$scenario_dir/config/chezmoi.toml \
     PLASTICINE_CHEZMOI_STATE_FILE=$scenario_dir/config/chezmoistate.boltdb \
@@ -98,6 +117,15 @@ test ! -e "$empty_dir/home/.ssh"
 test ! -e "$empty_dir/home/install.sh"
 test ! -e "$empty_dir/home/scripts"
 test ! -e "$empty_dir/home/.github"
+test ! -e "$empty_dir/home/.config"
+
+neovim_dir=$test_root/neovim
+mkdir -p "$neovim_dir/home"
+run_installer "$neovim_dir" -y --neovim >/dev/null
+test "$(find "$neovim_dir/home/.config/nvim" -type f | wc -l | tr -d ' ')" -eq 9
+grep -Fq 'Lazy! sync' "$neovim_dir/nvim-calls"
+test ! -e "$neovim_dir/home/.zshrc"
+test ! -e "$neovim_dir/home/.zsh_plugins.txt"
 
 # An explicitly configured executable name resolves through PATH; callers do
 # not have to discover and pass its absolute path themselves.
@@ -215,6 +243,8 @@ spawn $env(PLASTICINE_TEST_INSTALLER)
 expect "选择要处理的工具"
 after 300
 send " "
+after 200
+send "\033\[B"
 after 200
 send "\033\[B"
 after 200

@@ -30,3 +30,8 @@ plasticine-demo/**
 .plasticine
 .plasticine/**
 {{ end }}
+{{ if not (has "neovim" .tools) }}
+.config
+.config/nvim
+.config/nvim/**
+{{ end }}

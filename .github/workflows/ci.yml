@@ -114,5 +114,8 @@ jobs:
       - name: Run Lazygit runtime tests
         run: CHEZMOI_BIN=chezmoi ./tests/lazygit-runtime.sh
 
+      - name: Run Neovim tests
+        run: CHEZMOI_BIN=chezmoi ./tests/neovim.sh
+
       - name: Run release pipeline tests
         run: CHEZMOI_BIN=chezmoi ./tests/release.sh

@@ -1,0 +1,9 @@
+{{- if has "neovim" .tools -}}
+#!/bin/sh
+set -eu
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
+# shellcheck disable=SC1091
+. "$source_dir/lib/neovim-bootstrap.sh"
+plasticine_neovim_sync "$dest_dir"
+{{- end }}

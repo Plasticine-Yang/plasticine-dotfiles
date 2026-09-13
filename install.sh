@@ -22,7 +22,7 @@ Interactive mode:
   install.sh
 
 Non-interactive mode:
-  install.sh -y [--github-ssh --github-ssh-key <path>] [--fnm] [--lazygit] [--shell]
+  install.sh -y [--github-ssh --github-ssh-key <path>] [--fnm] [--lazygit] [--neovim] [--shell]
 
 Options:
   -y, --yes                       Run without prompts and apply changes
@@ -32,6 +32,7 @@ Options:
       --replace-github-ssh-key    Allow replacement of a different existing key
       --lazygit                   Prepare Lazygit if missing and configure its alias
       --fnm                       Install or update fnm through the permitted platform route
+      --neovim                    Configure current stable Neovim and update plugins
       --shell                     Configure Zsh, install missing reviewed tools, and attempt chsh last
   -h, --help                      Show this help
 EOF
@@ -45,6 +46,7 @@ replace_github_ssh_key=0
 shell=0
 lazygit=0
 fnm=0
+neovim=0
 
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -61,6 +63,7 @@ while [ "$#" -gt 0 ]; do
         --shell) shell=1 ;;
         --lazygit) lazygit=1 ;;
         --fnm) fnm=1 ;;
+        --neovim) neovim=1 ;;
         -h|--help) usage; exit 0 ;;
         *) error "Unknown option: $1"; usage >&2; exit 2 ;;
     esac
@@ -81,6 +84,10 @@ if [ "$(id -u)" -eq 0 ]; then
     error 'Run as the target user, not root.'
     exit 1
 fi
+if [ "$neovim" -eq 1 ] && { [ -n "${NVIM_APPNAME:-}" ] || [ -n "${XDG_CONFIG_HOME:-}" ]; }; then
+    error 'neovim: NVIM_APPNAME and XDG_CONFIG_HOME are unsupported; managed configuration must be ~/.config/nvim.'
+    exit 1
+fi
 
 for command_name in ssh ssh-keygen git; do
     command -v "$command_name" >/dev/null 2>&1 || {
@@ -92,7 +99,8 @@ done
 if [ "$yes" -eq 0 ]; then
     if [ "$github_ssh" -eq 1 ] || [ -n "$github_ssh_key" ] ||
        [ "$github_ssh_test" -eq 1 ] || [ "$replace_github_ssh_key" -eq 1 ] ||
-       [ "$shell" -eq 1 ] || [ "$lazygit" -eq 1 ] || [ "$fnm" -eq 1 ]; then
+       [ "$shell" -eq 1 ] || [ "$lazygit" -eq 1 ] || [ "$fnm" -eq 1 ] ||
+       [ "$neovim" -eq 1 ]; then
         error 'Tool options require -y; run without options for interactive selection.'
         exit 2
     fi
@@ -210,6 +218,9 @@ if [ "$yes" -eq 1 ]; then
     if [ "$fnm" -eq 1 ]; then
         tools="${tools:+$tools }fnm"
     fi
+    if [ "$neovim" -eq 1 ]; then
+        tools="${tools:+$tools }neovim"
+    fi
     export PLASTICINE_TOOLS="$tools"
     export PLASTICINE_GITHUB_SSH_TEST=$github_ssh_test
     export PLASTICINE_REPLACE_GITHUB_SSH_KEY=$replace_github_ssh_key
@@ -251,6 +262,7 @@ set -- -S "$source_dir" -D "$destination_dir" -c "$config_file" --persistent-sta
 shell_selected=0
 lazygit_selected=0
 fnm_selected=0
+neovim_selected=0
 zsh_integration_selected=0
 shell_antidote_route=''
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"shell"/); exit } END { exit !found }' "$config_file"; then
@@ -261,6 +273,9 @@ if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"lazygit"/); exit } END { exit 
 fi
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"fnm"/); exit } END { exit !found }' "$config_file"; then
     fnm_selected=1
+fi
+if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"neovim"/); exit } END { exit !found }' "$config_file"; then
+    neovim_selected=1
 fi
 if [ "$shell_selected" -eq 1 ] || [ "$lazygit_selected" -eq 1 ]; then
     zsh_integration_selected=1
@@ -320,6 +335,15 @@ if [ "$shell_selected" -eq 1 ]; then
         error 'shell: Homebrew bootstrap needs a native terminal; install Homebrew interactively, then retry. --yes cannot supply credentials.'
         exit 1
     fi
+fi
+if [ "$neovim_selected" -eq 1 ]; then
+    [ -f "$source_dir/lib/neovim-bootstrap.sh" ] || {
+        error 'The source repository does not contain lib/neovim-bootstrap.sh.'
+        exit 1
+    }
+    # shellcheck disable=SC1091
+    . "$source_dir/lib/neovim-bootstrap.sh"
+    plasticine_neovim_preview "$destination_dir" || exit 1
 fi
 
 log 'Previewing changes...'
