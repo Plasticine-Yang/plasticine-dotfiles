@@ -1164,6 +1164,7 @@ for distro_spec in 'debian 13 arm64 0' 'ubuntu 24.04 aarch64 0' 'ubuntu 26.04 ar
         PLASTICINE_SHELL_ARCH=$3 \
         PLASTICINE_SHELL_OS_RELEASE=$linux_plat/os-release \
         PLASTICINE_SHELL_TTY=0 \
+        PLASTICINE_TEST_CALLS=$linux_plat/fake-bin/calls \
         scenario_path=$linux_plat/fake-bin \
         run_installer "$linux_plat" -y --shell \
         >"$linux_plat/stdout" 2>"$linux_plat/stderr" || plat_status=$?
