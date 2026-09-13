@@ -69,7 +69,7 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
 
 `--fnm` 不隐式选择 `shell`；所有 Feature 可以任意组合且选项顺序无关。
 
-单独迁移已有的当前稳定 Neovim 配置并更新插件：
+单独安装或更新当前稳定 Neovim、迁移配置并更新插件：
 
 ```sh
 sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)" -- \
@@ -155,7 +155,11 @@ Linux 完整下载 `https://fnm.vercel.app/install` 后才执行，传入 `--ski
 
 ## Neovim（`--neovim`）
 
-本增量只支持已经安装并可运行、且版本恰好等于 Neovim 官方最新稳定 Release 的编辑器。Preview 只做本地目标校验并说明 apply 时的网络与更新动作，不查询 Release；确认 apply 后才查询 `api.github.com/repos/neovim/neovim/releases/latest`。缺失、损坏、预发布、无法比较或过期的编辑器会在配置应用前失败，并提示等待/使用 ticket 13 的官方预编译 archive 路线；这里不会调用 Homebrew、APT 或安装单独的可执行文件。
+每次确认 apply 都查询 Neovim 官方最新稳定 GitHub Release。macOS 与 Linux 的 `x86_64`/`arm64` 使用对应官方 `tar.gz`；缺失时把完整发行版发布到 `~/.local/opt/neovim`，并以 `~/.local/bin/nvim` 链接提供命令。该路线不会调用 Homebrew、APT、Cargo、AppImage、`sudo` 或第三方安装器；缺少 `curl`、`tar` 或 SHA-256 工具会给出指引并停止。只选择 Neovim 不会编辑 shell 启动文件，因此 Owner 仍需确保 `~/.local/bin` 在 `PATH`。
+
+Release API 为所选资产提供 SHA-256 digest；Plasticine 在安全检查 archive 成员后验证 digest、完整 runtime 布局、候选版本以及候选能否加载自身 runtime，再发布整个目录。该 digest 与 archive 都处于 GitHub Release 的同一信任边界，并不是独立签名。fresh 发布保持 no-clobber；由上述路径管理的旧稳定版本在候选验证后重验活动目标，再替换完整发行版。当前版本不重复下载或替换 distribution，但仍执行插件同步。
+
+位于其他路径的当前稳定编辑器可以继续使用且不会被修改。其他 owner 的旧版本、不健康/无法比较/预发布/自定义版本以及高于当前稳定目标的版本会被拒绝；安装器不会调用其包管理器、降级、切换 channel 或另装遮蔽副本。下载、metadata、digest、解包、候选 runtime 或发布失败发生在配置写入前，并保留旧 installation；若完整 distribution 已发布而命令链接或最终健康检查失败，诊断会明确保留状态，Owner 修复冲突后可重跑。
 
 Plasticine 只整体管理以下九个文件：
 

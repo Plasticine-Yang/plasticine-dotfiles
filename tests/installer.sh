@@ -78,7 +78,19 @@ cat > "$protect_bin/curl" <<'EOF'
 #!/bin/sh
 case $* in
     *api.github.com/repos/neovim/neovim/releases/latest*)
-        printf '%s\n' '{"tag_name":"v0.12.4"}'
+        output=
+        previous=
+        for argument in "$@"; do
+            [ "$previous" != -o ] || output=$argument
+            previous=$argument
+        done
+        payload='
+  "tag_name": "v0.12.4",
+  "name": "nvim-macos-arm64.tar.gz",
+  "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "browser_download_url": "https://github.com/neovim/neovim/releases/download/v0.12.4/nvim-macos-arm64.tar.gz"
+'
+        if [ -n "$output" ]; then printf '%s\n' "$payload" > "$output"; else printf '%s\n' "$payload"; fi
         ;;
     *) printf 'installer fixture blocked curl: %s\n' "$*" >&2; exit 99 ;;
 esac
@@ -92,6 +104,9 @@ case $1 in
 esac
 EOF
 chmod +x "$protect_bin/curl" "$protect_bin/nvim"
+mkdir -p "$test_root/external-nvim/bin"
+cp "$protect_bin/nvim" "$test_root/external-nvim/bin/nvim"
+protect_bin=$test_root/external-nvim/bin:$protect_bin
 
 run_installer() {
     scenario_dir=$1
@@ -100,6 +115,7 @@ run_installer() {
     PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
     PLASTICINE_DOTFILES_REPO_URL=$origin_repo \
     PLASTICINE_TEST_NVIM_CALLS=$scenario_dir/nvim-calls \
+    PLASTICINE_NEOVIM_OS=Darwin PLASTICINE_NEOVIM_ARCH=arm64 \
     PLASTICINE_CHEZMOI_SOURCE_DIR=$scenario_dir/data/chezmoi \
     PLASTICINE_CHEZMOI_CONFIG_FILE=$scenario_dir/config/chezmoi.toml \
     PLASTICINE_CHEZMOI_STATE_FILE=$scenario_dir/config/chezmoistate.boltdb \

@@ -514,6 +514,8 @@ done
 partial=$test_root/partial-rerun
 partial_bin=$partial/bin
 mkdir -p "$partial/home/.antidote" "$partial_bin"; : > "$partial/calls"; : > "$partial/bundle-fails"
+git -C "$partial/home/.antidote" init -q
+git -C "$partial/home/.antidote" remote add origin https://github.com/mattmc3/antidote.git
 printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$partial/os-release"
 ssh-keygen -q -t ed25519 -N '' -C partial-gate -f "$partial/github-key"
 printf '%s\n' 'owner zshrc before preparation' > "$partial/home/.zshrc"
@@ -526,6 +528,13 @@ real_zsh=$(command -v zsh)
 cat > "$partial_bin/getent" <<EOF
 #!/bin/sh
 printf 'owner:x:%s:%s:Owner:%s:%s\n' "$(id -u)" "$(id -u)" '$partial/home' '$real_zsh'
+EOF
+cat > "$partial_bin/git" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = -C ] && [ "${2##*/}" = .antidote ] && [ "${3:-}" = pull ]; then
+    exit 0
+fi
+exec /usr/bin/git "$@"
 EOF
 cat > "$partial_bin/chsh" <<'EOF'
 #!/bin/sh
@@ -551,10 +560,13 @@ antidote() {
             print -r -- : > "$HOME/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
             return 0
             ;;
+        update) return 0 ;;
         *) return 1 ;;
     esac
 }
 EOF
+git -C "$partial/home/.antidote" add antidote.zsh
+git -C "$partial/home/.antidote" -c user.name=test -c user.email=test@example.com commit -qm fixture
 chmod +x "$partial_bin"/*
 if PATH=$release_bin:$partial_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
     PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$partial/data/chezmoi \

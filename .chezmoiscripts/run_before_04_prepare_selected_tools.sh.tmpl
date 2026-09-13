@@ -37,6 +37,7 @@ plasticine_shell_prepare || {
 {{- if has "neovim" .tools }}
 # shellcheck disable=SC1091
 . "$source_dir/lib/neovim-bootstrap.sh"
+plasticine_neovim_plan "$dest_dir" || exit 1
 plasticine_neovim_prepare || exit 1
 {{- end }}
 {{- end }}
