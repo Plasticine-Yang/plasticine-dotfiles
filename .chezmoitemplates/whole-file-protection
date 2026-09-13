@@ -1,0 +1,102 @@
+# shellcheck shell=sh
+# Shared protection for selected whole-file configuration targets. Callers
+# retain ownership of target inventories and candidate rendering.
+plasticine_whole_file_validate_file() {
+    plasticine_whole_file_target=$1
+    plasticine_whole_file_label=$2
+    if [ -L "$plasticine_whole_file_target" ] ||
+       { [ -e "$plasticine_whole_file_target" ] && [ ! -f "$plasticine_whole_file_target" ]; }; then
+        printf 'plasticine-dotfiles: %s: configuration target must be a regular file: %s\n' \
+            "$plasticine_whole_file_label" "$plasticine_whole_file_target" >&2
+        return 1
+    fi
+}
+
+plasticine_whole_file_validate_dir() {
+    plasticine_whole_file_target=$1
+    plasticine_whole_file_label=$2
+    if [ -L "$plasticine_whole_file_target" ] ||
+       { [ -e "$plasticine_whole_file_target" ] && [ ! -d "$plasticine_whole_file_target" ]; }; then
+        printf 'plasticine-dotfiles: %s: configuration directory must be a regular directory: %s\n' \
+            "$plasticine_whole_file_label" "$plasticine_whole_file_target" >&2
+        return 1
+    fi
+}
+
+plasticine_whole_file_restore_modes() {
+    plasticine_whole_file_pending=$1
+    plasticine_whole_file_dest=$2
+    plasticine_whole_file_label=$3
+    plasticine_whole_file_default_relative=${4:-}
+    [ -f "$plasticine_whole_file_pending" ] || return 0
+    while IFS=' ' read -r plasticine_whole_file_mode plasticine_whole_file_relative; do
+        [ -n "$plasticine_whole_file_mode" ] || continue
+        if [ -z "$plasticine_whole_file_relative" ]; then
+            plasticine_whole_file_relative=$plasticine_whole_file_default_relative
+        fi
+        [ -n "$plasticine_whole_file_relative" ] || {
+            printf 'plasticine-dotfiles: %s: invalid pending mode record: %s\n' \
+                "$plasticine_whole_file_label" "$plasticine_whole_file_pending" >&2
+            return 1
+        }
+        if [ ! -e "$plasticine_whole_file_dest/$plasticine_whole_file_relative" ] &&
+           [ ! -L "$plasticine_whole_file_dest/$plasticine_whole_file_relative" ]; then
+            continue
+        fi
+        plasticine_whole_file_validate_file \
+            "$plasticine_whole_file_dest/$plasticine_whole_file_relative" \
+            "$plasticine_whole_file_label" || return 1
+        chmod "$plasticine_whole_file_mode" \
+            "$plasticine_whole_file_dest/$plasticine_whole_file_relative" || return 1
+    done < "$plasticine_whole_file_pending"
+    rm -f "$plasticine_whole_file_pending"
+}
+
+plasticine_whole_file_secure_backup_dir() {
+    plasticine_whole_file_backup_dir=$1
+    umask 077
+    mkdir -p "$plasticine_whole_file_backup_dir" || return 1
+    chmod 700 "${plasticine_whole_file_backup_dir%/*}" \
+        "$plasticine_whole_file_backup_dir" || return 1
+}
+
+plasticine_whole_file_backup_if_changed() {
+    plasticine_whole_file_target=$1
+    plasticine_whole_file_candidate=$2
+    plasticine_whole_file_backup_dir=$3
+    plasticine_whole_file_prefix=$4
+    [ -f "$plasticine_whole_file_target" ] || return 0
+    cmp -s "$plasticine_whole_file_candidate" "$plasticine_whole_file_target" && return 0
+    plasticine_whole_file_secure_backup_dir "$plasticine_whole_file_backup_dir" || return 1
+    plasticine_whole_file_backup=$(mktemp \
+        "$plasticine_whole_file_backup_dir/$plasticine_whole_file_prefix.plasticine-backup-XXXXXXXX") || return 1
+    cat "$plasticine_whole_file_target" > "$plasticine_whole_file_backup" || return 1
+    chmod 600 "$plasticine_whole_file_backup"
+}
+
+plasticine_whole_file_record_mode() {
+    plasticine_whole_file_target=$1
+    plasticine_whole_file_dest=$2
+    plasticine_whole_file_desired_mode=$3
+    plasticine_whole_file_modes=$4
+    plasticine_whole_file_label=$5
+    [ -f "$plasticine_whole_file_target" ] || return 0
+    plasticine_whole_file_validate_file "$plasticine_whole_file_target" \
+        "$plasticine_whole_file_label" || return 1
+    plasticine_whole_file_mode=$(stat -c '%a' "$plasticine_whole_file_target" 2>/dev/null ||
+        stat -f '%Lp' "$plasticine_whole_file_target") || return 1
+    if [ "$plasticine_whole_file_mode" != "$plasticine_whole_file_desired_mode" ]; then
+        printf '%s %s\n' "$plasticine_whole_file_mode" \
+            "${plasticine_whole_file_target#"$plasticine_whole_file_dest"/}" >> "$plasticine_whole_file_modes"
+        chmod "$plasticine_whole_file_desired_mode" "$plasticine_whole_file_target"
+    fi
+}
+
+plasticine_whole_file_publish_modes() {
+    plasticine_whole_file_modes=$1
+    plasticine_whole_file_pending=$2
+    plasticine_whole_file_backup_dir=$3
+    [ -s "$plasticine_whole_file_modes" ] || return 0
+    plasticine_whole_file_secure_backup_dir "$plasticine_whole_file_backup_dir" || return 1
+    cat "$plasticine_whole_file_modes" > "$plasticine_whole_file_pending"
+}

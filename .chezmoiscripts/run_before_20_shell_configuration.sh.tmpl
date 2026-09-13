@@ -16,44 +16,17 @@ shell_error() {
     printf 'plasticine-dotfiles: shell: %s\n' "$1" >&2
 }
 
+{{ template "whole-file-protection" . }}
+
 # A previous apply may have failed after recording modes; restore them before
 # recording this run's modes so Owner modes survive retries.
-if [ -f "$pending_modes" ]; then
-    while IFS=' ' read -r shell_mode shell_relative; do
-        [ -n "$shell_mode" ] || continue
-        chmod "$shell_mode" "$dest_dir/$shell_relative" 2>/dev/null || true
-    done < "$pending_modes"
-    rm -f "$pending_modes"
-fi
+plasticine_whole_file_restore_modes "$pending_modes" "$dest_dir" shell
 
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-shell.XXXXXX")
 trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
-# shellcheck disable=SC1091
-. "$source_dir/lib/shell-bootstrap.sh"
-plasticine_shell_plan "$dest_dir" || exit 1
-plasticine_shell_prepare || {
-    shell_error 'official route failed; no fallback or dependent configuration applied.'
-    exit 1
-}
-
-plasticine_shell_backup() {
-    umask 077
-    mkdir -p "$backup_dir"
-    chmod 700 "$plasticine_dir/backups" "$backup_dir"
-    shell_backup_file=$(mktemp "$backup_dir/${1##*/}.plasticine-backup-XXXXXXXX") || return 1
-    cat "$1" > "$shell_backup_file"
-    chmod 600 "$shell_backup_file"
-}
-
-plasticine_shell_backup_if_changed() {
-    if [ -f "$1" ] && ! cmp -s "$2" "$1"; then
-        plasticine_shell_backup "$1"
-    fi
-}
-
-plasticine_shell_backup_if_changed "$plugins" "$source_dir/dot_zsh_plugins.txt"
-plasticine_shell_backup_if_changed "$p10k" "$source_dir/dot_p10k.zsh"
-plasticine_shell_backup_if_changed "$shared" "$source_dir/dot_plasticine/zsh/shared.zsh"
+plasticine_whole_file_backup_if_changed "$plugins" "$source_dir/dot_zsh_plugins.txt" "$backup_dir" "${plugins##*/}"
+plasticine_whole_file_backup_if_changed "$p10k" "$source_dir/dot_p10k.zsh" "$backup_dir" "${p10k##*/}"
+plasticine_whole_file_backup_if_changed "$shared" "$source_dir/dot_plasticine/zsh/shared.zsh" "$backup_dir" "${shared##*/}"
 
 # chezmoi owns the file modes derived from the source tree. Record any Owner
 # mode and normalize before apply; the matching run_after script restores it.
@@ -61,19 +34,11 @@ umask 077
 : > "$work_dir/modes"
 for shell_target in "$plugins" "$p10k" "$shared"; do
     if [ -f "$shell_target" ]; then
-        shell_mode=$(stat -c '%a' "$shell_target" 2>/dev/null || stat -f '%Lp' "$shell_target") || {
-            shell_error "无法读取文件权限：~/${shell_target#"$dest_dir"/}"
+        plasticine_whole_file_record_mode "$shell_target" "$dest_dir" 644 "$work_dir/modes" shell || {
+            shell_error "无法保护文件权限：~/${shell_target#"$dest_dir"/}"
             exit 1
         }
-        if [ "$shell_mode" != 644 ]; then
-            printf '%s %s\n' "$shell_mode" "${shell_target#"$dest_dir"/}" >> "$work_dir/modes"
-            chmod 644 "$shell_target"
-        fi
     fi
 done
-if [ -s "$work_dir/modes" ]; then
-    mkdir -p "$backup_dir"
-    chmod 700 "$plasticine_dir/backups" "$backup_dir"
-    cat "$work_dir/modes" > "$pending_modes"
-fi
+plasticine_whole_file_publish_modes "$work_dir/modes" "$pending_modes" "$backup_dir"
 {{- end }}

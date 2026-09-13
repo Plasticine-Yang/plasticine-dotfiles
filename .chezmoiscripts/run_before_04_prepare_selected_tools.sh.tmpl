@@ -1,0 +1,28 @@
+{{- if or (has "lazygit" .tools) (has "shell" .tools) -}}
+#!/bin/sh
+set -eu
+
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
+
+# This is the only selected-tool mutation stage. Configuration backup, mode
+# normalization and application begin only after every selected tool succeeds.
+{{- if has "lazygit" .tools }}
+# shellcheck disable=SC1091
+. "$source_dir/lib/lazygit-bootstrap.sh"
+plasticine_lazygit_plan "$dest_dir" || exit 1
+plasticine_lazygit_prepare || {
+    plasticine_lazygit_error 'official release route failed; tool preparation completed only in part; no selected configuration applied.'
+    exit 1
+}
+{{- end }}
+{{- if has "shell" .tools }}
+# shellcheck disable=SC1091
+. "$source_dir/lib/shell-bootstrap.sh"
+plasticine_shell_plan "$dest_dir" || exit 1
+plasticine_shell_prepare || {
+    plasticine_shell_error 'official route failed; tool preparation completed only in part; no selected configuration applied.'
+    exit 1
+}
+{{- end }}
+{{- end }}
