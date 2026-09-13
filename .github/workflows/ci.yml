@@ -99,6 +99,9 @@ jobs:
       - name: Run integration tests
         run: CHEZMOI_BIN=chezmoi ./tests/integration.sh
 
+      - name: Run Git configuration tests
+        run: CHEZMOI_BIN=chezmoi ./tests/git-config.sh
+
       - name: Run installer tests
         run: CHEZMOI_BIN=chezmoi ./tests/installer.sh
 

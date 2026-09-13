@@ -441,7 +441,7 @@ all_tools_dir=$test_root/all-tools
 mkdir -p "$all_tools_dir/home/.ssh"; chmod 700 "$all_tools_dir/home/.ssh"; write_antidote "$all_tools_dir/home"
 cat > "$all_tools_dir/chezmoi.toml" <<EOF
 [data]
-tools = ["github-ssh","lazygit","shell"]
+tools = ["git-config","github-ssh","lazygit","shell"]
 githubSSHKeyPath = "$combined_key"
 githubSSHKeyFingerprint = "$combined_fingerprint"
 githubSSHReplaceFingerprint = ""
@@ -449,6 +449,7 @@ githubSSHTest = false
 EOF
 apply "$all_tools_dir"
 cmp -s "$combined_key" "$all_tools_dir/home/.ssh/id_github"
+cmp -s "$repo_dir/dot_gitconfig" "$all_tools_dir/home/.gitconfig"
 cat "$shell_dir/expected-block" "$lazygit_block" > "$all_tools_dir/expected-zshrc"
 cmp -s "$all_tools_dir/expected-zshrc" "$all_tools_dir/home/.zshrc"
 all_tools_before=$(find "$all_tools_dir/home" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{print $1}')
@@ -457,15 +458,15 @@ all_tools_after=$(find "$all_tools_dir/home" -type f -exec shasum -a 256 {} + | 
 test "$all_tools_before" = "$all_tools_after"
 
 # The non-interactive selection is a set: every CLI-derived option order records
-# the same sorted three-tool value before apply.
-for requested in 'lazygit shell github-ssh' 'shell github-ssh lazygit' 'github-ssh lazygit shell'; do
+# the same sorted four-tool value before apply.
+for requested in 'git-config lazygit shell github-ssh' 'shell github-ssh git-config lazygit' 'github-ssh lazygit shell git-config'; do
     selection_name=$(printf '%s' "$requested" | tr ' ' '-')
     selection_config=$test_root/selection-$selection_name.toml
     PLASTICINE_NONINTERACTIVE=1 PLASTICINE_TOOLS="$requested" \
         PLASTICINE_GITHUB_SSH_KEY="$combined_key" PLASTICINE_GITHUB_SSH_TEST=0 PLASTICINE_REPLACE_GITHUB_SSH_KEY=0 \
         "$chezmoi_bin" -S "$repo_dir" -D "$test_root/selection-home" --persistent-state "$test_root/selection-$selection_name.state" \
         init -C "$selection_config" >/dev/null
-    grep -Fq 'tools = ["github-ssh","lazygit","shell"]' "$selection_config"
+    grep -Fq 'tools = ["git-config","github-ssh","lazygit","shell"]' "$selection_config"
 done
 
 malformed_dir=$test_root/malformed
@@ -515,7 +516,7 @@ githubSSHTest = false
 EOF
 cat > "$lint_dir/all-chezmoi.toml" <<EOF
 [data]
-tools = ["github-ssh","lazygit","shell"]
+tools = ["git-config","github-ssh","lazygit","shell"]
 githubSSHKeyPath = "$combined_key"
 githubSSHKeyFingerprint = "$combined_fingerprint"
 githubSSHReplaceFingerprint = ""

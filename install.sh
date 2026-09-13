@@ -22,10 +22,11 @@ Interactive mode:
   install.sh
 
 Non-interactive mode:
-  install.sh -y [--github-ssh --github-ssh-key <path>] [--fnm] [--lazygit] [--neovim] [--shell]
+  install.sh -y [--git-config] [--github-ssh --github-ssh-key <path>] [--fnm] [--lazygit] [--neovim] [--shell]
 
 Options:
   -y, --yes                       Run without prompts and apply changes
+      --git-config                Configure shared Git preferences and local override inclusion
       --github-ssh                Configure GitHub SSH
       --github-ssh-key <path>     Private key to copy to ~/.ssh/id_github
       --github-ssh-test           Test GitHub SSH after applying
@@ -39,6 +40,7 @@ EOF
 }
 
 yes=0
+git_config=0
 github_ssh=0
 github_ssh_key=''
 github_ssh_test=0
@@ -51,6 +53,7 @@ neovim=0
 while [ "$#" -gt 0 ]; do
     case $1 in
         -y|--yes) yes=1 ;;
+        --git-config) git_config=1 ;;
         --github-ssh) github_ssh=1 ;;
         --github-ssh-key)
             [ "$#" -ge 2 ] || { error '--github-ssh-key requires a path.'; exit 2; }
@@ -100,7 +103,7 @@ if [ "$yes" -eq 0 ]; then
     if [ "$github_ssh" -eq 1 ] || [ -n "$github_ssh_key" ] ||
        [ "$github_ssh_test" -eq 1 ] || [ "$replace_github_ssh_key" -eq 1 ] ||
        [ "$shell" -eq 1 ] || [ "$lazygit" -eq 1 ] || [ "$fnm" -eq 1 ] ||
-       [ "$neovim" -eq 1 ]; then
+       [ "$neovim" -eq 1 ] || [ "$git_config" -eq 1 ]; then
         error 'Tool options require -y; run without options for interactive selection.'
         exit 2
     fi
@@ -203,8 +206,11 @@ done < "$integration_catalog"
 if [ "$yes" -eq 1 ]; then
     export PLASTICINE_NONINTERACTIVE=1
     tools=''
+    if [ "$git_config" -eq 1 ]; then
+        tools=git-config
+    fi
     if [ "$github_ssh" -eq 1 ]; then
-        tools=github-ssh
+        tools="${tools:+$tools }github-ssh"
         export PLASTICINE_GITHUB_SSH_KEY="$github_ssh_key"
     else
         export PLASTICINE_GITHUB_SSH_KEY=''
