@@ -27,6 +27,10 @@ release_fixture=$test_root/release-fixture
 release_fixture_bin=$test_root/release-fixture-bin
 mkdir -p "$release_fixture/payload" "$release_fixture_bin"
 real_chezmoi=${CHEZMOI_BIN:-$(command -v chezmoi)}
+case $real_chezmoi in
+    /*) ;;
+    *) real_chezmoi=$(command -v "$real_chezmoi") ;;
+esac
 cat > "$release_fixture/payload/chezmoi" <<'EOF'
 #!/bin/sh
 if [ "${1:-}" = --version ]; then printf '%s\n' 'chezmoi version v2.72.1'; exit 0; fi
@@ -55,6 +59,17 @@ for argument do file=$argument; done
 case ${file##*/} in
     chezmoi_2.72.1_linux_amd64.tar.gz) printf '%s  %s\n' 9f97d32caca166e5c92160ec3a9325519809c38963121cef38173142065c981f "$file" ;;
     *) exec /usr/bin/shasum "$@" ;;
+esac
+EOF
+cat > "$release_fixture_bin/sha256sum" <<'EOF'
+#!/bin/sh
+for argument do file=$argument; done
+case ${file##*/} in
+    chezmoi_2.72.1_linux_amd64.tar.gz) printf '%s  %s\n' 9f97d32caca166e5c92160ec3a9325519809c38963121cef38173142065c981f "$file" ;;
+    *)
+        if [ -x /usr/bin/sha256sum ]; then exec /usr/bin/sha256sum "$@"; fi
+        exec /usr/bin/shasum -a 256 "$file"
+        ;;
 esac
 EOF
 chmod +x "$release_fixture_bin"/*

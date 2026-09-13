@@ -64,6 +64,21 @@ case ${file##*/} in
     *) exec /usr/bin/shasum "$@" ;;
 esac
 EOF
+cat > "$fixture_bin/sha256sum" <<'EOF'
+#!/bin/sh
+for argument do file=$argument; done
+case ${file##*/} in
+    chezmoi_2.72.1_linux_amd64.tar.gz) printf '%s  %s\n' 9f97d32caca166e5c92160ec3a9325519809c38963121cef38173142065c981f "$file" ;;
+    chezmoi_2.72.1_linux-musl_amd64.tar.gz) printf '%s  %s\n' b961e2972d6fcd1002f9b986d4a61dc5da288e96aab226434fd5b20a7de80cf9 "$file" ;;
+    chezmoi_2.72.1_linux_arm64.tar.gz) printf '%s  %s\n' 75508ef41216b6d64f3145986b751729d7f92d09c6bad77d51cf2895ab35a508 "$file" ;;
+    chezmoi_2.72.1_darwin_amd64.tar.gz) printf '%s  %s\n' bf0f0e048291efe126cb8bc51cf566057b92755cd53ce82c45efa11d2f8f4898 "$file" ;;
+    chezmoi_2.72.1_darwin_arm64.tar.gz) printf '%s  %s\n' 938d422091cc001e68fe3fd7efea9b923a36facbf2b8db67063639abbaf72de2 "$file" ;;
+    *)
+        if [ -x /usr/bin/sha256sum ]; then exec /usr/bin/sha256sum "$@"; fi
+        exec /usr/bin/shasum -a 256 "$file"
+        ;;
+esac
+EOF
 cat > "$fixture_bin/mv" <<'EOF'
 #!/bin/sh
 case ${PLASTICINE_TEST_CHEZMOI_PUBLISH:-} in
