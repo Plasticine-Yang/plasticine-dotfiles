@@ -4,7 +4,7 @@
 
 **Blocked by:** 07 — Separate tool preparation from configuration effects.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Add fnm to interactive and explicit non-interactive Feature Selection. It works alone and in combination with existing Features without implicitly selecting shell or depending on ticket 11's shell-update behavior.
 - [ ] Every selected apply establishes the current permitted target and distinguishes missing, outdated, current, unhealthy, prerelease/custom, and unsupported-owner installations. An already-current installation avoids unnecessary executable replacement; health without a currency check is insufficient.

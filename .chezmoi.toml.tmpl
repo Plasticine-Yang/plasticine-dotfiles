@@ -2,7 +2,7 @@
 {{- fail "仅支持 macOS 和 Linux。" -}}
 {{- end -}}
 {{- $nonInteractive := eq (env "PLASTICINE_NONINTERACTIVE") "1" -}}
-{{- $allowedTools := list "github-ssh" "lazygit" "shell" -}}
+{{- $allowedTools := list "github-ssh" "lazygit" "shell" "fnm" -}}
 {{- $zshIntegrations := splitList "\n" (trim (includeTemplate "zsh-integration-catalog" .)) -}}
 {{- $shellTargets := list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh" -}}
 {{- $tools := list -}}
