@@ -2,9 +2,11 @@
 {{- fail "仅支持 macOS 和 Linux。" -}}
 {{- end -}}
 {{- $nonInteractive := eq (env "PLASTICINE_NONINTERACTIVE") "1" -}}
-{{- $allowedTools := list "github-ssh" "lazygit" "shell" -}}
+{{- $allowedTools := list "github-ssh" "lazygit" "neovim" "shell" -}}
+{{- $neovimTargets := list "init.lua" "lua/basic.lua" "lua/keybindings.lua" "lua/colorschema.lua" "lua/plugins.lua" "lua/plugins-config/neoscroll.lua" "lua/plugins-config/nvim-tree.lua" "lua/plugins-config/surround.lua" "lua/plugins-config/toggleterm.lua" -}}
 {{- $zshIntegrations := splitList "\n" (trim (includeTemplate "zsh-integration-catalog" .)) -}}
 {{- $shellTargets := list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh" -}}
+{{- $destDir := .chezmoi.destDir -}}
 {{- $tools := list -}}
 {{- if $nonInteractive -}}
 {{- range $requestedTool := splitList " " (trim (env "PLASTICINE_TOOLS")) -}}
@@ -30,7 +32,6 @@
 {{- end -}}
 {{- end -}}
 {{- if has "shell" $tools -}}
-{{- $destDir := .chezmoi.destDir -}}
 {{- range $parent := list ".plasticine" ".plasticine/zsh" -}}
 {{- $info := lstat (joinPath $destDir $parent) -}}
 {{- if and $info (ne $info.type "dir") -}}
@@ -42,6 +43,22 @@
 {{- if and $info (ne $info.type "file") -}}
 {{- fail (printf "shell: ~/%s 必须是普通文件，不能是符号链接、目录或其他非普通文件。" $target) -}}
 {{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if has "neovim" $tools -}}
+{{- if or (ne (env "NVIM_APPNAME") "") (ne (env "XDG_CONFIG_HOME") "") -}}
+{{- fail "neovim: 不支持 NVIM_APPNAME 或 XDG_CONFIG_HOME；受管配置必须位于 ~/.config/nvim。" -}}
+{{- end -}}
+{{- $nvimRoot := joinPath $destDir ".config/nvim" -}}
+{{- $entrypoint := lstat (joinPath $nvimRoot "init.vim") -}}
+{{- if $entrypoint -}}{{- fail "neovim: ~/.config/nvim/init.vim 是冲突的编辑器入口；请自行迁移或移除后重试。" -}}{{- end -}}
+{{- range $parent := list ".config" ".config/nvim" ".config/nvim/lua" ".config/nvim/lua/plugins-config" -}}
+{{- $info := lstat (joinPath $destDir $parent) -}}
+{{- if and $info (ne $info.type "dir") -}}{{- fail (printf "neovim: ~/%s 必须是普通目录。" $parent) -}}{{- end -}}
+{{- end -}}
+{{- range $target := $neovimTargets -}}
+{{- $info := lstat (joinPath $nvimRoot $target) -}}
+{{- if and $info (ne $info.type "file") -}}{{- fail (printf "neovim: ~/.config/nvim/%s 必须是普通文件。" $target) -}}{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- $key := "" -}}
@@ -102,6 +119,7 @@
 [data]
     tools = {{ $tools | default (list) | toJson }}
     plasticineShellTargets = {{ $shellTargets | toJson }}
+    plasticineNeovimTargets = {{ $neovimTargets | toJson }}
     githubSSHKeyPath = {{ $key | toJson }}
     githubSSHKeyFingerprint = {{ $sourceFingerprint | toJson }}
     githubSSHReplaceFingerprint = {{ $replaceFingerprint | toJson }}

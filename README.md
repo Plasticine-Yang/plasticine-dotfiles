@@ -1,6 +1,6 @@
 # plasticine-dotfiles
 
-使用 [chezmoi](https://www.chezmoi.io/) 在 macOS 和 Linux 上选择并恢复个人开发环境。目前支持 GitHub SSH 配置、Lazygit 和 Zsh 环境。
+使用 [chezmoi](https://www.chezmoi.io/) 在 macOS 和 Linux 上选择并恢复个人开发环境。目前支持 GitHub SSH 配置、Lazygit、Neovim 和 Zsh 环境。
 
 ## 一行安装
 
@@ -14,7 +14,7 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
 
 chezmoi 维护和 source 获取属于安装器前置工作，会发生在 Feature 确认之前；之后取消 Feature 应用不会撤销已经完成的前置更新。外部安装归属的当前版本可以直接使用，但过期版本必须由原归属更新，安装器不会覆盖它或另装一个遮蔽副本。元数据、下载、SHA-256、候选健康或发布失败都会停止安装并尽量保留原有可用命令。`PLASTICINE_CHEZMOI_BIN` 仍是测试/显式 executable override：安装器验证所需接口，但不接管、更新或联网检查这个显式路径。
 
-安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 GitHub SSH、Lazygit（`lazygit`）和 Zsh 环境（`shell`）；初始选择为空，不选择某个工具表示本次不处理它。
+安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 GitHub SSH、Lazygit（`lazygit`）、Neovim（`neovim`）和 Zsh 环境（`shell`）；初始选择为空，不选择某个工具表示本次不处理它。
 
 ## 自动化调用
 
@@ -49,6 +49,15 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
 ```
 
 `--lazygit`、`--shell` 与 `--github-ssh` 可以任意组合，工具集合与顺序无关。工具选项必须配合 `-y`；不带 `-y` 使用工具选项会被拒绝并提示改用交互选择。
+
+单独迁移已有的当前稳定 Neovim 配置并更新插件：
+
+```sh
+sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)" -- \
+  -y --neovim
+```
+
+`--neovim` 不会隐式选择 shell、fnm 或 Git 配置，也可以和现有 Feature 任意组合。
 
 已有不同的 `~/.ssh/id_github` 时，自动化调用还需要显式传入 `--replace-github-ssh-key`。可通过 `--github-ssh-test` 在应用后测试连接。`-y` 不会启用 chezmoi 的强制覆盖，配置冲突仍会停止安装，也不会代替 Homebrew、`sudo` 或 `chsh` 的原生凭据提示。
 
@@ -104,6 +113,28 @@ alias lg='lazygit'
 缺失区块按固定工具顺序插到文件开头，已有合法区块原地更新；区块外字节和原文件权限保持不变。一次 apply 即使多个区块同时变化，也只在 `~/.plasticine/backups/integration-blocks/` 生成一个权限为 `0600` 的 `.zshrc` 全量备份；满足状态的重跑不会改写或新增备份。所有选中区块在任何工具安装前验证，所有选中工具健康后才允许备份和配置应用。
 
 Lazygit 的配置、缓存、日志、仓库状态和 `~/.config/lazygit` 都不归 Plasticine 管理，也不会被检查、导入、备份或删除；旧 `~/.plasticine-dotfiles` 及其运行时状态同样不会清理。安装路线不修改 `PATH`：只选 Lazygit 的 Owner 需要自行确保 `~/.local/bin` 已在 `PATH` 中；同时选择 `shell` 时，共享 Zsh 配置会提供现有的 `~/.local/bin` 默认值。
+
+## Neovim（`--neovim`）
+
+本增量只支持已经安装并可运行、且版本恰好等于 Neovim 官方最新稳定 Release 的编辑器。Preview 只做本地目标校验并说明 apply 时的网络与更新动作，不查询 Release；确认 apply 后才查询 `api.github.com/repos/neovim/neovim/releases/latest`。缺失、损坏、预发布、无法比较或过期的编辑器会在配置应用前失败，并提示等待/使用 ticket 13 的官方预编译 archive 路线；这里不会调用 Homebrew、APT 或安装单独的可执行文件。
+
+Plasticine 只整体管理以下九个文件：
+
+- `~/.config/nvim/init.lua`
+- `~/.config/nvim/lua/basic.lua`
+- `~/.config/nvim/lua/keybindings.lua`
+- `~/.config/nvim/lua/colorschema.lua`
+- `~/.config/nvim/lua/plugins.lua`
+- `~/.config/nvim/lua/plugins-config/neoscroll.lua`
+- `~/.config/nvim/lua/plugins-config/nvim-tree.lua`
+- `~/.config/nvim/lua/plugins-config/surround.lua`
+- `~/.config/nvim/lua/plugins-config/toggleterm.lua`
+
+变更文件在写入前备份到 `~/.plasticine/backups/neovim/`，原 mode 在 apply 后恢复；内容相同不会重复写入或备份。其他配置文件与 `lazy-lock.json` 不会被 Plasticine 接管。`init.vim`、符号链接/非普通目标、`NVIM_APPNAME` 或非默认 `XDG_CONFIG_HOME` 会被明确拒绝，避免修改一个不会被目标编辑器使用的配置树。
+
+配置保留 legacy 的编辑偏好、Tokyo Night、平滑滚动、surround、自动配对、Hop、nvim-tree 和浮动/水平/垂直终端快捷键，但移除了 plugin tag/commit pin，并适配当前插件接口。lazy.nvim 从其 moving `stable` 分支 bootstrap；每次 apply 都显式执行 `Lazy! sync`，在相同的隔离 HOME/native XDG data、cache 和 state 路径中完成插件安装与更新，然后验证配置启动、文件树命令和终端函数。`lazy-lock.json`、checkout、cache 和 state 始终是 lazy.nvim/Neovim 的原生状态。
+
+插件同步发生在九文件配置应用之后。同步或运行时检查失败时命令返回非零，已经生成的配置备份、已应用配置和 lazy.nvim 已完成的原生效果会保留；修复网络、插件或运行时错误后重跑即可，不会伪装成全事务回滚。
 
 ## Zsh 环境（`--shell`）
 
@@ -183,11 +214,13 @@ CHEZMOI_BIN=/path/to/chezmoi ./tests/installer.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/shell.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/lazygit.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/lazygit-runtime.sh
+CHEZMOI_BIN=/path/to/chezmoi ./tests/neovim.sh
+PLASTICINE_LIVE_NEOVIM_SMOKE=1 ./tests/neovim-runtime.sh
 ./tests/shell-runtime.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/release.sh
 ```
 
-`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、登录 shell 切换与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/lazygit-runtime.sh` 用真实 Zsh 证明 `lg` 的调用、Owner 后置覆盖、组合顺序和收敛；`tests/shell-runtime.sh` 用真实 Zsh 在临时 HOME 中启动交互式和非交互式 shell，验证受管片段的运行时行为。两个 runtime 套件都需要本机存在 `zsh`。
+`tests/neovim.sh` 使用受控 Release 与编辑器边界覆盖公开 chezmoi 入口；`tests/neovim-runtime.sh` 是单独标识、显式 opt-in 的 current-upstream smoke，会在一次性 HOME 中用真实 Neovim 和当前插件验证启动、快捷键、文件树与终端。routine 测试不依赖 live Release。其余 runtime 套件继续验证真实 Zsh 与 Lazygit 行为。
 
 ## 发布
 

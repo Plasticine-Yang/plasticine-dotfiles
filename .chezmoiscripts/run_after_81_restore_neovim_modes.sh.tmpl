@@ -1,0 +1,8 @@
+{{- if has "neovim" .tools -}}
+#!/bin/sh
+set -eu
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+pending_modes=$dest_dir/.plasticine/backups/neovim/pending-modes
+{{ template "whole-file-protection" . }}
+plasticine_whole_file_restore_modes "$pending_modes" "$dest_dir" neovim
+{{- end }}

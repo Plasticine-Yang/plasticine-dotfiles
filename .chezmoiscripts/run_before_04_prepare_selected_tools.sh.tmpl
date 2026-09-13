@@ -1,4 +1,4 @@
-{{- if or (has "lazygit" .tools) (has "shell" .tools) -}}
+{{- if or (has "lazygit" .tools) (has "neovim" .tools) (has "shell" .tools) -}}
 #!/bin/sh
 set -eu
 
@@ -24,5 +24,10 @@ plasticine_shell_prepare || {
     plasticine_shell_error 'official route failed; tool preparation completed only in part; no selected configuration applied.'
     exit 1
 }
+{{- end }}
+{{- if has "neovim" .tools }}
+# shellcheck disable=SC1091
+. "$source_dir/lib/neovim-bootstrap.sh"
+plasticine_neovim_prepare || exit 1
 {{- end }}
 {{- end }}

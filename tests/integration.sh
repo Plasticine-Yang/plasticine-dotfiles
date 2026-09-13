@@ -550,6 +550,7 @@ fi
 /bin/sh -n "$repo_dir/install.sh"
 /bin/sh -n "$repo_dir/lib/shell-bootstrap.sh"
 /bin/sh -n "$repo_dir/lib/lazygit-bootstrap.sh"
+/bin/sh -n "$repo_dir/lib/neovim-bootstrap.sh"
 # The shared composer has selection-dependent template branches; rendered
 # consumers above are syntax-checked instead of the unrendered template.
 for repository_script in "$repo_dir"/scripts/*.sh; do
@@ -563,6 +564,7 @@ if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "$repo_dir/install.sh"
     shellcheck "$repo_dir/lib/shell-bootstrap.sh"
     shellcheck "$repo_dir/lib/lazygit-bootstrap.sh"
+    shellcheck "$repo_dir/lib/neovim-bootstrap.sh"
     shellcheck "$repo_dir"/scripts/*.sh
     shellcheck "$repo_dir"/tests/*.sh
 fi

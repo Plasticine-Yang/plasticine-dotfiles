@@ -4,7 +4,7 @@
 
 **Blocked by:** 07 — Separate tool preparation from configuration effects.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Add Neovim to interactive and explicit non-interactive selection without implicitly selecting shell, fnm, or Git configuration. The installer and direct chezmoi application expose the same behavior.
 - [ ] Preview performs local validation and describes current-target checking and plugin updates without a latest-release network query. During confirmed apply, establish that the existing executable is healthy and matches the official stable target before applying managed configuration.
@@ -22,3 +22,10 @@
 - [ ] Use controlled release metadata and plugin-manager dependencies for deterministic automated tests. Use real Neovim to prove configuration startup, the migrated shortcuts, representative file-tree behavior, and terminal functionality; executable version output alone is insufficient.
 - [ ] Perform a separately identified disposable-environment smoke check with current upstream plugins before claiming current-plugin compatibility. Do not make routine automated tests depend on live releases or alter the Owner's editor state.
 - [ ] Document the existing-current-editor scope of this increment, standalone selection, exact configuration ownership, native plugin-update behavior, unsupported setup guidance, and partial-failure semantics. Include relevant installer, integration, and existing-feature regressions in the ticket, not only in final integration work.
+
+## Comments
+
+- Implemented on `agent/ticket-12-neovim-current` from the ticket 07/08 baseline. The public `install.sh --neovim` and direct chezmoi flows share selection, local preflight, exact nine-file ownership, whole-file backups/mode recovery, official stable comparison, native `Lazy! sync`, and post-sync runtime readiness.
+- Deterministic coverage lives in `tests/neovim.sh`; it uses controlled Release/editor boundaries and disposable homes for preview, selection isolation, current/missing/outdated/unhealthy/lookup failures, conflicts, backups, modes, native failure and retry.
+- A separately identified `PLASTICINE_LIVE_NEOVIM_SMOKE=1 ./tests/neovim-runtime.sh` run passed against the real current editor and current upstream plugins in a disposable HOME on 2026-09-13. It exercised startup, key mappings, nvim-tree and toggleterm without reading or changing Owner Neovim state.
+- Ticket 13 remains the sole owner of official archive installation/updating; this ticket deliberately returns prerequisite guidance for a missing or non-current editor.
