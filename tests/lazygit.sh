@@ -584,8 +584,12 @@ if [ ! -x "$partial/home/.local/bin/lazygit" ]; then
 fi
 grep -Fq '# >>> Plasticine shell >>>' "$partial/home/.zshrc" || fail 'post-configuration plugin failure lost applied .zshrc'
 cmp -s "$repo_dir/dot_zsh_plugins.txt" "$partial/home/.zsh_plugins.txt" || fail 'post-configuration plugin failure lost applied declarations'
-test "$(file_mode "$partial/home/.zshrc")" = 640 || fail 'post-configuration plugin failure did not restore .zshrc mode'
-test "$(file_mode "$partial/home/.zsh_plugins.txt")" = 600 || fail 'post-configuration plugin failure did not restore declaration mode'
+test "$(file_mode "$partial/home/.zshrc")" = 644 || fail 'post-configuration plugin failure did not leave .zshrc at its managed mode'
+test "$(file_mode "$partial/home/.zsh_plugins.txt")" = 644 || fail 'post-configuration plugin failure did not leave declarations at their managed mode'
+grep -Fxq '640 .zshrc' "$partial/home/.plasticine/backups/integration-blocks/pending-mode" ||
+    fail 'post-configuration plugin failure did not retain pending .zshrc mode state'
+grep -Fxq '600 .zsh_plugins.txt' "$partial/home/.plasticine/backups/shell/pending-modes" ||
+    fail 'post-configuration plugin failure did not retain pending declaration mode state'
 test -d "$partial/home/.plasticine/backups" || fail 'post-configuration plugin failure did not preserve recoverable backups'
 test -e "$partial/home/.ssh" || fail 'post-configuration plugin failure lost earlier selected configuration effects'
 rm "$partial/bundle-fails"; : > "$partial/calls"
@@ -600,6 +604,12 @@ test "$(wc -l < "$partial/calls" | tr -d ' ')" -eq 1 || fail 'partial-success re
 test ! "$(grep -c '/download/' "$partial/calls")" -ne 0 || fail 'partial-success rerun redownloaded current Lazygit'
 grep -Fq "# >>> Plasticine shell >>>" "$partial/home/.zshrc" || fail 'partial-success rerun did not apply configuration'
 cmp -s "$partial/github-key" "$partial/home/.ssh/id_github" || fail 'partial-success rerun did not apply GitHub SSH configuration'
+test "$(file_mode "$partial/home/.zshrc")" = 640 || fail 'partial-success rerun did not restore .zshrc mode'
+test "$(file_mode "$partial/home/.zsh_plugins.txt")" = 600 || fail 'partial-success rerun did not restore declaration mode'
+test ! -e "$partial/home/.plasticine/backups/integration-blocks/pending-mode" ||
+    fail 'partial-success rerun left pending .zshrc mode state'
+test ! -e "$partial/home/.plasticine/backups/shell/pending-modes" ||
+    fail 'partial-success rerun left pending declaration mode state'
 
 for unsupported in FreeBSD:x86_64 Linux:riscv64; do
     old_ifs=$IFS; IFS=:; set -- $unsupported; IFS=$old_ifs
