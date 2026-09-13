@@ -41,7 +41,7 @@ mkdir -p "$fixture_bin" "$fixture_assets" "$fixture_system_bin"
 # the normal system commands used by chezmoi and the lifecycle scripts visible.
 for fixture_system_command in /usr/bin/* /bin/*; do
     [ -f "$fixture_system_command" ] && [ -x "$fixture_system_command" ] || continue
-    case ${fixture_system_command##*/} in nvim|shasum) continue ;; esac
+    case ${fixture_system_command##*/} in nvim|shasum|sha256sum) continue ;; esac
     [ -e "$fixture_system_bin/${fixture_system_command##*/}" ] ||
         ln -s "$fixture_system_command" "$fixture_system_bin/${fixture_system_command##*/}"
 done
