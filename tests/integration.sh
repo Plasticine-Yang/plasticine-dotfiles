@@ -42,7 +42,20 @@ EOF
 cat > "$protect_bin/lazygit" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = --version ] || exit 99
-printf '%s\n' 'lazygit version integration-fixture'
+printf '%s\n' 'lazygit version 1.2.3'
+EOF
+cat > "$protect_bin/curl" <<'EOF'
+#!/bin/sh
+output=''
+url=''
+while [ "$#" -gt 0 ]; do
+    case $1 in -o) output=$2; shift ;; http*) url=$1 ;; esac
+    shift
+done
+case $url in
+    */jesseduffield/lazygit/releases/latest) printf '%s\n' '{"tag_name":"v1.2.3"}' > "$output" ;;
+    *) exit 99 ;;
+esac
 EOF
 chmod +x "$protect_bin"/*
 

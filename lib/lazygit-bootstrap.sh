@@ -47,6 +47,34 @@ plasticine_lazygit_health() {
     [ -x "$1" ] && "$1" --version >/dev/null 2>&1
 }
 
+plasticine_lazygit_version() {
+    [ -x "$1" ] || return 1
+    "$1" --version 2>/dev/null | awk '
+        {
+            for (i = 1; i <= NF; i++) {
+                value=$i
+                sub(/^version=/, "", value)
+                sub(/,$/, "", value)
+                if (value ~ /^v?[0-9]+\.[0-9]+\.[0-9]+$/) {
+                    sub(/^v/, "", value); seen++; version=value
+                }
+            }
+        }
+        END { if (seen == 1) print version; else exit 1 }
+    '
+}
+
+plasticine_lazygit_compare_versions() {
+    awk -v left="$1" -v right="$2" 'BEGIN {
+        split(left, l, "."); split(right, r, ".")
+        for (i=1; i<=3; i++) {
+            if ((l[i]+0) < (r[i]+0)) { print -1; exit }
+            if ((l[i]+0) > (r[i]+0)) { print 1; exit }
+        }
+        print 0
+    }'
+}
+
 plasticine_lazygit_plan() {
     lazygit_dest_dir=$1
     case $lazygit_dest_dir in
@@ -55,7 +83,6 @@ plasticine_lazygit_plan() {
     esac
     lazygit_install_dir=$lazygit_dest_dir/.local/bin
     lazygit_target=$lazygit_install_dir/lazygit
-    lazygit_route=release
     lazygit_bin=''
 
     lazygit_host_os=${PLASTICINE_LAZYGIT_OS:-$(uname -s)} || return 1
@@ -73,7 +100,7 @@ plasticine_lazygit_plan() {
 
     plasticine_lazygit_validate_destination || return 1
     lazygit_bin=$(plasticine_lazygit_resolve lazygit) || lazygit_bin=''
-    if [ -z "$lazygit_bin" ] && { [ -e "$lazygit_target" ] || [ -L "$lazygit_target" ]; }; then
+    if [ -z "$lazygit_bin" ] && [ -f "$lazygit_target" ] && [ ! -L "$lazygit_target" ]; then
         lazygit_bin=$lazygit_target
     fi
     if [ -n "$lazygit_bin" ]; then
@@ -81,15 +108,9 @@ plasticine_lazygit_plan() {
             /*) ;;
             *) lazygit_bin=$(cd -- "$(dirname -- "$lazygit_bin")" 2>/dev/null && pwd -P)/${lazygit_bin##*/} ;;
         esac
-        if ! plasticine_lazygit_health "$lazygit_bin"; then
-            plasticine_lazygit_error "existing executable is unhealthy and was left untouched: $lazygit_bin; repair its installation owner, then retry. No fallback."
-            return 1
-        fi
-        lazygit_route=existing
-        return 0
     fi
 
-    for plasticine_lazygit_command in curl tar awk mktemp mkdir chmod ln; do
+    for plasticine_lazygit_command in curl tar awk mktemp mkdir chmod ln mv; do
         command -v "$plasticine_lazygit_command" >/dev/null 2>&1 || {
             plasticine_lazygit_error "missing command required by the official release route: $plasticine_lazygit_command"
             return 1
@@ -106,25 +127,25 @@ plasticine_lazygit_plan() {
 }
 
 plasticine_lazygit_preview() {
-    printf 'plasticine-dotfiles: lazygit: observed %s/%s; archive mapping %s/%s; route: %s\n' \
-        "$lazygit_host_os" "$lazygit_host_arch" "$lazygit_asset_os" "$lazygit_asset_arch" "$lazygit_route"
-    if [ "$lazygit_route" = existing ]; then
-        printf '  Existing healthy executable: %s; version and installation owner remain untouched; network: none.\n' "$lazygit_bin"
-        return 0
-    fi
+    printf 'plasticine-dotfiles: lazygit: observed %s/%s; archive mapping %s/%s\n' \
+        "$lazygit_host_os" "$lazygit_host_arch" "$lazygit_asset_os" "$lazygit_asset_arch"
     printf '%s\n' \
-        '  Official GitHub Release route; latest version is resolved only during apply; no installer script or fallback.' \
-        '  network: HTTPS to api.github.com and github.com/jesseduffield/lazygit release assets.' \
-        "  commands: curl release metadata; curl archive and same-release checksums.txt; $lazygit_sha_command SHA-256 verification; tar streams only the lazygit member." \
-        "  destination: $lazygit_target (atomic publication, mode 0755, health checked before and after publication)." \
+        '  Official GitHub stable Release route; target metadata is resolved only during confirmed apply.' \
+        '  A missing tool is installed; an authorized outdated direct installation is safely replaced; a current tool is retained.' \
+        '  Existing prerelease, custom, unhealthy, ambiguous, and unsupported-owner installations are not replaced.' \
+        '  network during apply: HTTPS to api.github.com and github.com/jesseduffield/lazygit release assets.' \
+        "  commands during apply: curl metadata; when replacement is needed, curl archive and same-release checksums.txt; $lazygit_sha_command SHA-256 verification; tar streams only the lazygit member." \
+        "  destination: $lazygit_target (fresh atomic no-clobber publication; authorized upgrades use checked same-directory atomic replacement)." \
         '  package manager: none; privilege: none; credentials: none; terminal prompt: none.'
+    if [ -n "$lazygit_bin" ]; then
+        printf '  Observed executable: %s; its version and owner will be classified during apply.\n' "$lazygit_bin"
+    fi
 }
 
 plasticine_lazygit_checksum() {
     awk -v wanted="$2" '
         {
-            name = $NF
-            sub(/^\*/, "", name)
+            name = $NF; sub(/^\*/, "", name)
             if (name == wanted) {
                 seen++
                 if (NF == 2 && $1 ~ /^[0-9A-Fa-f]{64}$/) { valid++; value=tolower($1) }
@@ -143,14 +164,6 @@ plasticine_lazygit_actual_checksum() {
 }
 
 plasticine_lazygit_prepare() {
-    [ "$lazygit_route" = release ] || {
-        plasticine_lazygit_health "$lazygit_bin" || {
-            plasticine_lazygit_error "existing executable became unhealthy and was left untouched: $lazygit_bin; repair it, then retry."
-            return 1
-        }
-        return 0
-    }
-
     lazygit_work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-lazygit.XXXXXX") || {
         plasticine_lazygit_error 'could not create private temporary storage.'
         return 1
@@ -164,7 +177,7 @@ plasticine_lazygit_prepare() {
 
     curl -fsSL -H 'Accept: application/vnd.github+json' \
         -o "$lazygit_metadata" https://api.github.com/repos/jesseduffield/lazygit/releases/latest || {
-        plasticine_lazygit_error 'latest-release metadata download failed; no fallback or configuration applied.'
+        plasticine_lazygit_error 'latest stable-release metadata download failed; existing installation was left untouched and selected configuration was not applied.'
         return 1
     }
     lazygit_tag=$(awk '
@@ -177,68 +190,112 @@ plasticine_lazygit_prepare() {
         }
         END {if (count == 1) print tag; else exit 1}
     ' "$lazygit_metadata") || {
-        plasticine_lazygit_error 'latest-release metadata did not contain exactly one tag_name; no fallback.'
+        plasticine_lazygit_error 'latest stable-release metadata did not contain exactly one tag_name; existing installation was left untouched.'
         return 1
     }
-    if ! printf '%s\n' "$lazygit_tag" | awk '/^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$/ {ok=1} END {exit !ok}'; then
-        plasticine_lazygit_error "invalid latest-release tag: $lazygit_tag; no fallback."
+    if ! printf '%s\n' "$lazygit_tag" | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/ {ok=1} END {exit !ok}'; then
+        plasticine_lazygit_error "invalid stable-release tag: $lazygit_tag; prerelease or malformed targets are rejected."
         return 1
     fi
     lazygit_version=${lazygit_tag#v}
+
+    # Re-observe after metadata resolution. Only the managed direct pathname is
+    # an authorized replacement owner; a current executable elsewhere may be
+    # retained, but it cannot be updated by publishing a shadowing second copy.
+    lazygit_bin=$(plasticine_lazygit_resolve lazygit) || lazygit_bin=''
+    if [ -z "$lazygit_bin" ] && [ -f "$lazygit_target" ] && [ ! -L "$lazygit_target" ]; then
+        lazygit_bin=$lazygit_target
+    fi
+    if [ -n "$lazygit_bin" ]; then
+        case $lazygit_bin in
+            /*) ;;
+            *) lazygit_bin=$(cd -- "$(dirname -- "$lazygit_bin")" 2>/dev/null && pwd -P)/${lazygit_bin##*/} ;;
+        esac
+        plasticine_lazygit_health "$lazygit_bin" || {
+            plasticine_lazygit_error "existing executable is unhealthy and was left untouched: $lazygit_bin; repair its installation owner, then retry. No fallback."
+            return 1
+        }
+        lazygit_installed_version=$(plasticine_lazygit_version "$lazygit_bin") || {
+            plasticine_lazygit_error "existing executable has a custom, prerelease, or unparseable version and was left untouched: $lazygit_bin; use its owner to select the stable channel."
+            return 1
+        }
+        lazygit_comparison=$(plasticine_lazygit_compare_versions "$lazygit_installed_version" "$lazygit_version")
+        case $lazygit_comparison in
+            0)
+                printf 'plasticine-dotfiles: lazygit: current stable target %s is already satisfied by %s; no replacement.\n' "$lazygit_version" "$lazygit_bin"
+                return 0
+                ;;
+            1)
+                plasticine_lazygit_error "existing stable version $lazygit_installed_version is newer than resolved target $lazygit_version and was left untouched; refusing a downgrade."
+                return 1
+                ;;
+            -1)
+                [ "$lazygit_bin" = "$lazygit_target" ] || {
+                    plasticine_lazygit_error "outdated Lazygit $lazygit_installed_version at unsupported owner path $lazygit_bin; update it with its owner or remove it from PATH before retrying. No shadow installation was created."
+                    return 1
+                }
+                lazygit_publication=upgrade
+                lazygit_original_checksum=$(plasticine_lazygit_actual_checksum "$lazygit_target") || return 1
+                ;;
+        esac
+    else
+        lazygit_publication=fresh
+    fi
+
     lazygit_asset=lazygit_${lazygit_version}_${lazygit_asset_os}_${lazygit_asset_arch}.tar.gz
     lazygit_release_url=https://github.com/jesseduffield/lazygit/releases/download/$lazygit_tag
     curl -fsSL -o "$lazygit_archive" "$lazygit_release_url/$lazygit_asset" || {
-        plasticine_lazygit_error "release archive download failed: $lazygit_asset; no fallback."
+        plasticine_lazygit_error "release archive download failed: $lazygit_asset; active installation was left untouched."
         return 1
     }
     curl -fsSL -o "$lazygit_checksums" "$lazygit_release_url/checksums.txt" || {
-        plasticine_lazygit_error 'same-release checksums.txt download failed; no fallback.'
+        plasticine_lazygit_error 'same-release checksums.txt download failed; active installation was left untouched.'
         return 1
     }
     lazygit_expected=$(plasticine_lazygit_checksum "$lazygit_checksums" "$lazygit_asset") || {
-        plasticine_lazygit_error "checksums.txt must contain exactly one valid SHA-256 entry for $lazygit_asset; no fallback."
+        plasticine_lazygit_error "checksums.txt must contain exactly one valid SHA-256 entry for $lazygit_asset; active installation was left untouched."
         return 1
     }
     lazygit_actual=$(plasticine_lazygit_actual_checksum "$lazygit_archive") || {
-        plasticine_lazygit_error 'could not calculate the release archive SHA-256 checksum.'
+        plasticine_lazygit_error 'could not calculate the release archive SHA-256 checksum; active installation was left untouched.'
         return 1
     }
     [ "$lazygit_expected" = "$lazygit_actual" ] || {
-        plasticine_lazygit_error "SHA-256 mismatch for $lazygit_asset; archive rejected, no fallback."
+        plasticine_lazygit_error "SHA-256 mismatch for $lazygit_asset; active installation was left untouched."
         return 1
     }
     lazygit_member_count=$(tar -tzf "$lazygit_archive" 2>/dev/null | awk '$0 == "lazygit" {n++} END {print n+0}') || {
-        plasticine_lazygit_error 'release archive listing failed; no fallback.'
+        plasticine_lazygit_error 'release archive listing failed; active installation was left untouched.'
         return 1
     }
     [ "$lazygit_member_count" -eq 1 ] || {
-        plasticine_lazygit_error 'release archive must contain exactly one member named lazygit; no fallback.'
+        plasticine_lazygit_error 'release archive must contain exactly one member named lazygit; active installation was left untouched.'
         return 1
     }
     tar -xOzf "$lazygit_archive" lazygit > "$lazygit_extracted" || {
-        plasticine_lazygit_error 'release executable extraction failed; no fallback.'
+        plasticine_lazygit_error 'release executable extraction failed; active installation was left untouched.'
         return 1
     }
     chmod 755 "$lazygit_extracted" || { plasticine_lazygit_error 'could not assign executable mode to extracted Lazygit.'; return 1; }
-    plasticine_lazygit_health "$lazygit_extracted" || {
-        plasticine_lazygit_error 'extracted Lazygit failed its --version health check; no publication or fallback.'
+    lazygit_candidate_version=$(plasticine_lazygit_version "$lazygit_extracted") || {
+        plasticine_lazygit_error 'extracted Lazygit has an unparseable version; active installation was left untouched.'
+        return 1
+    }
+    [ "$lazygit_candidate_version" = "$lazygit_version" ] || {
+        plasticine_lazygit_error "extracted Lazygit version $lazygit_candidate_version does not match resolved target $lazygit_version; active installation was left untouched."
         return 1
     }
 
     plasticine_lazygit_validate_destination || return 1
     umask 077
-    if [ ! -e "$lazygit_dest_dir/.local" ] && [ ! -L "$lazygit_dest_dir/.local" ]; then
+    if [ ! -e "$lazygit_dest_dir/.local" ]; then
         mkdir "$lazygit_dest_dir/.local" || { plasticine_lazygit_error 'could not create ~/.local'; return 1; }
     fi
     plasticine_lazygit_validate_destination || return 1
-    if [ ! -e "$lazygit_install_dir" ] && [ ! -L "$lazygit_install_dir" ]; then
+    if [ ! -e "$lazygit_install_dir" ]; then
         mkdir "$lazygit_install_dir" || { plasticine_lazygit_error 'could not create ~/.local/bin'; return 1; }
     fi
     plasticine_lazygit_validate_destination || return 1
-    [ ! -e "$lazygit_target" ] && [ ! -L "$lazygit_target" ] || {
-        plasticine_lazygit_error "installation target appeared during installation and was left untouched: $lazygit_target"
-        return 1
-    }
     lazygit_stage=$(mktemp "$lazygit_install_dir/.lazygit.plasticine.XXXXXX") || {
         plasticine_lazygit_error 'could not create same-directory publication staging.'
         return 1
@@ -248,26 +305,36 @@ plasticine_lazygit_prepare() {
         plasticine_lazygit_error 'could not stage Lazygit for atomic publication.'
         return 1
     fi
-    [ ! -e "$lazygit_target" ] && [ ! -L "$lazygit_target" ] || {
-        rm -f "$lazygit_stage"
-        plasticine_lazygit_error "installation target appeared during installation and was left untouched: $lazygit_target"
+
+    case $lazygit_publication in
+        fresh)
+            [ ! -e "$lazygit_target" ] && [ ! -L "$lazygit_target" ] || {
+                rm -f "$lazygit_stage"; plasticine_lazygit_error "installation target appeared during installation and was left untouched: $lazygit_target"; return 1
+            }
+            ln "$lazygit_stage" "$lazygit_target" || {
+                rm -f "$lazygit_stage"; plasticine_lazygit_error 'atomic no-clobber publication failed; the destination was left untouched.'; return 1
+            }
+            rm -f "$lazygit_stage"
+            ;;
+        upgrade)
+            plasticine_lazygit_validate_destination || { rm -f "$lazygit_stage"; return 1; }
+            lazygit_revalidated_checksum=$(plasticine_lazygit_actual_checksum "$lazygit_target") || { rm -f "$lazygit_stage"; return 1; }
+            [ "$lazygit_revalidated_checksum" = "$lazygit_original_checksum" ] || {
+                rm -f "$lazygit_stage"; plasticine_lazygit_error 'authorized upgrade target changed during candidate preparation; replacement aborted.'; return 1
+            }
+            mv -f "$lazygit_stage" "$lazygit_target" || {
+                rm -f "$lazygit_stage"; plasticine_lazygit_error 'atomic authorized upgrade replacement failed; inspect the active destination before retrying.'; return 1
+            }
+            ;;
+    esac
+
+    lazygit_result_version=$(plasticine_lazygit_version "$lazygit_target") || {
+        plasticine_lazygit_error "the executable retained at $lazygit_target failed post-publication version verification; repair the Owner file, or remove it if it is the failed publication, before rerunning. Configuration was not applied."
         return 1
     }
-    # A hard link is an atomic no-clobber publication on the same filesystem.
-    # Unlike mv, it cannot replace a target created after our final check.
-    ln "$lazygit_stage" "$lazygit_target" || {
-        rm -f "$lazygit_stage"
-        plasticine_lazygit_error 'atomic no-clobber publication failed; the destination was left untouched.'
+    [ "$lazygit_result_version" = "$lazygit_version" ] || {
+        plasticine_lazygit_error "post-publication version $lazygit_result_version does not match resolved target $lazygit_version; configuration was not applied."
         return 1
     }
-    # Publication is complete. Do not retain a second link, and never unlink
-    # the published pathname after this point: POSIX cannot make a later
-    # identity check plus unlink atomic against an Owner replacement.
-    rm -f "$lazygit_stage"
-    if ! plasticine_lazygit_health "$lazygit_target"; then
-        plasticine_lazygit_error "the executable retained at $lazygit_target failed its post-publication --version health check; repair the Owner file, or remove it if it is the failed publication, before rerunning. No configuration applied."
-        return 1
-    fi
-    lazygit_bin=$lazygit_target
-    lazygit_route=existing
+    printf 'plasticine-dotfiles: lazygit: %s completed at stable target %s: %s\n' "$lazygit_publication" "$lazygit_version" "$lazygit_target"
 }
