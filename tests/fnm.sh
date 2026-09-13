@@ -4,6 +4,12 @@ set -eu
 repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
 chezmoi_bin=${CHEZMOI_BIN:-$(command -v chezmoi 2>/dev/null || true)}
 [ -n "$chezmoi_bin" ] || { printf '%s\n' 'CHEZMOI_BIN or chezmoi is required.' >&2; exit 1; }
+case $chezmoi_bin in
+    /*) ;;
+    */*) chezmoi_bin=$(cd -- "$(dirname -- "$chezmoi_bin")" && pwd -P)/${chezmoi_bin##*/} ;;
+    *) chezmoi_bin=$(command -v "$chezmoi_bin" 2>/dev/null || true) ;;
+esac
+[ -n "$chezmoi_bin" ] && [ -x "$chezmoi_bin" ] || { printf '%s\n' 'CHEZMOI_BIN or chezmoi is required.' >&2; exit 1; }
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-fnm-test.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 fail() { printf 'fnm test: %s\n' "$1" >&2; exit 1; }

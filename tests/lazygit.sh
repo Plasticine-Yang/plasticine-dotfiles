@@ -582,12 +582,12 @@ if [ ! -x "$partial/home/.local/bin/lazygit" ]; then
     cat "$partial/first-err" >&2
     fail 'partial success did not retain healthy Lazygit'
 fi
-cmp -s "$partial/zshrc-before" "$partial/home/.zshrc" || fail 'later preparation failure changed .zshrc'
-cmp -s "$partial/plugins-before" "$partial/home/.zsh_plugins.txt" || fail 'later preparation failure changed shell configuration'
-test "$(file_mode "$partial/home/.zshrc")" = 640 || fail 'later preparation failure changed .zshrc mode'
-test "$(file_mode "$partial/home/.zsh_plugins.txt")" = 600 || fail 'later preparation failure changed shell configuration mode'
-test ! -e "$partial/home/.plasticine/backups" || fail 'later preparation failure created configuration backups'
-test ! -e "$partial/home/.ssh" || fail 'later preparation failure applied GitHub SSH configuration'
+grep -Fq '# >>> Plasticine shell >>>' "$partial/home/.zshrc" || fail 'post-configuration plugin failure lost applied .zshrc'
+cmp -s "$repo_dir/dot_zsh_plugins.txt" "$partial/home/.zsh_plugins.txt" || fail 'post-configuration plugin failure lost applied declarations'
+test "$(file_mode "$partial/home/.zshrc")" = 640 || fail 'post-configuration plugin failure did not restore .zshrc mode'
+test "$(file_mode "$partial/home/.zsh_plugins.txt")" = 600 || fail 'post-configuration plugin failure did not restore declaration mode'
+test -d "$partial/home/.plasticine/backups" || fail 'post-configuration plugin failure did not preserve recoverable backups'
+test -e "$partial/home/.ssh" || fail 'post-configuration plugin failure lost earlier selected configuration effects'
 rm "$partial/bundle-fails"; : > "$partial/calls"
 PATH=$release_bin:$partial_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
     PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$partial/data/chezmoi \

@@ -3,6 +3,8 @@ set -eu
 
 repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
 chezmoi_bin=${CHEZMOI_BIN:-$(command -v chezmoi 2>/dev/null || true)}
+[ -n "$chezmoi_bin" ] || { printf '%s\n' 'herdr tests require chezmoi.' >&2; exit 1; }
+case $chezmoi_bin in /*) ;; */*) chezmoi_bin=$(cd -- "$(dirname -- "$chezmoi_bin")" && pwd -P)/${chezmoi_bin##*/} ;; *) chezmoi_bin=$(command -v "$chezmoi_bin" 2>/dev/null || true) ;; esac
 [ -n "$chezmoi_bin" ] && [ -x "$chezmoi_bin" ] || { printf '%s\n' 'herdr tests require chezmoi.' >&2; exit 1; }
 root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-herdr-test.XXXXXX")
 trap 'rm -rf "$root"' EXIT HUP INT TERM
