@@ -4,122 +4,156 @@ set -eu
 repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
 chezmoi_bin=${CHEZMOI_BIN:-$(command -v chezmoi 2>/dev/null || true)}
 [ -n "$chezmoi_bin" ] || { printf '%s\n' 'neovim tests require chezmoi.' >&2; exit 1; }
-
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-neovim-test.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 config=$test_root/chezmoi.toml
 PLASTICINE_NONINTERACTIVE=1 PLASTICINE_TOOLS=neovim \
-    "$chezmoi_bin" -S "$repo_dir" -D "$test_root/home" \
-    --persistent-state "$test_root/state" init -C "$config" >/dev/null
+    "$chezmoi_bin" -S "$repo_dir" -D "$test_root/home" --persistent-state "$test_root/state" init -C "$config" >/dev/null
 grep -Fq 'tools = ["neovim"]' "$config"
 
 fixture_bin=$test_root/bin
-home=$test_root/home
-mkdir -p "$fixture_bin" "$home"
-cat > "$fixture_bin/curl" <<'EOF'
+fixture_assets=$test_root/assets
+mkdir -p "$fixture_bin" "$fixture_assets"
+make_archive() {
+    version=$1
+    root=$test_root/build-$version/nvim-linux-x86_64
+    mkdir -p "$root/bin" "$root/share/nvim/runtime"
+    cat > "$root/bin/nvim" <<EOF
 #!/bin/sh
-printf '%s\n' curl >> "$PLASTICINE_NEOVIM_TEST_CALLS"
-printf '%s\n' '{"tag_name":"v0.12.4"}'
-EOF
-cat > "$fixture_bin/nvim" <<'EOF'
-#!/bin/sh
-case $1 in
-  --version) printf '%s\n' 'NVIM v0.12.4' ;;
-  --headless) printf 'nvim %s\n' "$*" >> "$PLASTICINE_NEOVIM_TEST_CALLS" ;;
+case "\${1:-}" in
+  --version) printf '%s\n' 'NVIM v$version' ;;
+  --clean) exit 0 ;;
+  --headless)
+    [ "\${PLASTICINE_NEOVIM_FAIL_HEADLESS:-0}" != 1 ] || exit 42
+    [ -z "\${PLASTICINE_NEOVIM_TEST_CALLS:-}" ] || printf 'nvim %s\n' "\$*" >> "\$PLASTICINE_NEOVIM_TEST_CALLS"
+    ;;
   *) exit 99 ;;
 esac
 EOF
-chmod +x "$fixture_bin"/*
-calls=$test_root/calls
-: > "$calls"
-PATH=$fixture_bin:$PATH PLASTICINE_NEOVIM_TEST_CALLS=$calls \
-    "$chezmoi_bin" -S "$repo_dir" -D "$home" -c "$config" \
-    --persistent-state "$test_root/state" diff --no-pager >/dev/null
-[ ! -s "$calls" ] || { printf '%s\n' 'Neovim Preview accessed the network/editor.' >&2; exit 1; }
-PATH=$fixture_bin:$PATH PLASTICINE_NEOVIM_TEST_CALLS=$calls \
-    "$chezmoi_bin" -S "$repo_dir" -D "$home" -c "$config" \
-    --persistent-state "$test_root/state" apply --no-tty >/dev/null
-[ "$(find "$home/.config/nvim" -type f | wc -l | tr -d ' ')" -eq 9 ]
-grep -Fq 'Lazy! sync' "$calls"
-grep -Fq 'NvimTreeToggle' "$calls"
-printf 'owner\n' > "$home/.config/nvim/lua/local.lua"
-printf 'changed\n' > "$home/.config/nvim/init.lua"
-chmod 600 "$home/.config/nvim/init.lua"
-PATH=$fixture_bin:$PATH PLASTICINE_NEOVIM_TEST_CALLS=$calls \
-    "$chezmoi_bin" -S "$repo_dir" -D "$home" -c "$config" \
-    --persistent-state "$test_root/state" apply --no-tty >/dev/null
-[ -f "$home/.config/nvim/lua/local.lua" ]
-[ "$(stat -f '%Lp' "$home/.config/nvim/init.lua" 2>/dev/null || stat -c '%a' "$home/.config/nvim/init.lua")" = 600 ]
-backup=$(find "$home/.plasticine/backups/neovim" -name 'init.lua.plasticine-backup-*')
-grep -Fxq changed "$backup"
+    chmod 755 "$root/bin/nvim"
+    printf '%s\n' '-- packaged runtime sentinel' > "$root/share/nvim/runtime/filetype.lua"
+    tar -czf "$fixture_assets/$version.tar.gz" -C "$test_root/build-$version" nvim-linux-x86_64
+    shasum -a 256 "$fixture_assets/$version.tar.gz" | awk '{print $1}' > "$fixture_assets/$version.sha"
+}
+make_archive 0.12.4
+make_archive 0.12.5
 
-# Preview/cancellation never performs the release query or plugin operation.
-: > "$calls"
-PATH=$fixture_bin:$PATH PLASTICINE_NEOVIM_TEST_CALLS=$calls \
-    "$chezmoi_bin" -S "$repo_dir" -D "$home" -c "$config" \
-    --persistent-state "$test_root/state" diff --no-pager >/dev/null
-[ ! -s "$calls" ]
-
-# Missing/outdated/unhealthy editors and metadata failures stop before config.
-for scenario in missing outdated unhealthy lookup; do
-    case_home=$test_root/$scenario-home
-    case_bin=$test_root/$scenario-bin
-    mkdir -p "$case_home" "$case_bin"
-    cp "$fixture_bin/curl" "$case_bin/curl"
-    cp "$fixture_bin/nvim" "$case_bin/nvim"
-    case $scenario in
-        missing) rm "$case_bin/nvim" ;;
-        outdated) sed 's/NVIM v0.12.4/NVIM v0.11.0/' "$fixture_bin/nvim" > "$case_bin/nvim.tmp"; mv "$case_bin/nvim.tmp" "$case_bin/nvim"; chmod +x "$case_bin/nvim" ;;
-        unhealthy) sed 's/printf '\''%s\\n'\'' '\''NVIM v0.12.4'\''/exit 1/' "$fixture_bin/nvim" > "$case_bin/nvim.tmp"; mv "$case_bin/nvim.tmp" "$case_bin/nvim"; chmod +x "$case_bin/nvim" ;;
-        lookup) printf '#!/bin/sh\nexit 1\n' > "$case_bin/curl"; chmod +x "$case_bin/curl" ;;
-    esac
-    if PATH=$case_bin:/usr/bin:/bin PLASTICINE_NEOVIM_TEST_CALLS=$calls \
-        "$chezmoi_bin" -S "$repo_dir" -D "$case_home" -c "$config" \
-        --persistent-state "$test_root/$scenario-state" apply --no-tty >/dev/null 2>&1; then
-        printf 'scenario unexpectedly succeeded: %s\n' "$scenario" >&2; exit 1
-    fi
-    [ ! -e "$case_home/.config/nvim/init.lua" ]
-done
-
-# Competing/default-root and selected-target conflicts are rejected locally.
-for scenario in init-vim symlink; do
-    case_home=$test_root/conflict-$scenario
-    mkdir -p "$case_home/.config/nvim"
-    case $scenario in
-        init-vim) printf 'set number\n' > "$case_home/.config/nvim/init.vim" ;;
-        symlink) ln -s owner "$case_home/.config/nvim/init.lua" ;;
-    esac
-    if "$chezmoi_bin" -S "$repo_dir" -D "$case_home" -c "$config" \
-        --persistent-state "$test_root/conflict-$scenario-state" apply --no-tty >/dev/null 2>&1; then
-        printf 'configuration conflict unexpectedly accepted: %s\n' "$scenario" >&2; exit 1
-    fi
-done
-if NVIM_APPNAME=alternate "$chezmoi_bin" -S "$repo_dir" -D "$test_root/appname-home" \
-    -c "$config" --persistent-state "$test_root/appname-state" apply --no-tty >/dev/null 2>&1; then
-    printf '%s\n' 'NVIM_APPNAME unexpectedly accepted.' >&2; exit 1
-fi
-
-# A post-configuration native failure is nonzero and a clean retry succeeds.
-failure_home=$test_root/plugin-failure-home
-mkdir -p "$failure_home"
-cat > "$fixture_bin/nvim-failure" <<'EOF'
+cat > "$fixture_bin/curl" <<'EOF'
 #!/bin/sh
-case $1 in --version) printf '%s\n' 'NVIM v0.12.4' ;; --headless) exit 1 ;; esac
+output=
+previous=
+for argument in "$@"; do
+    [ "$previous" != -o ] || output=$argument
+    previous=$argument
+done
+printf '%s\n' curl >> "$PLASTICINE_NEOVIM_TEST_CALLS"
+case $* in
+  *api.github.com/repos/neovim/neovim/releases/latest*)
+    version=${PLASTICINE_NEOVIM_TEST_VERSION:-0.12.4}
+    digest=$(cat "$PLASTICINE_NEOVIM_TEST_ASSETS/$version.sha")
+    [ "${PLASTICINE_NEOVIM_BAD_DIGEST:-0}" != 1 ] || digest=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    payload="  \"tag_name\": \"v$version\",
+  \"name\": \"nvim-linux-x86_64.tar.gz\",
+  \"digest\": \"sha256:$digest\",
+  \"browser_download_url\": \"https://github.com/neovim/neovim/releases/download/v$version/nvim-linux-x86_64.tar.gz\""
+    [ "${PLASTICINE_NEOVIM_BAD_METADATA:-0}" != 1 ] || payload='{"tag_name":"nightly"}'
+    if [ -n "$output" ]; then printf '%s\n' "$payload" > "$output"; else printf '%s\n' "$payload"; fi
+    ;;
+  *github.com/neovim/neovim/releases/download/*)
+    [ -z "${PLASTICINE_NEOVIM_RACE_TARGET:-}" ] || mkdir -p "$PLASTICINE_NEOVIM_RACE_TARGET"
+    cp "$PLASTICINE_NEOVIM_TEST_ASSETS/${PLASTICINE_NEOVIM_TEST_VERSION:-0.12.4}.tar.gz" "$output"
+    ;;
+  *) exit 99 ;;
+esac
 EOF
-chmod +x "$fixture_bin/nvim-failure"
-mv "$fixture_bin/nvim" "$fixture_bin/nvim-good"
-cp "$fixture_bin/nvim-failure" "$fixture_bin/nvim"
-if PATH=$fixture_bin:$PATH PLASTICINE_NEOVIM_TEST_CALLS=$calls \
-    "$chezmoi_bin" -S "$repo_dir" -D "$failure_home" -c "$config" \
-    --persistent-state "$test_root/failure-state" apply --no-tty >/dev/null 2>&1; then
+chmod 755 "$fixture_bin/curl"
+
+apply_case() {
+    case_home=$1; case_state=$2; shift 2
+    PATH=$fixture_bin:/usr/bin:/bin PLASTICINE_NEOVIM_OS=Linux PLASTICINE_NEOVIM_ARCH=x86_64 \
+        PLASTICINE_NEOVIM_TEST_ASSETS=$fixture_assets PLASTICINE_NEOVIM_TEST_CALLS=$case_home/calls \
+        "$@" "$chezmoi_bin" -S "$repo_dir" -D "$case_home" -c "$config" --persistent-state "$case_state" apply --no-tty
+}
+
+# Preview is local: no metadata, download, or editor execution.
+preview_home=$test_root/preview-home
+mkdir -p "$preview_home"; : > "$preview_home/calls"
+PATH=$fixture_bin:/usr/bin:/bin PLASTICINE_NEOVIM_OS=Linux PLASTICINE_NEOVIM_ARCH=x86_64 \
+    PLASTICINE_NEOVIM_TEST_ASSETS=$fixture_assets PLASTICINE_NEOVIM_TEST_CALLS=$preview_home/calls \
+    "$chezmoi_bin" -S "$repo_dir" -D "$preview_home" -c "$config" --persistent-state "$test_root/preview-state" diff --no-pager >/dev/null
+[ ! -s "$preview_home/calls" ]
+
+# Fresh apply publishes the complete distribution and link before configuration/plugin work.
+fresh=$test_root/fresh-home
+mkdir -p "$fresh"; : > "$fresh/calls"
+apply_case "$fresh" "$test_root/fresh-state" env >/dev/null
+[ -L "$fresh/.local/bin/nvim" ]
+[ "$(readlink "$fresh/.local/bin/nvim")" = ../opt/neovim/bin/nvim ]
+[ -f "$fresh/.local/opt/neovim/share/nvim/runtime/filetype.lua" ]
+[ "$(find "$fresh/.config/nvim" -type f | wc -l | tr -d ' ')" -eq 9 ]
+grep -Fq 'Lazy! sync' "$fresh/calls"
+grep -Fq 'NvimTreeToggle' "$fresh/calls"
+printf owner > "$fresh/.config/nvim/lua/local.lua"
+distribution_before=$(find -L "$fresh/.local/opt/neovim" -type f -exec shasum -a 256 {} + | sort | shasum -a 256 | awk '{print $1}')
+: > "$fresh/calls"
+apply_case "$fresh" "$test_root/fresh-state" env >/dev/null
+distribution_after=$(find -L "$fresh/.local/opt/neovim" -type f -exec shasum -a 256 {} + | sort | shasum -a 256 | awk '{print $1}')
+[ "$distribution_before" = "$distribution_after" ]
+[ "$(grep -c '^curl$' "$fresh/calls")" -eq 1 ]
+[ -f "$fresh/.config/nvim/lua/local.lua" ]
+
+# A later stable target upgrades the authorized complete distribution in place.
+: > "$fresh/calls"
+apply_case "$fresh" "$test_root/fresh-state" env PLASTICINE_NEOVIM_TEST_VERSION=0.12.5 >/dev/null
+[ "$("$fresh/.local/bin/nvim" --version)" = 'NVIM v0.12.5' ]
+[ -f "$fresh/.local/opt/neovim/share/nvim/runtime/filetype.lua" ]
+[ -f "$fresh/.config/nvim/lua/local.lua" ]
+
+# Preparation failures preserve an existing direct installation and precede configuration.
+for scenario in metadata digest; do
+    failed=$test_root/$scenario-home
+    cp -R "$fresh" "$failed"; rm -rf "$failed/.config"; : > "$failed/calls"
+    flag=PLASTICINE_NEOVIM_BAD_METADATA=1; [ "$scenario" != digest ] || flag=PLASTICINE_NEOVIM_BAD_DIGEST=1
+    if apply_case "$failed" "$test_root/$scenario-state" env PLASTICINE_NEOVIM_TEST_VERSION=0.12.4 "$flag" >/dev/null 2>&1; then
+        printf 'preparation failure unexpectedly succeeded: %s\n' "$scenario" >&2; exit 1
+    fi
+    [ "$("$failed/.local/bin/nvim" --version)" = 'NVIM v0.12.5' ]
+    [ ! -e "$failed/.config/nvim/init.lua" ]
+done
+
+# Outdated external owners are refused without a shadow installation.
+external=$test_root/external-home; external_bin=$test_root/external-bin
+mkdir -p "$external" "$external_bin"; : > "$external/calls"
+sed 's/NVIM v0.12.4/NVIM v0.11.0/' "$test_root/build-0.12.4/nvim-linux-x86_64/bin/nvim" > "$external_bin/nvim"; chmod 755 "$external_bin/nvim"
+if PATH=$external_bin:$fixture_bin:/usr/bin:/bin PLASTICINE_NEOVIM_OS=Linux PLASTICINE_NEOVIM_ARCH=x86_64 PLASTICINE_NEOVIM_TEST_ASSETS=$fixture_assets PLASTICINE_NEOVIM_TEST_CALLS=$external/calls \
+    "$chezmoi_bin" -S "$repo_dir" -D "$external" -c "$config" --persistent-state "$test_root/external-state" apply --no-tty >/dev/null 2>&1; then
+    printf '%s\n' 'outdated external owner unexpectedly succeeded.' >&2; exit 1
+fi
+[ ! -e "$external/.local/opt/neovim" ] && [ ! -e "$external/.config/nvim/init.lua" ]
+
+# Destination appearance during download aborts no-clobber publication.
+race=$test_root/race-home; mkdir -p "$race"; : > "$race/calls"
+if apply_case "$race" "$test_root/race-state" env PLASTICINE_NEOVIM_RACE_TARGET="$race/.local/opt/neovim" >/dev/null 2>&1; then
+    printf '%s\n' 'destination race unexpectedly succeeded.' >&2; exit 1
+fi
+[ ! -e "$race/.local/bin/nvim" ] && [ ! -e "$race/.config/nvim/init.lua" ]
+
+# Local conflicts and unsupported environments/platforms stop before mutation.
+conflict=$test_root/conflict-home; mkdir -p "$conflict/.config/nvim"; printf 'set number\n' > "$conflict/.config/nvim/init.vim"
+if apply_case "$conflict" "$test_root/conflict-state" env >/dev/null 2>&1; then exit 1; fi
+unsupported=$test_root/unsupported-home; mkdir -p "$unsupported"; : > "$unsupported/calls"
+if PATH=$fixture_bin:/usr/bin:/bin PLASTICINE_NEOVIM_OS=Windows PLASTICINE_NEOVIM_ARCH=x86_64 PLASTICINE_NEOVIM_TEST_ASSETS=$fixture_assets PLASTICINE_NEOVIM_TEST_CALLS=$unsupported/calls \
+    "$chezmoi_bin" -S "$repo_dir" -D "$unsupported" -c "$config" --persistent-state "$test_root/unsupported-state" apply --no-tty >/dev/null 2>&1; then exit 1; fi
+[ ! -s "$unsupported/calls" ]
+
+# Plugin failure occurs after distribution/config publication and a retry converges.
+plugin=$test_root/plugin-home; mkdir -p "$plugin"; : > "$plugin/calls"
+if apply_case "$plugin" "$test_root/plugin-state" env PLASTICINE_NEOVIM_FAIL_HEADLESS=1 >/dev/null 2>&1; then
     printf '%s\n' 'plugin failure unexpectedly succeeded.' >&2; exit 1
 fi
-[ -f "$failure_home/.config/nvim/init.lua" ]
-mv "$fixture_bin/nvim-good" "$fixture_bin/nvim"
-PATH=$fixture_bin:$PATH PLASTICINE_NEOVIM_TEST_CALLS=$calls \
-    "$chezmoi_bin" -S "$repo_dir" -D "$failure_home" -c "$config" \
-    --persistent-state "$test_root/failure-state" apply --no-tty >/dev/null
+[ -x "$plugin/.local/bin/nvim" ] && [ -f "$plugin/.config/nvim/init.lua" ]
+apply_case "$plugin" "$test_root/plugin-state" env >/dev/null
 
 "$repo_dir/install.sh" --help > "$test_root/help"
 grep -Fq -- '--neovim' "$test_root/help"
-printf '%s\n' 'neovim entrypoint tests passed'
+printf '%s\n' 'neovim archive and entrypoint tests passed'

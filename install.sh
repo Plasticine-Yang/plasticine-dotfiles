@@ -32,7 +32,7 @@ Options:
       --replace-github-ssh-key    Allow replacement of a different existing key
       --lazygit                   Prepare Lazygit if missing and configure its alias
       --fnm                       Install or update fnm through the permitted platform route
-      --neovim                    Configure current stable Neovim and update plugins
+      --neovim                    Install/update Neovim, configure it, and update plugins
       --shell                     Configure Zsh, install missing reviewed tools, and attempt chsh last
   -h, --help                      Show this help
 EOF
@@ -343,7 +343,8 @@ if [ "$neovim_selected" -eq 1 ]; then
     }
     # shellcheck disable=SC1091
     . "$source_dir/lib/neovim-bootstrap.sh"
-    plasticine_neovim_preview "$destination_dir" || exit 1
+    plasticine_neovim_plan "$destination_dir" || exit 1
+    plasticine_neovim_preview || exit 1
 fi
 
 log 'Previewing changes...'
