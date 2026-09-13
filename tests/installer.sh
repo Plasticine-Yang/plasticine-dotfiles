@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+# Normal installer scenarios exercise the default managed Neovim location.
+# Keep developer/CI runner overrides out of this suite's shared environment.
+unset NVIM_APPNAME XDG_CONFIG_HOME
+
 repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
 if [ -n "${CHEZMOI_BIN:-}" ]; then
     chezmoi_bin=$CHEZMOI_BIN
