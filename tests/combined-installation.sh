@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+# The combined scenarios exercise the default managed Neovim location. Do not
+# inherit a developer/CI runner's alternate Neovim application or config root.
+unset NVIM_APPNAME XDG_CONFIG_HOME
+
 repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
 chezmoi_bin=${CHEZMOI_BIN:-$(command -v chezmoi)}
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-combined-test.XXXXXX")
