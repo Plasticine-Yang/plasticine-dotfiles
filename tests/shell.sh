@@ -1309,7 +1309,8 @@ grep -Fq 'Command Line Tools' "$macos_clt/stderr"
 test ! -s "$macos_clt/fake-bin/calls"
 expect_no_config "$macos_clt" 'missing CLT'
 
-# Homebrew or plugin failure preserves ownership and prevents writes.
+# Homebrew failure precedes configuration; plugin failure retains the applied
+# configuration because native synchronization now runs afterward.
 for failure in brew-fails bundle-fails; do
     macos_fail=$test_root/macos-fail-$failure
     mkdir -p "$macos_fail/home"
@@ -1327,7 +1328,11 @@ for failure in brew-fails bundle-fails; do
         fail "macOS route failure ($failure) was treated as success."
     fi
     scenario_path=''
-    expect_no_config "$macos_fail" "macOS $failure"
+    if [ "$failure" = brew-fails ]; then
+        expect_no_config "$macos_fail" "macOS $failure"
+    else
+        expect_config "$macos_fail" "macOS $failure"
+    fi
     if grep -Fq 'git clone' "$macos_fail/fake-bin/calls"; then
         fail "$failure fell back to git clone."
     fi
@@ -1390,7 +1395,8 @@ grep -Fq Git "$linux_git_unhealthy/stderr"
 test ! -s "$linux_git_unhealthy/fake-bin/calls"
 expect_no_config "$linux_git_unhealthy" 'unhealthy Git'
 
-# APT Zsh with healthy Antidote/p10k must not require Git.
+# An existing Antidote checkout still requires healthy Git for its mandatory
+# current-upstream update, even when APT would otherwise provide Zsh.
 linux_apt_no_git=$test_root/linux-apt-no-git
 mkdir -p "$linux_apt_no_git/home"
 write_bootstrap_bin "$linux_apt_no_git/fake-bin"
@@ -1398,7 +1404,7 @@ write_antidote "$linux_apt_no_git/home"
 printf '%s\n' "$linux_apt_no_git/fake-bin/zsh" > "$linux_apt_no_git/fake-bin/login"
 printf '%s\n' 'ID=debian' 'VERSION_ID=13' > "$linux_apt_no_git/os-release"
 : > "$linux_apt_no_git/fake-bin/git-unhealthy"
-if ! PLASTICINE_SHELL_OS=Linux \
+if PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_ARCH=arm64 \
     PLASTICINE_SHELL_OS_RELEASE=$linux_apt_no_git/os-release \
     PLASTICINE_SHELL_HIDE_ZSH=1 \
@@ -1407,17 +1413,12 @@ if ! PLASTICINE_SHELL_OS=Linux \
     scenario_path=$linux_apt_no_git/fake-bin \
     run_installer "$linux_apt_no_git" -y --shell \
     >"$linux_apt_no_git/stdout" 2>"$linux_apt_no_git/stderr"; then
-    cat "$linux_apt_no_git/stdout" >&2
-    cat "$linux_apt_no_git/stderr" >&2
-    fail 'APT Zsh with existing p10k failed because of unrelated Git.'
+    fail 'APT Zsh with an unhealthy Git owner unexpectedly succeeded.'
 fi
 scenario_path=''
-grep -Fq 'sudo -n apt-get install -y --no-upgrade zsh' "$linux_apt_no_git/fake-bin/calls" ||
-    fail 'APT Zsh with existing p10k did not install zsh.'
-if grep -Fq git "$linux_apt_no_git/fake-bin/calls"; then
-    fail 'APT Zsh with existing p10k still mutated Git.'
-fi
-expect_config "$linux_apt_no_git" 'APT Zsh without Git'
+grep -Fq Git "$linux_apt_no_git/stderr" || fail 'unhealthy Git failure was not reported.'
+test ! -s "$linux_apt_no_git/fake-bin/calls" || fail 'unhealthy Git failure mutated tools.'
+expect_no_config "$linux_apt_no_git" 'APT Zsh with unhealthy Git'
 
 # Unhealthy Homebrew is left untouched.
 macos_brew_unhealthy=$test_root/macos-brew-unhealthy
@@ -1483,7 +1484,7 @@ if PLASTICINE_SHELL_OS=Linux \
     fail 'Failed plugin bootstrap was treated as success.'
 fi
 scenario_path=''
-expect_no_config "$linux_p10k_retry" 'failed plugin bootstrap'
+expect_config "$linux_p10k_retry" 'failed plugin bootstrap'
 rm -f "$linux_p10k_retry/fake-bin/bundle-fails"
 : > "$linux_p10k_retry/fake-bin/calls"
 PLASTICINE_SHELL_OS=Linux \
