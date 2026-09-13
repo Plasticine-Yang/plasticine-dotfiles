@@ -39,9 +39,10 @@ jobs:
           set -euo pipefail
           if [[ "$RUNNER_OS" == Linux ]]; then
             sudo apt-get update
-            sudo apt-get install -y --no-install-recommends expect zsh
+            sudo apt-get install -y --no-install-recommends expect neovim zsh
           else
             command -v expect >/dev/null
+            brew install neovim
           fi
           case "$(uname -s)-$(uname -m)" in
             Linux-x86_64)
@@ -88,7 +89,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          command -v chezmoi shellcheck zsh expect
+          command -v chezmoi shellcheck nvim zsh expect
           chezmoi --version
           shellcheck --version
           zsh --version
@@ -131,6 +132,9 @@ jobs:
 
       - name: Run Neovim tests
         run: CHEZMOI_BIN=chezmoi ./tests/neovim.sh
+
+      - name: Run Neovim runtime tests
+        run: ./tests/neovim-runtime.sh
 
       - name: Run Herdr tests
         run: CHEZMOI_BIN=chezmoi ./tests/herdr.sh

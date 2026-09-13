@@ -278,13 +278,14 @@ CHEZMOI_BIN=/path/to/chezmoi ./tests/lazygit-runtime.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/fnm.sh
 ./tests/fnm-runtime.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/neovim.sh
-PLASTICINE_LIVE_NEOVIM_SMOKE=1 ./tests/neovim-runtime.sh
+./tests/neovim-runtime.sh
+PLASTICINE_LIVE_NEOVIM_SMOKE=1 ./tests/neovim-live.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/herdr.sh
 ./tests/shell-runtime.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/release.sh
 ```
 
-`tests/combined-installation.sh` 通过真实 `install.sh` 与 chezmoi 入口覆盖七个 Feature 的交互/非交互全选、顺序无关性、跨工具 target 更新、配置前准备、配置后原生同步、取消、dry-run、部分失败与安全重试；各 Feature 的网络、包管理器、完整发行版、owner、完整性与竞态细节仍由其专项 suite 覆盖。`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、登录 shell 切换与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/fnm.sh` 覆盖 Linux 官方脚本候选发布和 macOS Homebrew currency 路线；`tests/lazygit-runtime.sh` 与 `tests/shell-runtime.sh` 使用真实 Zsh，后者包含受控 fnm 的成功/失败激活、Owner 后续代码继续执行和单次初始化验证。`tests/neovim.sh` 使用受控 Release 与编辑器边界覆盖公开 chezmoi 入口；`tests/neovim-runtime.sh` 是单独标识、显式 opt-in 的 current-upstream smoke，会在一次性 HOME 中用真实 Neovim 和当前插件验证启动、快捷键、文件树与终端。routine 测试不依赖 live Release；Zsh runtime 套件需要本机存在 `zsh`。
+`tests/combined-installation.sh` 通过真实 `install.sh` 与 chezmoi 入口覆盖七个 Feature 的交互/非交互全选、顺序无关性、跨工具 target 更新、配置前准备、配置后原生同步、取消、dry-run、部分失败与安全重试；各 Feature 的网络、包管理器、完整发行版、owner、完整性与竞态细节仍由其专项 suite 覆盖。`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、登录 shell 切换与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/fnm.sh` 覆盖 Linux 官方脚本候选发布和 macOS Homebrew currency 路线；`tests/lazygit-runtime.sh` 与 `tests/shell-runtime.sh` 使用真实 Zsh，后者包含受控 fnm 的成功/失败激活、Owner 后续代码继续执行和单次初始化验证。`tests/neovim.sh` 使用受控 Release 与编辑器边界覆盖公开 chezmoi 入口；`tests/neovim-runtime.sh` 在一次性 HOME 中用真实 Neovim 和本地受控插件 fixture 验证启动、快捷键、文件树与终端，routine 测试不依赖 live Release；显式设置 `PLASTICINE_LIVE_NEOVIM_SMOKE=1` 后运行 `tests/neovim-live.sh`，可另行使用当前 upstream 插件执行 smoke；Zsh runtime 套件需要本机存在 `zsh`。
 
 ## 发布
 

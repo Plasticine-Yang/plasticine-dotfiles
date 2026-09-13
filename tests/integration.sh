@@ -399,7 +399,7 @@ printf '%s\n' '[data]' 'tools = ["github-ssh"]' 'githubSSHKeyPath = ""' \
 for lifecycle_template in \
     run_before_01_validate_zshrc_integrations.sh.tmpl \
     run_before_30_prepare_zshrc_integrations.sh.tmpl \
-    run_after_80_restore_zshrc_mode.sh.tmpl; do
+    run_after_83_restore_zshrc_mode.sh.tmpl; do
     "$resolved_chezmoi" -S "$repo_dir" -D "$lazygit_dry_dir/home" -c "$old_no_integration" \
         execute-template < "$repo_dir/.chezmoiscripts/$lifecycle_template" > "$lazygit_dry_dir/$lifecycle_template"
     if grep -q '[^[:space:]]' "$lazygit_dry_dir/$lifecycle_template"; then
@@ -420,7 +420,7 @@ grep -Fq "alias lg='lazygit'" "$lazygit_dry_dir/noncanonical-diff" || {
 for lifecycle_template in \
     run_before_01_validate_zshrc_integrations.sh.tmpl \
     run_before_30_prepare_zshrc_integrations.sh.tmpl \
-    run_after_80_restore_zshrc_mode.sh.tmpl; do
+    run_after_83_restore_zshrc_mode.sh.tmpl; do
     "$resolved_chezmoi" -S "$repo_dir" -D "$lazygit_dry_dir/home" -c "$noncanonical_config" \
         execute-template < "$repo_dir/.chezmoiscripts/$lifecycle_template" > "$lazygit_dry_dir/noncanonical-$lifecycle_template"
     grep -q '[^[:space:]]' "$lazygit_dry_dir/noncanonical-$lifecycle_template" || {
