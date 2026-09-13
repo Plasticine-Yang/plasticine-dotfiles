@@ -42,6 +42,46 @@ EOF
 done
 chmod +x "$protect_bin"/*
 
+version_probe=$test_root/version-probe
+cat > "$version_probe" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = --version ] || exit 99
+printf '%s\n' "$PLASTICINE_TEST_LAZYGIT_VERSION_OUTPUT"
+exit "${PLASTICINE_TEST_LAZYGIT_VERSION_STATUS:-0}"
+EOF
+chmod 755 "$version_probe"
+for version_case in official-linux official-darwin compact prefixed legacy prerelease custom duplicate invalid-and-stable git-only bare-number failed-command; do
+    expected=0.65.1
+    version_status=0
+    case $version_case in
+        official-linux) version_output='commit=17cb09fa, build date=2026-09-13T05:42:30Z, build source=binaryRelease, version=0.65.1, os=linux, arch=amd64, git version=2.39.5' ;;
+        official-darwin) version_output='commit=17cb09fa, build date=2026-09-13T05:42:30Z, build source=binaryRelease, version=0.65.1, os=darwin, arch=arm64, git version=2.50.1 (Apple Git-155)' ;;
+        compact) version_output='commit=17cb09fa,version=0.65.1,git version=2.39.5' ;;
+        prefixed) version_output='version=v0.65.1, git version=2.39.5' ;;
+        legacy) version_output='lazygit version 0.65.1' ;;
+        prerelease) version_output='version=0.65.1-rc.1, git version=2.39.5'; expected='' ;;
+        custom) version_output='version=custom-build, git version=2.39.5'; expected='' ;;
+        duplicate) version_output='version=0.65.1, version=0.65.1, git version=2.39.5'; expected='' ;;
+        invalid-and-stable) version_output='version=custom-build, version=0.65.1'; expected='' ;;
+        git-only) version_output='git version=2.39.5'; expected='' ;;
+        bare-number) version_output='unrecognized output 0.65.1'; expected='' ;;
+        failed-command) version_output='version=0.65.1'; version_status=9; expected='' ;;
+    esac
+    if actual_version=$(
+        PLASTICINE_TEST_LAZYGIT_VERSION_OUTPUT=$version_output
+        PLASTICINE_TEST_LAZYGIT_VERSION_STATUS=$version_status
+        export PLASTICINE_TEST_LAZYGIT_VERSION_OUTPUT PLASTICINE_TEST_LAZYGIT_VERSION_STATUS
+        # shellcheck disable=SC1091
+        . "$repo_dir/lib/lazygit-bootstrap.sh"
+        plasticine_lazygit_version "$version_probe"
+    ); then
+        [ -n "$expected" ] && [ "$actual_version" = "$expected" ] || fail "$version_case version was incorrectly accepted: $actual_version"
+    else
+        [ -z "$expected" ] || fail "$version_case version was rejected"
+        [ -z "$actual_version" ] || fail "$version_case emitted a version on failure"
+    fi
+done
+
 healthy_bin=$test_root/healthy-bin
 mkdir -p "$healthy_bin"
 cat > "$healthy_bin/lazygit" <<'EOF'
@@ -64,7 +104,7 @@ cat > "$release_fixture/payload/lazygit" <<'EOF'
     case $0 in */.local/bin/lazygit) rm -f "$0"; printf '%s\n' owner-replacement > "$0"; exit 96 ;; esac
 [ "${PLASTICINE_TEST_PUBLISHED_HEALTH_FAIL:-}" != 1 ] ||
     case $0 in */.local/bin/lazygit) exit 96 ;; esac
-printf '%s\n' 'lazygit version 0.65.1'
+printf '%s\n' 'commit=17cb09fa7b08bc96d9f0e81b91f4720fc1a36700, build date=2026-09-13T05:42:30Z, build source=binaryRelease, version=0.65.1, os=linux, arch=amd64, git version=2.39.5'
 EOF
 chmod 755 "$release_fixture/payload/lazygit"
 tar -czf "$release_fixture/lazygit_0.65.1_linux_x86_64.tar.gz" -C "$release_fixture/payload" lazygit
@@ -304,7 +344,7 @@ PATH=$upgrade/home/.local/bin:$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE
     PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$upgrade/calls \
     "$repo_dir/install.sh" -y --lazygit >/dev/null
 test "$old_upgrade_hash" != "$(shasum -a 256 "$upgrade/home/.local/bin/lazygit" | awk '{print $1}')" || fail 'outdated managed direct installation was not upgraded'
-test "$("$upgrade/home/.local/bin/lazygit" --version)" = 'lazygit version 0.65.1' || fail 'upgrade did not reach resolved stable target'
+cmp -s "$release_fixture/payload/lazygit" "$upgrade/home/.local/bin/lazygit" || fail 'upgrade did not publish the resolved stable target'
 
 upgrade_race=$test_root/upgrade-race; mkdir -p "$upgrade_race/home/.local/bin"; : > "$upgrade_race/calls"
 cat > "$upgrade_race/home/.local/bin/lazygit" <<'EOF'
@@ -345,7 +385,7 @@ for version_case in prerelease custom newer; do
     cat > "$version_scenario/bin/lazygit" <<EOF
 #!/bin/sh
 [ "\${1:-}" = --version ] || exit 99
-printf '%s\n' 'lazygit version $observed'
+printf '%s\n' 'build source=binaryRelease, version=$observed, os=linux, arch=amd64, git version=2.39.5'
 EOF
     chmod 755 "$version_scenario/bin/lazygit"
     if PATH=$version_scenario/bin:$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
@@ -380,7 +420,7 @@ PATH=$upgrade/home/.local/bin:$release_bin:$protect_bin:/usr/bin:/bin PLASTICINE
     PLASTICINE_CHEZMOI_DEST_DIR=$upgrade/home PLASTICINE_LAZYGIT_OS=Linux PLASTICINE_LAZYGIT_ARCH=x86_64 \
     PLASTICINE_TEST_RELEASE_FIXTURE=$next_fixture PLASTICINE_TEST_RELEASE_CALLS=$upgrade/calls \
     "$repo_dir/install.sh" -y --lazygit >/dev/null
-test "$("$upgrade/home/.local/bin/lazygit" --version)" = 'lazygit version 0.65.1' || fail 'new upstream release changed the pinned target'
+cmp -s "$release_fixture/payload/lazygit" "$upgrade/home/.local/bin/lazygit" || fail 'new upstream release changed the pinned target'
 test ! -s "$upgrade/calls" || fail 'new upstream release caused network traffic'
 
 # Planning maps every reviewed OS/architecture spelling without network or writes.

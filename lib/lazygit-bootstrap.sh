@@ -49,18 +49,23 @@ plasticine_lazygit_health() {
 
 plasticine_lazygit_version() {
     [ -x "$1" ] || return 1
-    "$1" --version 2>/dev/null | awk '
+    plasticine_lazygit_version_output=$("$1" --version 2>/dev/null) || return 1
+    printf '%s\n' "$plasticine_lazygit_version_output" | awk -F, '
         {
             for (i = 1; i <= NF; i++) {
                 value=$i
-                sub(/^version=/, "", value)
-                sub(/,$/, "", value)
+                sub(/^[[:space:]]+/, "", value)
+                sub(/[[:space:]]+$/, "", value)
+                if (value ~ /^version=/) sub(/^version=/, "", value)
+                else if (value ~ /^lazygit version[[:space:]]+/) sub(/^lazygit version[[:space:]]+/, "", value)
+                else continue
+                seen++
                 if (value ~ /^v?[0-9]+\.[0-9]+\.[0-9]+$/) {
-                    sub(/^v/, "", value); seen++; version=value
-                }
+                    sub(/^v/, "", value); version=value
+                } else invalid=1
             }
         }
-        END { if (seen == 1) print version; else exit 1 }
+        END { if (seen == 1 && !invalid) print version; else exit 1 }
     '
 }
 
