@@ -45,6 +45,7 @@ tar -czf "$test_root/plugins.tar.gz" -C "$test_root/payload" managed-plugins
 
 source_digest=$(shasum -a 256 "$test_root/source.bundle" | awk '{print $1}')
 plugins_digest=$(shasum -a 256 "$test_root/plugins.tar.gz" | awk '{print $1}')
+real_git=$(command -v git)
 asset_bin=$test_root/bin
 mkdir -p "$asset_bin"
 cat > "$asset_bin/curl" <<'EOF'
@@ -76,7 +77,7 @@ chmod +x "$asset_bin/curl" "$asset_bin/git"
 home=$test_root/home
 mkdir -p "$home"
 PATH=$asset_bin:$PATH \
-PLASTICINE_TEST_REAL_GIT=$(command -v git) \
+PLASTICINE_TEST_REAL_GIT=$real_git \
 PLASTICINE_TEST_SOURCE_ASSET=$test_root/source.bundle \
 PLASTICINE_TEST_PLUGIN_ASSET=$test_root/plugins.tar.gz \
     plasticine_release_acquire_source "$home" https://release.invalid v0.0.0 \
@@ -85,7 +86,7 @@ PLASTICINE_TEST_PLUGIN_ASSET=$test_root/plugins.tar.gz \
 [ "$(git -C "$home/source" remote get-url origin)" = https://github.com/example/source.git ]
 
 PATH=$asset_bin:$PATH \
-PLASTICINE_TEST_REAL_GIT=$(command -v git) \
+PLASTICINE_TEST_REAL_GIT=$real_git \
 PLASTICINE_TEST_SOURCE_ASSET=$test_root/source.bundle \
 PLASTICINE_TEST_PLUGIN_ASSET=$test_root/plugins.tar.gz \
     plasticine_release_acquire_plugins "$home" https://release.invalid v0.0.0 "$plugins_digest"
