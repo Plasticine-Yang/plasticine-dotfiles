@@ -25,9 +25,9 @@ tar -czf "$test_root/plugins.tar.gz" -C "$plugins_fixture" managed-plugins
     cd "$test_root"
     PLASTICINE_MANAGED_PLUGINS_ASSET=$test_root/plugins.tar.gz \
         "$repo_dir/scripts/build-release.sh" "$revision" assets v0.0.1 "$work_repo"
+    CHEZMOI_BIN=${CHEZMOI_BIN:-$(command -v chezmoi)} \
+        "$repo_dir/scripts/verify-release.sh" assets "$revision" v0.0.1
 )
-CHEZMOI_BIN=${CHEZMOI_BIN:-$(command -v chezmoi)} \
-    "$repo_dir/scripts/verify-release.sh" "$asset_dir" "$revision" v0.0.1
 
 # Exercise the generated installer's inlined bootstrap for both a missing and
 # an older managed chezmoi without relying on a live Release download.

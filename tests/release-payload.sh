@@ -76,12 +76,15 @@ chmod +x "$asset_bin/curl" "$asset_bin/git"
 
 home=$test_root/home
 mkdir -p "$home"
-PATH=$asset_bin:$PATH \
-PLASTICINE_TEST_REAL_GIT=$real_git \
-PLASTICINE_TEST_SOURCE_ASSET=$test_root/source.bundle \
-PLASTICINE_TEST_PLUGIN_ASSET=$test_root/plugins.tar.gz \
-    plasticine_release_acquire_source "$home" https://release.invalid v0.0.0 \
-        "$source_digest" "$revision" https://github.com/example/source.git "$home/source"
+(
+    cd "$home"
+    PATH=$asset_bin:$PATH \
+    PLASTICINE_TEST_REAL_GIT=$real_git \
+    PLASTICINE_TEST_SOURCE_ASSET=$test_root/source.bundle \
+    PLASTICINE_TEST_PLUGIN_ASSET=$test_root/plugins.tar.gz \
+        plasticine_release_acquire_source "$home" https://release.invalid v0.0.0 \
+            "$source_digest" "$revision" https://github.com/example/source.git "$home/source"
+)
 [ "$(git -C "$home/source" rev-parse HEAD)" = "$revision" ]
 [ "$(git -C "$home/source" remote get-url origin)" = https://github.com/example/source.git ]
 

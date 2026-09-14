@@ -51,6 +51,24 @@ plasticine_release_download() {
     fi
 }
 
+plasticine_release_verify_bundle() {
+    plasticine_release_verify_input=$1
+    plasticine_release_verify_parent=${plasticine_release_verify_input%/*}
+    [ "$plasticine_release_verify_parent" != "$plasticine_release_verify_input" ] ||
+        plasticine_release_verify_parent=.
+    plasticine_release_verify_parent=$(cd "$plasticine_release_verify_parent" && pwd -P) || return 1
+    plasticine_release_verify_bundle=$plasticine_release_verify_parent/${plasticine_release_verify_input##*/}
+    plasticine_release_verify_repo=$(mktemp -d "$plasticine_release_verify_parent/.plasticine-bundle-verify.XXXXXX") ||
+        return 1
+    if ! git init -q --bare "$plasticine_release_verify_repo" ||
+        ! git -C "$plasticine_release_verify_repo" bundle verify \
+            "$plasticine_release_verify_bundle" >/dev/null 2>&1; then
+        rm -rf "$plasticine_release_verify_repo"
+        return 1
+    fi
+    rm -rf "$plasticine_release_verify_repo"
+}
+
 plasticine_release_asset() {
     plasticine_release_asset_home=$1
     plasticine_release_asset_base=$2
@@ -108,7 +126,7 @@ plasticine_release_acquire_source() {
     plasticine_release_asset "$plasticine_release_home" "$plasticine_release_base" \
         "$plasticine_release_version" plasticine-source.bundle "$plasticine_release_source_digest" || return 1
     plasticine_release_source_bundle=$plasticine_release_asset_path
-    git bundle verify "$plasticine_release_source_bundle" >/dev/null 2>&1 || {
+    plasticine_release_verify_bundle "$plasticine_release_source_bundle" || {
         plasticine_release_error 'source Git bundle verification failed.'
         return 1
     }

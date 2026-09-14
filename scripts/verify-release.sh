@@ -26,6 +26,11 @@ if ! printf '%s\n' "$release_version" |
     exit 2
 fi
 [ -n "$chezmoi_bin" ] || chezmoi_bin=$(command -v chezmoi)
+[ -d "$asset_dir" ] || {
+    printf '%s\n' 'release asset directory is missing' >&2
+    exit 1
+}
+asset_dir=$(cd "$asset_dir" && pwd -P)
 
 if [ ! -f "$asset_dir/install.sh" ] || [ ! -x "$asset_dir/install.sh" ]; then
     printf '%s\n' 'release install.sh is missing or not executable' >&2
@@ -58,7 +63,11 @@ if grep -Fqx "readonly_repo_revision=''" "$asset_dir/install.sh"; then
     exit 1
 fi
 (cd "$asset_dir" && shasum -a 256 -c SHA256SUMS)
-git bundle verify "$asset_dir/plasticine-source.bundle" >/dev/null 2>&1
+test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-release-test.XXXXXX")
+trap 'rm -rf "$test_root"' EXIT HUP INT TERM
+git init -q --bare "$test_root/bundle-verify.git"
+git -C "$test_root/bundle-verify.git" bundle verify \
+    "$asset_dir/plasticine-source.bundle" >/dev/null 2>&1
 git bundle list-heads "$asset_dir/plasticine-source.bundle" |
     awk -v revision="$revision" '
         $1 != revision { bad=1 }
@@ -71,8 +80,6 @@ git bundle list-heads "$asset_dir/plasticine-source.bundle" |
         exit 1
     }
 
-test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-release-test.XXXXXX")
-trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 mkdir -p "$test_root/home"
 HOME=$test_root/home \
 PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
