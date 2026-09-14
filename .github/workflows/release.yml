@@ -9,6 +9,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -16,15 +17,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validate:
-    uses: ./.github/workflows/ci.yml
-
   publish:
     name: Publish ${{ inputs.version }}
-    needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
+      actions: read
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
@@ -72,6 +70,9 @@ jobs:
             exit 1
           fi
 
+      - name: Reuse successful CI for the release revision
+        run: ./scripts/require-ci-success.sh "$GITHUB_REPOSITORY" "$RELEASE_SHA"
+
       - name: Install pinned chezmoi
         shell: bash
         run: |
@@ -89,9 +90,7 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Build and verify release assets
-        run: |
-          ./scripts/build-release.sh "$RELEASE_SHA" dist "$VERSION" "$GITHUB_WORKSPACE"
-          CHEZMOI_BIN=chezmoi ./scripts/verify-release.sh dist "$RELEASE_SHA" "$VERSION"
+        run: CHEZMOI_BIN=chezmoi ./scripts/release-gate.sh "$RELEASE_SHA" dist "$VERSION" "$GITHUB_WORKSPACE"
 
       - name: Create the draft Release and upload assets
         shell: bash

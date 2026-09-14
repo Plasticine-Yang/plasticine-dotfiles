@@ -97,53 +97,62 @@ jobs:
       - name: Check the working tree
         run: git diff --check
 
+      - name: Test the timeout runner
+        run: ./scripts/run-test.sh 30 test-runner ./tests/test-runner.sh
+
+      - name: Test workflow contracts
+        run: ./scripts/run-test.sh 30 workflows ./tests/workflows.sh
+
+      - name: Test the required CI gate
+        run: ./scripts/run-test.sh 30 ci-gate ./tests/ci-gate.sh
+
       - name: Run integration tests
-        run: CHEZMOI_BIN=chezmoi ./tests/integration.sh
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 integration ./tests/integration.sh
 
       - name: Run combined installation tests
-        run: CHEZMOI_BIN=chezmoi ./tests/combined-installation.sh
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 combined-installation ./tests/combined-installation.sh
 
       - name: Run chezmoi bootstrap tests
-        run: CHEZMOI_BIN=chezmoi ./tests/chezmoi.sh
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 chezmoi ./tests/chezmoi.sh
 
       - name: Run Git configuration tests
-        run: CHEZMOI_BIN=chezmoi ./tests/git-config.sh
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 git-config ./tests/git-config.sh
 
       - name: Run installer tests
-        run: CHEZMOI_BIN=chezmoi ./tests/installer.sh
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 installer ./tests/installer.sh
 
       - name: Run shell tests
-        run: CHEZMOI_BIN=chezmoi ./tests/shell.sh
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 300 shell ./tests/shell.sh
 
       - name: Run shell runtime tests
-        run: ./tests/shell-runtime.sh
+        run: ./scripts/run-test.sh 180 shell-runtime ./tests/shell-runtime.sh
 
       - name: Run Lazygit tests
-        run: CHEZMOI_BIN=chezmoi ./tests/lazygit.sh
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 lazygit ./tests/lazygit.sh
 
       - name: Run Lazygit runtime tests
-        run: CHEZMOI_BIN=chezmoi ./tests/lazygit-runtime.sh
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 lazygit-runtime ./tests/lazygit-runtime.sh
 
       - name: Run fnm tests
-        run: CHEZMOI_BIN=chezmoi ./tests/fnm.sh
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 fnm ./tests/fnm.sh
 
       - name: Run fnm runtime tests
-        run: ./tests/fnm-runtime.sh
+        run: ./scripts/run-test.sh 180 fnm-runtime ./tests/fnm-runtime.sh
 
       - name: Run Neovim tests
-        run: CHEZMOI_BIN=chezmoi ./tests/neovim.sh
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 neovim ./tests/neovim.sh
 
       - name: Run Neovim runtime tests
-        run: ./tests/neovim-runtime.sh
+        run: ./scripts/run-test.sh 180 neovim-runtime ./tests/neovim-runtime.sh
 
       - name: Run Herdr tests
-        run: CHEZMOI_BIN=chezmoi ./tests/herdr.sh
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 herdr ./tests/herdr.sh
 
       - name: Run release pipeline tests
-        run: CHEZMOI_BIN=chezmoi ./tests/release.sh
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 release ./tests/release.sh
 
       - name: Run credential-free release payload tests
-        run: ./tests/release-payload.sh
+        run: ./scripts/run-test.sh 180 release-payload ./tests/release-payload.sh
 
   debian-shell:
     name: Debian 12 shell (${{ matrix.os }})
@@ -160,7 +169,7 @@ jobs:
       - name: Install Debian test prerequisites
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl expect git libdigest-sha-perl openssh-client sudo
+          apt-get install -y --no-install-recommends ca-certificates curl expect git libdigest-sha-perl openssh-client perl sudo
           useradd --create-home --shell /usr/bin/zsh tester
           printf '%s\n' 'tester ALL=(root) NOPASSWD: /usr/bin/apt-get update, /usr/bin/apt-get install -y --no-upgrade zsh' > /etc/sudoers.d/plasticine-test
           chmod 440 /etc/sudoers.d/plasticine-test
@@ -178,7 +187,7 @@ jobs:
 
       - name: Smoke the native Debian shell installation
         run: |
-          runuser -u tester -- sh -eu <<'EOF'
+          runuser -u tester -- /home/tester/source/scripts/run-test.sh 300 debian-shell-smoke sh -eu <<'EOF'
           export HOME=/home/tester
           cd "$HOME/source"
           git switch -c debian-shell-smoke
@@ -209,12 +218,15 @@ jobs:
           export PATH=$HOME/.local/bin:$PATH
           export CHEZMOI_BIN=$HOME/.local/bin/chezmoi
           cd "$HOME/source"
-          ./tests/shell.sh
-          ./tests/shell-runtime.sh
-          ./tests/integration.sh
-          ./tests/lazygit.sh
-          ./tests/combined-installation.sh
-          ./tests/installer.sh
-          ./tests/release.sh
-          ./tests/release-payload.sh
+          ./scripts/run-test.sh 300 shell ./tests/shell.sh
+          ./scripts/run-test.sh 180 shell-runtime ./tests/shell-runtime.sh
+          ./scripts/run-test.sh 180 integration ./tests/integration.sh
+          ./scripts/run-test.sh 180 lazygit ./tests/lazygit.sh
+          ./scripts/run-test.sh 180 combined-installation ./tests/combined-installation.sh
+          ./scripts/run-test.sh 180 installer ./tests/installer.sh
+          ./scripts/run-test.sh 180 release ./tests/release.sh
+          ./scripts/run-test.sh 180 release-payload ./tests/release-payload.sh
+          ./scripts/run-test.sh 30 test-runner ./tests/test-runner.sh
+          ./scripts/run-test.sh 30 workflows ./tests/workflows.sh
+          ./scripts/run-test.sh 30 ci-gate ./tests/ci-gate.sh
           EOF
