@@ -89,6 +89,8 @@ PLASTICINE_TEST_REAL_GIT=$(command -v git) \
 PLASTICINE_TEST_SOURCE_ASSET=$test_root/source.bundle \
 PLASTICINE_TEST_PLUGIN_ASSET=$test_root/plugins.tar.gz \
     plasticine_release_acquire_plugins "$home" https://release.invalid v0.0.0 "$plugins_digest"
+plasticine_release_plugins_path=${plasticine_release_plugins_path:-}
+[ -n "$plasticine_release_plugins_path" ]
 archive=$plasticine_release_plugins_path
 plasticine_managed_plugins_restore "$archive" "$home" neovim
 [ "$(git -C "$home/.local/share/nvim/lazy/plugin.nvim" rev-parse HEAD)" = "$plugin_revision" ]

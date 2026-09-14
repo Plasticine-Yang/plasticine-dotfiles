@@ -294,6 +294,7 @@ neovim_selected=0
 herdr_selected=0
 zsh_integration_selected=0
 shell_antidote_route=''
+plasticine_release_plugins_path=''
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"shell"/); exit } END { exit !found }' "$config_file"; then
     shell_selected=1
 fi
@@ -318,6 +319,10 @@ if [ -n "$readonly_release_version" ] && { [ "$shell_selected" -eq 1 ] || [ "$ne
     # A local installer reaches the same interface from its source checkout.
     plasticine_release_acquire_plugins "$HOME" "$release_base_url" "$readonly_release_version" \
         "$readonly_plugins_sha256" || exit 1
+    [ -n "$plasticine_release_plugins_path" ] || {
+        error 'The managed plugin Release asset path is unavailable after acquisition.'
+        exit 1
+    }
     export PLASTICINE_MANAGED_PLUGINS_ARCHIVE="$plasticine_release_plugins_path"
 else
     unset PLASTICINE_MANAGED_PLUGINS_ARCHIVE

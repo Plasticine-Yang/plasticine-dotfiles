@@ -11,6 +11,8 @@ docs/**
 .github/**
 scripts
 scripts/**
+release
+release/**
 .scratch
 .scratch/**
 skills-lock.json

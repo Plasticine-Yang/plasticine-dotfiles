@@ -609,6 +609,11 @@ plasticine_shell_prepare() {
         fi
     fi
     case $shell_antidote_route in
+        existing)
+            # A verified Release snapshot remains pinned across later applies.
+            # Its checkout is validated below but deliberately not updated.
+            :
+            ;;
         git)
             git --version >/dev/null 2>&1 || {
                 plasticine_shell_error 'Git is present but unhealthy; repair its installation owner. Left untouched.'
