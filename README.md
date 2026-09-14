@@ -16,11 +16,11 @@ chezmoi 维护和 source 获取属于安装器前置工作，会发生在 Featur
 
 选择 `neovim` 或 `shell` 时，发布版还会下载同一 Release 中固定版本的受管插件快照。首次安装从快照恢复公开插件，不执行 GitHub Git clone、fetch 或 pull，因此不要求 GitHub 用户名、Token、SSH key，也不依赖 `git-config` 或 `github-ssh`。这两个身份 Feature 仍然完全独立：没有选择就不会修改 `.gitconfig`、SSH key 或 SSH 配置。Release 资产下载本身使用匿名 HTTPS；若该网络路径不可用，安装会明确失败，不会转为凭据提示。
 
-安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 Git 配置（`git-config`）、GitHub SSH、fnm（`fnm`）、Herdr（`herdr`）、Lazygit（`lazygit`）、Neovim（`neovim`）和 Zsh 环境（`shell`）；初始选择为空，不选择某个工具表示本次不处理它。
+安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 Git 配置（`git-config`）、GitHub SSH、fnm（`fnm`）、Herdr（`herdr`）、Lazygit（`lazygit`）、Neovim（`neovim`）、Zsh 环境（`shell`）和默认登录 Shell（`login-shell`）；初始选择为空，不选择某个工具表示本次不处理它。
 
 ## 自动化调用
 
-`-y` 禁止所有交互、保留变更预览并直接应用，但不会自动选择任何工具：
+`-y` 跳过工具选择和最终确认、保留变更预览并直接应用，但不会自动选择任何工具，也不会代替 `sudo`、Homebrew 或 `chsh` 的原生凭据提示：
 
 ```sh
 sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)" -- -y
@@ -57,7 +57,17 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
   -y --lazygit
 ```
 
-`--git-config`、`--github-ssh`、`--fnm`、`--lazygit`、`--neovim` 与 `--shell` 可以任意组合，工具集合与顺序无关。工具选项必须配合 `-y`；不带 `-y` 使用工具选项会被拒绝并提示改用交互选择。
+`--git-config`、`--github-ssh`、`--herdr`、`--fnm`、`--lazygit`、`--neovim`、`--shell` 与 `--login-shell` 可以任意组合，工具集合与顺序无关。工具选项必须配合 `-y`；不带 `-y` 使用工具选项会被拒绝并提示改用交互选择。
+
+`--shell` 只配置 Zsh 环境，不再修改账户的默认登录 Shell。若要把已有 Zsh 设为默认登录 Shell，需在原生终端显式选择 `login-shell`；也可以同时选择两者，先完成环境配置再切换：
+
+```sh
+sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)" -- \
+  -y --login-shell
+
+sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)" -- \
+  -y --shell --login-shell
+```
 
 单独保持 fnm 当前，或同时选择 shell 以复用现有守卫式激活：
 
@@ -256,18 +266,20 @@ fi
 - 预览先列出所选路径、Release 快照或开发模式 Antidote/插件更新意图、网络访问、包管理器改动、可能的提权以及将要执行的 `chsh` 命令，然后才请求确认。取消确认不会恢复插件快照、查询 shell upstream 或运行 native updater：已经恢复的 chezmoi source 和已记录的工具选择会保留，但不会写入 `~/.zshrc`、`~/.zsh_plugins.txt`、`~/.p10k.zsh` 或 `~/.plasticine`，也不会调用任何安装命令或 `chsh`。
 - 上游安装脚本的行为部分不透明；失败时直接报错，不会自动改用其他路径。
 
-### 登录 shell（`chsh`）
+### 默认登录 Shell（`login-shell`）
 
+- `login-shell` 是独立、默认不选的工具；仅选择 `shell` 不查询账户登录 Shell，也不调用 `chsh`。已有 `tools = ["shell"]` 的配置不会自动启用新工具。
+- 单独选择 `login-shell` 只检查已有 Zsh 并切换账户，不安装工具、不下载插件、不修改 `.zshrc` 或其他 Shell 配置；缺失或不健康的 Zsh 会明确报错，需先安装或同时选择 `shell`。macOS 使用系统 `/bin/zsh`，Linux 使用 PATH 中的 Zsh。
 - 登录 shell 从原生账户数据库读取（不是 `$SHELL`）；Debian/Ubuntu 上 `/bin/zsh` 与 `/usr/bin/zsh` 视为同一个 Zsh。
-- 只有在工具和配置都可用之后才尝试 `chsh -s <zsh 绝对路径>`，并且需要原生终端；不会使用 `sudo chsh`，也不会修改 `/etc/shells`。
-- `chsh` 失败（密码错误、账户策略、没有终端等）会保留已经可用的工具与配置，本次安装返回失败；在原生终端里重新运行安装命令即可只重试这一步。
+- 与其他工具组合时，在所选工具准备、配置和插件同步成功后才尝试 `chsh -s <zsh 绝对路径>`；需要原生终端，系统可能要求当前账户密码，不会使用 `sudo chsh`，也不会修改 `/etc/shells`。
+- `chsh` 失败（密码错误、账户策略、没有终端等）会保留已有工具与配置，本次安装返回失败；在原生终端里仅选择 `--login-shell` 即可只重试这一步。
 - 登录 shell 已经正确时不会调用 `chsh`，此时 `$SHELL` 的值不影响判断。
 
 ### 与旧仓库的关系
 
 - `--shell` 不读取也不执行 `~/.plasticine-dotfiles` 中的任何文件。
 - 本功能不删除 `~/.plasticine-dotfiles`，也不迁移或清理任何旧运行时状态（生成的 `.zsh_plugins.zsh`、Antidote 插件克隆、缓存、快照、补全 dump、编译文件、`~/.zsh_plugins.local.txt` 等）。清理旧仓库需要单独的、显式的迁移设计。
-- 不选择 `shell` 时不会探测 Zsh 或 Antidote，也不会改动任何 shell 相关状态。
+- 不选择 `shell` 时不会探测 Antidote 或改动它的配置和插件；独立的 `login-shell` 只负责 Zsh 检查和账户登录 Shell。
 
 ## 本地验证
 
@@ -295,7 +307,7 @@ CHEZMOI_BIN=/path/to/chezmoi ./tests/release.sh
 ./tests/workflows.sh
 ```
 
-`tests/combined-installation.sh` 通过真实 `install.sh` 与 chezmoi 入口覆盖七个 Feature 的交互/非交互全选、顺序无关性、跨工具 target 更新、配置前准备、配置后原生同步、取消、dry-run、部分失败与安全重试；各 Feature 的网络、包管理器、完整发行版、owner、完整性与竞态细节仍由其专项 suite 覆盖。`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、登录 shell 切换与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/fnm.sh` 覆盖 Linux 官方脚本候选发布和 macOS Homebrew currency 路线；`tests/lazygit-runtime.sh` 与 `tests/shell-runtime.sh` 使用真实 Zsh，后者包含受控 fnm 的成功/失败激活、Owner 后续代码继续执行和单次初始化验证。`tests/neovim.sh` 使用受控 Release 与编辑器边界覆盖公开 chezmoi 入口；`tests/neovim-runtime.sh` 在一次性 HOME 中用真实 Neovim 和本地受控插件 fixture 验证启动、快捷键、文件树与终端，routine 测试不依赖 live Release；显式设置 `PLASTICINE_LIVE_NEOVIM_SMOKE=1` 后运行 `tests/neovim-live.sh`，可另行使用当前 upstream 插件执行 smoke；Zsh runtime 套件需要本机存在 `zsh`。CI 通过 `scripts/run-test.sh` 单独运行每个 suite：基础设施契约测试最长 30 秒，常规 suite 最长 180 秒，Shell 综合 suite 最长 300 秒；超时会终止整个测试进程组并直接报告 suite 名称。
+`tests/combined-installation.sh` 通过真实 `install.sh` 与 chezmoi 入口覆盖八个 Feature 的交互/非交互全选、顺序无关性、跨工具 target 更新、配置前准备、配置后原生同步、取消、dry-run、部分失败与安全重试；各 Feature 的网络、包管理器、完整发行版、owner、完整性与竞态细节仍由其专项 suite 覆盖。`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、`shell` / `login-shell` 独立选择、登录 Shell 切换、失败重试与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/fnm.sh` 覆盖 Linux 官方脚本候选发布和 macOS Homebrew currency 路线；`tests/lazygit-runtime.sh` 与 `tests/shell-runtime.sh` 使用真实 Zsh，后者包含受控 fnm 的成功/失败激活、Owner 后续代码继续执行和单次初始化验证。`tests/neovim.sh` 使用受控 Release 与编辑器边界覆盖公开 chezmoi 入口；`tests/neovim-runtime.sh` 在一次性 HOME 中用真实 Neovim 和本地受控插件 fixture 验证启动、快捷键、文件树与终端，routine 测试不依赖 live Release；显式设置 `PLASTICINE_LIVE_NEOVIM_SMOKE=1` 后运行 `tests/neovim-live.sh`，可另行使用当前 upstream 插件执行 smoke；Zsh runtime 套件需要本机存在 `zsh`。CI 通过 `scripts/run-test.sh` 单独运行每个 suite：基础设施契约测试最长 30 秒，常规 suite 最长 180 秒，Shell 综合 suite 最长 300 秒；超时会终止整个测试进程组并直接报告 suite 名称。
 
 ## 发布
 

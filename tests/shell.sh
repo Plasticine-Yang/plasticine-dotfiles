@@ -122,6 +122,14 @@ run_installer() {
     scenario_dir=$1
     shift
     installer_status=0
+    scenario_login_os=${PLASTICINE_LOGIN_SHELL_OS:-${PLASTICINE_SHELL_OS:-$(uname -s)}}
+    case $scenario_login_os in
+        Darwin) scenario_login_zsh=${PLASTICINE_SHELL_SYSTEM_ZSH:-/bin/zsh} ;;
+        Linux) scenario_login_zsh=${PLASTICINE_SHELL_ZSH:-${PLASTICINE_SHELL_APT_ZSH:-$(PATH=${scenario_path:+$scenario_path:}$protect_bin:$PATH command -v zsh)}} ;;
+    esac
+    PLASTICINE_LOGIN_SHELL_OS=$scenario_login_os \
+    PLASTICINE_LOGIN_SHELL_ZSH=${PLASTICINE_LOGIN_SHELL_ZSH-$scenario_login_zsh} \
+    PLASTICINE_LOGIN_SHELL_TTY=${PLASTICINE_LOGIN_SHELL_TTY:-${PLASTICINE_SHELL_TTY:-0}} \
     PATH=${scenario_path:+$scenario_path:}$protect_bin:$PATH \
     PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
     PLASTICINE_DOTFILES_REPO_URL=$origin_repo \
@@ -136,7 +144,8 @@ run_installer() {
         PLASTICINE_SHELL_APT_ZSH PLASTICINE_SHELL_SYSTEM_ZSH PLASTICINE_SHELL_TTY \
         PLASTICINE_SHELL_MACOS_VERSION PLASTICINE_SHELL_HOMEBREW_ARM \
         PLASTICINE_SHELL_HOMEBREW_INTEL PLASTICINE_TEST_LOGIN_SHELL \
-        PLASTICINE_TEST_BUNDLE_FAILS PLASTICINE_TEST_CALLS
+        PLASTICINE_TEST_BUNDLE_FAILS PLASTICINE_TEST_CALLS \
+        PLASTICINE_LOGIN_SHELL_OS PLASTICINE_LOGIN_SHELL_ZSH PLASTICINE_LOGIN_SHELL_TTY
     return "$installer_status"
 }
 
@@ -213,6 +222,10 @@ missing_y_dir=$test_root/missing-y
 mkdir -p "$missing_y_dir/home"
 if run_installer "$missing_y_dir" --shell </dev/null >/dev/null 2>&1; then
     fail '--shell without -y was not rejected.'
+fi
+test ! -e "$missing_y_dir/data/chezmoi"
+if run_installer "$missing_y_dir" --login-shell </dev/null >/dev/null 2>&1; then
+    fail '--login-shell without -y was not rejected.'
 fi
 test ! -e "$missing_y_dir/data/chezmoi"
 
@@ -776,12 +789,14 @@ EOF
     cat > "$fake_bin/chsh" <<EOF
 #!/bin/sh
 [ "\$1" = -s ] && [ "\$#" = 2 ] || exit 99
-for target in .plasticine/zsh/shared.zsh .zsh_plugins.txt .p10k.zsh .zshrc; do
-    [ -s "\$PLASTICINE_CHEZMOI_DEST_DIR/\$target" ] || {
-        printf 'FORBIDDEN chsh before files\\n' >> '$fake_bin/calls'
-        exit 99
-    }
-done
+if [ ! -f '$fake_bin/login-only' ]; then
+    for target in .plasticine/zsh/shared.zsh .zsh_plugins.txt .p10k.zsh .zshrc; do
+        [ -s "\$PLASTICINE_CHEZMOI_DEST_DIR/\$target" ] || {
+            printf 'FORBIDDEN chsh before files\\n' >> '$fake_bin/calls'
+            exit 99
+        }
+    done
+fi
 printf 'chsh %s\\n' "\$*" >> '$fake_bin/calls'
 [ ! -f '$fake_bin/chsh-fails' ] || exit 1
 [ ! -f '$fake_bin/chsh-lies' ] || exit 0
@@ -789,10 +804,12 @@ printf '%s\\n' "\$2" > '$fake_bin/login'
 EOF
     cat > "$fake_bin/dscl" <<EOF
 #!/bin/sh
+[ ! -f '$fake_bin/account-fails' ] || { printf 'FORBIDDEN account query\\n' >> '$fake_bin/calls'; exit 99; }
 printf 'UserShell: %s\\n' "\$(cat '$fake_bin/login')"
 EOF
     cat > "$fake_bin/getent" <<EOF
 #!/bin/sh
+[ ! -f '$fake_bin/account-fails' ] || { printf 'FORBIDDEN account query\\n' >> '$fake_bin/calls'; exit 99; }
 [ "\$1" = passwd ] || exit 99
 printf 'owner:x:%s:%s:Owner:%s:%s\\n' "\$(id -u)" "\$(id -u)" "\${HOME:-/tmp}" "\$(cat '$fake_bin/login')"
 EOF
@@ -840,6 +857,90 @@ expect_no_config() {
     test ! -e "$1/home/.zsh_plugins.txt" || fail "$2: plugins were applied."
 }
 
+# Shell configuration never reads or changes the account, even without a terminal.
+shell_only=$test_root/shell-only-account
+mkdir -p "$shell_only/home"
+write_bootstrap_bin "$shell_only/fake-bin"
+write_antidote "$shell_only/home"
+cp "$shell_only/fake-bin/zsh.fixture" "$shell_only/fake-bin/zsh"
+printf '%s\n' /bin/bash > "$shell_only/fake-bin/login"
+printf '%s\n' 'ID=debian' 'VERSION_ID=12' > "$shell_only/os-release"
+: > "$shell_only/fake-bin/account-fails"
+: > "$shell_only/fake-bin/chsh-fails"
+PLASTICINE_SHELL_OS=Linux PLASTICINE_SHELL_ARCH=arm64 \
+    PLASTICINE_SHELL_OS_RELEASE=$shell_only/os-release PLASTICINE_SHELL_TTY=0 \
+    scenario_path=$shell_only/fake-bin \
+    run_installer "$shell_only" -y --shell >"$shell_only/out" 2>"$shell_only/err"
+scenario_path=''
+expect_config "$shell_only" 'shell-only account isolation'
+test "$(cat "$shell_only/fake-bin/login")" = /bin/bash
+if grep -Eq 'FORBIDDEN|chsh ' "$shell_only/fake-bin/calls"; then
+    fail 'shell-only queried or changed the account'
+fi
+grep -Fq 'Account login shell is unchanged' "$shell_only/out"
+
+# Login-shell alone ignores even conflicting shell configuration and installs nothing.
+for login_os in Linux Darwin; do
+    login_only=$test_root/login-only-$login_os
+    mkdir -p "$login_only/home"
+    write_bootstrap_bin "$login_only/fake-bin"
+    cp "$login_only/fake-bin/zsh.fixture" "$login_only/fake-bin/zsh"
+    printf '%s\n' /bin/bash > "$login_only/fake-bin/login"
+    : > "$login_only/fake-bin/login-only"
+    printf '%s\n' 'owner zshrc' > "$login_only/owner-zshrc"
+    ln -s "$login_only/owner-zshrc" "$login_only/home/.zshrc"
+    mkfifo "$login_only/home/.p10k.zsh"
+    PLASTICINE_LOGIN_SHELL_OS=$login_os \
+        PLASTICINE_LOGIN_SHELL_ZSH=$login_only/fake-bin/zsh \
+        PLASTICINE_LOGIN_SHELL_TTY=1 scenario_path=$login_only/fake-bin \
+        run_installer "$login_only" -y --login-shell >"$login_only/out" 2>"$login_only/err"
+    scenario_path=''
+    grep -Fq 'tools = ["login-shell"]' "$login_only/config/chezmoi.toml"
+    grep -Fxq "chsh -s $login_only/fake-bin/zsh" "$login_only/fake-bin/calls"
+    test "$(wc -l < "$login_only/fake-bin/calls" | tr -d ' ')" -eq 1
+    test "$(cat "$login_only/fake-bin/login")" = "$login_only/fake-bin/zsh"
+    test -L "$login_only/home/.zshrc"
+    test -p "$login_only/home/.p10k.zsh"
+    grep -Fxq 'owner zshrc' "$login_only/owner-zshrc"
+    for untouched in .plasticine .antidote .cache .zsh_plugins.txt .gitconfig .ssh .config; do
+        test ! -e "$login_only/home/$untouched" || fail "login-shell created $untouched"
+    done
+    : > "$login_only/fake-bin/calls"
+    PLASTICINE_LOGIN_SHELL_OS=$login_os \
+        PLASTICINE_LOGIN_SHELL_ZSH=$login_only/fake-bin/zsh \
+        PLASTICINE_LOGIN_SHELL_TTY=0 SHELL=/stale/environment/shell \
+        scenario_path=$login_only/fake-bin \
+        run_installer "$login_only" -y --login-shell >"$login_only/rerun-out" 2>"$login_only/rerun-err"
+    scenario_path=''
+    test ! -s "$login_only/fake-bin/calls"
+    grep -Fq 'no chsh call' "$login_only/rerun-out"
+done
+
+for login_failure in missing unhealthy relative empty; do
+    login_bad=$test_root/login-$login_failure
+    mkdir -p "$login_bad/home"
+    write_bootstrap_bin "$login_bad/fake-bin"
+    printf '%s\n' /bin/bash > "$login_bad/fake-bin/login"
+    login_target=$login_bad/fake-bin/zsh
+    case $login_failure in
+        unhealthy)
+            cp "$login_bad/fake-bin/zsh.fixture" "$login_target"
+            : > "$login_bad/fake-bin/zsh-fails"
+            ;;
+        relative) login_target=zsh ;;
+        empty) login_target='' ;;
+    esac
+    if PLASTICINE_LOGIN_SHELL_OS=Linux PLASTICINE_LOGIN_SHELL_ZSH=$login_target \
+        PLASTICINE_LOGIN_SHELL_TTY=1 scenario_path=$login_bad/fake-bin \
+        run_installer "$login_bad" -y --login-shell >"$login_bad/out" 2>"$login_bad/err"; then
+        fail "login-shell accepted $login_failure Zsh"
+    fi
+    scenario_path=''
+    grep -Fq 'plasticine-dotfiles: login-shell:' "$login_bad/err"
+    test ! -s "$login_bad/fake-bin/calls"
+    expect_no_config "$login_bad" "$login_failure Zsh"
+done
+
 # Missing Antidote on Linux uses the official Git checkout.
 missing_antidote_linux=$test_root/missing-antidote-linux
 mkdir -p "$missing_antidote_linux/home"
@@ -882,7 +983,7 @@ if ! PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_TTY=1 \
     SHELL=/stale/environment/shell \
     scenario_path=$linux_fresh/fake-bin \
-    run_installer "$linux_fresh" -y --shell \
+    run_installer "$linux_fresh" -y --shell --login-shell \
     >"$linux_fresh/stdout" 2>"$linux_fresh/stderr"; then
     cat "$linux_fresh/stdout" >&2
     cat "$linux_fresh/stderr" >&2
@@ -900,7 +1001,7 @@ grep -Fq 'sudo apt-get update' "$linux_fresh/stdout"
 grep -Fq 'sudo apt-get install -y --no-upgrade zsh' "$linux_fresh/stdout"
 grep -Fq 'git clone --depth=1' "$linux_fresh/stdout"
 grep -Fq 'run antidote update --bundles on every selected apply' "$linux_fresh/stdout"
-grep -Fq 'LAST, after usable configuration: chsh' "$linux_fresh/stdout"
+grep -Fq 'LAST, after selected configuration: chsh' "$linux_fresh/stdout"
 grep -Fq HTTPS "$linux_fresh/stdout"
 grep -Fq privilege "$linux_fresh/stdout"
 grep -Fq opaque "$linux_fresh/stdout"
@@ -929,7 +1030,7 @@ PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_TTY=0 \
     SHELL=/stale/environment/shell \
     scenario_path=$linux_fresh/fake-bin \
-    run_installer "$linux_fresh" -y --shell \
+    run_installer "$linux_fresh" -y --shell --login-shell \
     >"$linux_fresh/rerun-stdout" 2>"$linux_fresh/rerun-stderr"
 scenario_path=''
 linux_rerun_after=$(find "$linux_fresh/home" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{ print $1 }')
@@ -958,7 +1059,7 @@ if PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_OS_RELEASE=$linux_chsh_fail/os-release \
     PLASTICINE_SHELL_TTY=1 \
     scenario_path=$linux_chsh_fail/fake-bin \
-    run_installer "$linux_chsh_fail" -y --shell \
+    run_installer "$linux_chsh_fail" -y --shell --login-shell \
     >"$linux_chsh_fail/stdout" 2>"$linux_chsh_fail/stderr"; then
     fail 'Denied chsh was treated as success.'
 fi
@@ -975,17 +1076,13 @@ PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_TTY=1 \
     PLASTICINE_TEST_CALLS=$linux_chsh_fail/fake-bin/calls \
     scenario_path=$linux_chsh_fail/fake-bin \
-    run_installer "$linux_chsh_fail" -y --shell
+    run_installer "$linux_chsh_fail" -y --login-shell
 scenario_path=''
 linux_chsh_fail_after=$(find "$linux_chsh_fail/home" -type f -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{ print $1 }')
 test "$linux_chsh_fail_before" = "$linux_chsh_fail_after"
 grep -Fxq "chsh -s $linux_chsh_fail/fake-bin/zsh" "$linux_chsh_fail/fake-bin/calls"
-grep -Fq 'git pull --ff-only' "$linux_chsh_fail/fake-bin/calls"
-grep -Fq 'bundle bundle' "$linux_chsh_fail/fake-bin/calls"
-grep -Fxq 'update --bundles' "$linux_chsh_fail/fake-bin/calls"
-if grep -Eq 'apt-get |git clone|brew install' "$linux_chsh_fail/fake-bin/calls"; then
-    fail 'chsh retry reinstalled healthy shell tools.'
-fi
+test "$(wc -l < "$linux_chsh_fail/fake-bin/calls" | tr -d ' ')" -eq 1 ||
+    fail 'login-shell retry touched shell tools or plugins.'
 
 # No-terminal chsh failure retains configuration and never fabricates input.
 linux_chsh_tty=$test_root/linux-chsh-tty
@@ -1000,7 +1097,7 @@ if PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_OS_RELEASE=$linux_chsh_tty/os-release \
     PLASTICINE_SHELL_TTY=0 \
     scenario_path=$linux_chsh_tty/fake-bin \
-    run_installer "$linux_chsh_tty" -y --shell \
+    run_installer "$linux_chsh_tty" -y --shell --login-shell \
     >"$linux_chsh_tty/stdout" 2>"$linux_chsh_tty/stderr"; then
     fail 'chsh without a terminal was treated as success.'
 fi
@@ -1025,7 +1122,7 @@ if PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_OS_RELEASE=$linux_chsh_lie/os-release \
     PLASTICINE_SHELL_TTY=1 \
     scenario_path=$linux_chsh_lie/fake-bin \
-    run_installer "$linux_chsh_lie" -y --shell \
+    run_installer "$linux_chsh_lie" -y --login-shell --shell \
     >"$linux_chsh_lie/stdout" 2>"$linux_chsh_lie/stderr"; then
     fail 'Unobserved chsh success was accepted.'
 fi
@@ -1049,7 +1146,7 @@ for failure in sudo-fails apt-fails git-fails bundle-fails; do
         PLASTICINE_SHELL_TTY=1 \
         PLASTICINE_TEST_BUNDLE_FAILS=$linux_fail/fake-bin/bundle-fails \
         scenario_path=$linux_fail/fake-bin \
-        run_installer "$linux_fail" -y --shell \
+        run_installer "$linux_fail" -y --shell --login-shell \
         >"$linux_fail/stdout" 2>"$linux_fail/stderr"; then
         fail "Route failure ($failure) was treated as success."
     fi
@@ -1159,7 +1256,7 @@ PLASTICINE_SHELL_OS=Linux \
     PLASTICINE_SHELL_ZSH=/bin/zsh \
     PLASTICINE_SHELL_TTY=1 \
     scenario_path=$linux_merged/fake-bin \
-    run_installer "$linux_merged" -y --shell \
+    run_installer "$linux_merged" -y --shell --login-shell \
     >"$linux_merged/stdout" 2>"$linux_merged/stderr"
 scenario_path=''
 grep -Fq 'no chsh call' "$linux_merged/stdout"

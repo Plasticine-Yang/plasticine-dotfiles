@@ -53,15 +53,6 @@ plasticine_shell_native() {
     esac
 }
 
-plasticine_shell_same_login() {
-    [ "$1" = "$2" ] && return 0
-    # Merged /usr on supported Linux ships both spellings of the same Zsh.
-    case $shell_os:$1:$2 in
-        Linux:/bin/zsh:/usr/bin/zsh | Linux:/usr/bin/zsh:/bin/zsh) return 0 ;;
-    esac
-    return 1
-}
-
 plasticine_shell_conventional_brew() {
     case $shell_arch in
         arm64 | aarch64) printf '%s\n' "${PLASTICINE_SHELL_HOMEBREW_ARM:-/opt/homebrew/bin/brew}" ;;
@@ -148,51 +139,6 @@ plasticine_shell_platform() {
                 ;;
         esac
     fi
-}
-
-plasticine_shell_account() {
-    case $shell_os in
-        Linux)
-            plasticine_shell_require getent || return $?
-            shell_record=$(getent passwd "$(id -u)") || {
-                plasticine_shell_error 'cannot read account login shell with getent.'
-                return 1
-            }
-            shell_login=$(printf '%s\n' "$shell_record" | awk -F: 'NF == 7 {n++; s=$7} END {if (NR == 1 && n == 1) print s; else exit 1}') || {
-                plasticine_shell_error 'invalid account login shell; inspect the native account database.'
-                return 1
-            }
-            ;;
-        Darwin)
-            plasticine_shell_require dscl || return $?
-            shell_user=$(id -un) || return 1
-            case $shell_user in
-                '' | *[!a-zA-Z0-9_.-]*)
-                    plasticine_shell_error 'unable to read a safe account name for dscl.'
-                    return 1
-                    ;;
-            esac
-            shell_record=$(dscl . -read "/Users/$shell_user" UserShell) || {
-                plasticine_shell_error 'cannot read account UserShell with dscl.'
-                return 1
-            }
-            shell_login=$(printf '%s\n' "$shell_record" | awk '$1 == "UserShell:" && NF == 2 {n++; s=$2} END {if (NR == 1 && n == 1) print s; else exit 1}') || {
-                plasticine_shell_error 'invalid account login shell; inspect the native account database.'
-                return 1
-            }
-            ;;
-        *)
-            plasticine_shell_error 'cannot read the account login shell on this platform.'
-            return 1
-            ;;
-    esac
-    case $shell_login in
-        /*) ;;
-        *)
-            plasticine_shell_error 'invalid account login shell; inspect the native account database.'
-            return 1
-            ;;
-    esac
 }
 
 plasticine_shell_antidote_command() {
@@ -408,11 +354,9 @@ plasticine_shell_plan() {
     shell_antidote_route=existing
     shell_prompt=''
     shell_prompt_route=bundle
-    shell_login=''
-    shell_transition=0
     plasticine_shell_platform || return $?
     if [ "$shell_os" = Darwin ]; then
-        # macOS login shell is the system copy; PATH/Homebrew Zsh must not shadow it.
+        # macOS uses the system copy; PATH/Homebrew Zsh must not shadow it.
         shell_zsh=$(plasticine_shell_system_zsh)
         shell_zsh_route=system
     elif [ "${PLASTICINE_SHELL_HIDE_ZSH:-}" = 1 ]; then
@@ -430,7 +374,7 @@ plasticine_shell_plan() {
     case $shell_zsh in
         /*) ;;
         *)
-            plasticine_shell_error 'Zsh needs an absolute executable path for native chsh; repair PATH and retry.'
+            plasticine_shell_error 'Zsh needs an absolute executable path; repair PATH and retry.'
             return 1
             ;;
     esac
@@ -461,10 +405,6 @@ plasticine_shell_plan() {
         }
         plasticine_shell_require apt-get sudo || return $?
     fi
-    plasticine_shell_account || return $?
-    shell_transition=1
-    plasticine_shell_same_login "$shell_login" "$shell_zsh" && shell_transition=0
-    [ "$shell_transition" -eq 0 ] || plasticine_shell_require chsh || return $?
 }
 
 plasticine_shell_preview() {
@@ -473,8 +413,7 @@ plasticine_shell_preview() {
     if plasticine_shell_uses_release_snapshot; then
         printf '%s\n' '  Managed Antidote/plugin checkouts come from the verified Plasticine Release snapshot; existing Owner checkouts are left untouched.'
     elif [ -z "$shell_apt_packages" ] && [ -z "$shell_brew_formulae" ] &&
-        [ "$shell_prompt_route" = existing ] &&
-        [ "$shell_transition" -eq 0 ]; then
+        [ "$shell_prompt_route" = existing ]; then
         printf '%s\n' '  Zsh keeps its healthy system/APT owner; selected Antidote and plugins are still checked through their native upstream routes.'
     else
         printf '%s\n' '  Existing healthy tools keep their native installation owners.'
@@ -519,13 +458,7 @@ plasticine_shell_preview() {
     fi
     printf '%s\n' '  Upstream installer effects are partly opaque; no automatic fallback.' \
         '  Other managed/optional plugins load through Antidote at Zsh startup, not during installation.'
-    if [ "$shell_transition" -eq 1 ]; then
-        printf '  LAST, after usable configuration: chsh -s "%s" (native account login shell; not SHELL).\n' "$shell_zsh"
-        printf '%s\n' '  Native terminal/password may be required; never sudo chsh or edit /etc/shells; --yes supplies no credentials.' \
-            '  Failed/no-terminal transition leaves installed tools/configuration usable and marks shell failed; rerun in a terminal.'
-    else
-        printf '%s\n' '  Account login shell already correct; no chsh call (SHELL environment ignored).'
-    fi
+    printf '%s\n' '  Account login shell is unchanged; select login-shell separately to make Zsh the default.'
 }
 
 plasticine_shell_apt_install() {
@@ -733,32 +666,6 @@ plasticine_shell_sync_plugins() {
     plasticine_shell_prompt_check || return 1
     [ "$shell_prompt_route" = existing ] || {
         plasticine_shell_error 'Antidote synchronization did not produce a usable Powerlevel10k plugin.'
-        return 1
-    }
-}
-
-plasticine_shell_transition() {
-    [ "$shell_transition" -eq 1 ] || return 0
-    case $shell_zsh in
-        /*) ;;
-        *)
-            plasticine_shell_error 'Zsh needs an absolute executable path for native chsh.'
-            return 1
-            ;;
-    esac
-    plasticine_shell_account || return 1
-    plasticine_shell_same_login "$shell_login" "$shell_zsh" && return 0
-    if ! plasticine_shell_terminal; then
-        plasticine_shell_error 'configuration is usable; chsh needs a native terminal. Rerun install.sh --shell in a terminal; --yes cannot provide credentials.'
-        return 1
-    fi
-    plasticine_shell_native chsh -s "$shell_zsh" || {
-        plasticine_shell_error 'chsh failed; installed tools and usable configuration retained. Retry in a native terminal; inspect account policy and /etc/shells manually.'
-        return 1
-    }
-    plasticine_shell_account || return 1
-    plasticine_shell_same_login "$shell_login" "$shell_zsh" || {
-        plasticine_shell_error 'chsh did not update the account login shell; configuration retained. Inspect native account policy and retry.'
         return 1
     }
 }

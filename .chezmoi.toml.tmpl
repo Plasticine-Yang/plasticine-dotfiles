@@ -2,7 +2,7 @@
 {{- fail "仅支持 macOS 和 Linux。" -}}
 {{- end -}}
 {{- $nonInteractive := eq (env "PLASTICINE_NONINTERACTIVE") "1" -}}
-{{- $allowedTools := list "git-config" "github-ssh" "herdr" "lazygit" "neovim" "shell" "fnm" -}}
+{{- $allowedTools := list "git-config" "github-ssh" "herdr" "lazygit" "neovim" "shell" "fnm" "login-shell" -}}
 {{- $neovimTargets := list "init.lua" "lua/basic.lua" "lua/keybindings.lua" "lua/colorschema.lua" "lua/plugins.lua" "lua/plugins-config/neoscroll.lua" "lua/plugins-config/nvim-tree.lua" "lua/plugins-config/surround.lua" "lua/plugins-config/toggleterm.lua" -}}
 {{- $zshIntegrations := splitList "\n" (trim (includeTemplate "zsh-integration-catalog" .)) -}}
 {{- $shellTargets := list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh" -}}

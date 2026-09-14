@@ -26,10 +26,10 @@ Interactive mode:
   install.sh
 
 Non-interactive mode:
-  install.sh -y [--git-config] [--github-ssh --github-ssh-key <path>] [--fnm] [--herdr] [--lazygit] [--neovim] [--shell]
+  install.sh -y [--git-config] [--github-ssh --github-ssh-key <path>] [--fnm] [--herdr] [--lazygit] [--neovim] [--shell] [--login-shell]
 
 Options:
-  -y, --yes                       Run without prompts and apply changes
+  -y, --yes                       Skip selection/confirmation; native credentials may still be required
       --git-config                Configure shared Git preferences and local override inclusion
       --github-ssh                Configure GitHub SSH
       --github-ssh-key <path>     Private key to copy to ~/.ssh/id_github
@@ -39,7 +39,8 @@ Options:
       --lazygit                   Prepare Lazygit if missing and configure its alias
       --fnm                       Install or update fnm through the permitted platform route
       --neovim                    Install/update Neovim, configure it, and prepare plugins
-      --shell                     Configure Zsh, install missing reviewed tools, and attempt chsh last
+      --shell                     Configure Zsh and install missing reviewed tools; leave login shell unchanged
+      --login-shell               Set existing Zsh as the account login shell (may require a password)
   -h, --help                      Show this help
 EOF
 }
@@ -51,6 +52,7 @@ github_ssh_key=''
 github_ssh_test=0
 replace_github_ssh_key=0
 shell=0
+login_shell=0
 lazygit=0
 fnm=0
 neovim=0
@@ -70,6 +72,7 @@ while [ "$#" -gt 0 ]; do
         --github-ssh-test) github_ssh_test=1 ;;
         --replace-github-ssh-key) replace_github_ssh_key=1 ;;
         --shell) shell=1 ;;
+        --login-shell) login_shell=1 ;;
         --herdr) herdr=1 ;;
         --lazygit) lazygit=1 ;;
         --fnm) fnm=1 ;;
@@ -110,7 +113,8 @@ if [ "$yes" -eq 0 ]; then
     if [ "$github_ssh" -eq 1 ] || [ -n "$github_ssh_key" ] ||
        [ "$github_ssh_test" -eq 1 ] || [ "$replace_github_ssh_key" -eq 1 ] ||
        [ "$shell" -eq 1 ] || [ "$lazygit" -eq 1 ] || [ "$fnm" -eq 1 ] ||
-       [ "$neovim" -eq 1 ] || [ "$herdr" -eq 1 ] || [ "$git_config" -eq 1 ]; then
+       [ "$neovim" -eq 1 ] || [ "$herdr" -eq 1 ] || [ "$git_config" -eq 1 ] ||
+       [ "$login_shell" -eq 1 ]; then
         error 'Tool options require -y; run without options for interactive selection.'
         exit 2
     fi
@@ -237,6 +241,9 @@ if [ "$yes" -eq 1 ]; then
     if [ "$shell" -eq 1 ]; then
         tools="${tools:+$tools }shell"
     fi
+    if [ "$login_shell" -eq 1 ]; then
+        tools="${tools:+$tools }login-shell"
+    fi
     if [ "$lazygit" -eq 1 ]; then
         tools="${tools:+$tools }lazygit"
     fi
@@ -288,12 +295,14 @@ chmod 600 "$config_file"
 set -- -S "$source_dir" -D "$destination_dir" -c "$config_file" --persistent-state "$state_file"
 
 shell_selected=0
+login_shell_selected=0
 lazygit_selected=0
 fnm_selected=0
 neovim_selected=0
 herdr_selected=0
 zsh_integration_selected=0
 shell_antidote_route=''
+shell_zsh=''
 plasticine_release_plugins_path=''
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"shell"/); exit } END { exit !found }' "$config_file"; then
     shell_selected=1
@@ -309,6 +318,9 @@ if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"neovim"/); exit } END { exit !
 fi
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"herdr"/); exit } END { exit !found }' "$config_file"; then
     herdr_selected=1
+fi
+if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"login-shell"/); exit } END { exit !found }' "$config_file"; then
+    login_shell_selected=1
 fi
 if [ "$shell_selected" -eq 1 ] || [ "$lazygit_selected" -eq 1 ]; then
     zsh_integration_selected=1
@@ -404,6 +416,21 @@ if [ "$neovim_selected" -eq 1 ]; then
     . "$source_dir/lib/neovim-bootstrap.sh"
     plasticine_neovim_plan "$destination_dir" || exit 1
     plasticine_neovim_preview || exit 1
+fi
+
+if [ "$login_shell_selected" -eq 1 ]; then
+    [ -f "$source_dir/lib/login-shell-bootstrap.sh" ] || {
+        error 'The source repository does not contain lib/login-shell-bootstrap.sh.'
+        exit 1
+    }
+    # shellcheck disable=SC1091
+    . "$source_dir/lib/login-shell-bootstrap.sh"
+    if [ "$shell_selected" -eq 1 ]; then
+        plasticine_login_shell_plan "$shell_zsh" || exit 1
+    else
+        plasticine_login_shell_plan || exit 1
+    fi
+    plasticine_login_shell_preview
 fi
 
 log 'Previewing changes...'

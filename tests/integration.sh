@@ -524,15 +524,16 @@ githubSSHTest = false
 EOF
 cat > "$lint_dir/all-chezmoi.toml" <<EOF
 [data]
-tools = ["git-config","github-ssh","lazygit","shell"]
+tools = ["git-config","github-ssh","lazygit","login-shell","shell"]
 githubSSHKeyPath = "$combined_key"
 githubSSHKeyFingerprint = "$combined_fingerprint"
 githubSSHReplaceFingerprint = ""
 githubSSHTest = false
 EOF
+printf '%s\n' '[data]' 'tools = ["login-shell"]' > "$lint_dir/login-shell-chezmoi.toml"
 for source_script in "$repo_dir"/.chezmoiscripts/*.tmpl; do
     rendered_script=$lint_dir/$(basename "${source_script%.tmpl}")
-    for config_file in "$lint_dir/chezmoi.toml" "$lint_dir/shell-chezmoi.toml" "$lint_dir/all-chezmoi.toml"; do
+    for config_file in "$lint_dir/chezmoi.toml" "$lint_dir/shell-chezmoi.toml" "$lint_dir/all-chezmoi.toml" "$lint_dir/login-shell-chezmoi.toml"; do
         "$chezmoi_bin" \
             -S "$repo_dir" \
             -D "$lint_dir/home" \
@@ -571,6 +572,7 @@ fi
 /bin/sh -n "$repo_dir/private_dot_ssh/modify_private_config"
 /bin/sh -n "$repo_dir/install.sh"
 /bin/sh -n "$repo_dir/lib/shell-bootstrap.sh"
+/bin/sh -n "$repo_dir/lib/login-shell-bootstrap.sh"
 /bin/sh -n "$repo_dir/lib/lazygit-bootstrap.sh"
 /bin/sh -n "$repo_dir/lib/neovim-bootstrap.sh"
 # The shared composer has selection-dependent template branches; rendered
@@ -585,6 +587,7 @@ if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "$repo_dir/private_dot_ssh/modify_private_config"
     shellcheck "$repo_dir/install.sh"
     shellcheck "$repo_dir/lib/shell-bootstrap.sh"
+    shellcheck "$repo_dir/lib/login-shell-bootstrap.sh"
     shellcheck "$repo_dir/lib/lazygit-bootstrap.sh"
     shellcheck "$repo_dir/lib/neovim-bootstrap.sh"
     shellcheck "$repo_dir"/scripts/*.sh
