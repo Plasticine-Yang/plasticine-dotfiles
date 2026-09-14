@@ -1,0 +1,16 @@
+neovim	.local/share/nvim/lazy/lazy.nvim	https://github.com/folke/lazy.nvim.git	85c7ff3711b730b4030d03144f6db6375044ae82	lua/lazy/init.lua
+neovim	.local/share/nvim/lazy/tokyonight.nvim	https://github.com/folke/tokyonight.nvim.git	cdc07ac78467a233fd62c493de29a17e0cf2b2b6	lua/tokyonight/init.lua
+neovim	.local/share/nvim/lazy/neoscroll.nvim	https://github.com/karb94/neoscroll.nvim.git	c8d29979cb0cb3a2437a8e0ae683fd82f340d3b8	lua/neoscroll/init.lua
+neovim	.local/share/nvim/lazy/nvim-surround	https://github.com/kylechui/nvim-surround.git	8b47db616ef658b8fc27e61db2896aa2f40134de	lua/nvim-surround/init.lua
+neovim	.local/share/nvim/lazy/nvim-autopairs	https://github.com/windwp/nvim-autopairs.git	430522f95fe4fb7c511ec64f8c1a90cc6a66c05c	lua/nvim-autopairs.lua
+neovim	.local/share/nvim/lazy/hop.nvim	https://github.com/smoka7/hop.nvim.git	6e83486f351066e38c3ae9daad2a4f01dfb262ad	lua/hop/init.lua
+neovim	.local/share/nvim/lazy/nvim-tree.lua	https://github.com/nvim-tree/nvim-tree.lua.git	882c54f2815bf6d02663d482c2cf9dbadf4e9b07	lua/nvim-tree.lua
+neovim	.local/share/nvim/lazy/nvim-web-devicons	https://github.com/nvim-tree/nvim-web-devicons.git	5f032a85be210cd1c6ac98861eb3b187ff3bd5eb	lua/nvim-web-devicons.lua
+neovim	.local/share/nvim/lazy/toggleterm.nvim	https://github.com/akinsho/toggleterm.nvim.git	9a88eae817ef395952e08650b3283726786fb5fb	lua/toggleterm.lua
+shell-linux	.antidote	https://github.com/mattmc3/antidote.git	db19ea3aa9ad83dbe6ac465ecce0a0afc5a752a5	antidote.zsh
+shell	.cache/antidote/github.com/zsh-users/zsh-completions	https://github.com/zsh-users/zsh-completions.git	de02bb84ab0af51e328c6ae85ab5555397c31277	zsh-completions.plugin.zsh
+shell	.cache/antidote/github.com/jeffreytse/zsh-vi-mode	https://github.com/jeffreytse/zsh-vi-mode.git	91cafe4a09b6670cb8e761aa413e5f7b9e00816f	zsh-vi-mode.plugin.zsh
+shell	.cache/antidote/github.com/zsh-users/zsh-syntax-highlighting	https://github.com/zsh-users/zsh-syntax-highlighting.git	2fc57d63067c18b1100ecdbf684fa5baf49459d1	zsh-syntax-highlighting.zsh
+shell	.cache/antidote/github.com/zsh-users/zsh-history-substring-search	https://github.com/zsh-users/zsh-history-substring-search.git	14c8d2e0ffaee98f2df9850b19944f32546fdea5	zsh-history-substring-search.zsh
+shell	.cache/antidote/github.com/zsh-users/zsh-autosuggestions	https://github.com/zsh-users/zsh-autosuggestions.git	85919cd1ffa7d2d5412f6d3fe437ebdbeeec4fc5	zsh-autosuggestions.zsh
+shell	.cache/antidote/github.com/romkatv/powerlevel10k	https://github.com/romkatv/powerlevel10k.git	d05a1b00f9a61f9578bf9dc19b8451942dde8734	powerlevel10k.zsh-theme

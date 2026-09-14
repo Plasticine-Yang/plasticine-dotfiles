@@ -17,9 +17,14 @@ origin_repo=$test_root/origin.git
 git clone -q --bare "$work_repo" "$origin_repo"
 
 asset_dir=$test_root/assets
-"$repo_dir/scripts/build-release.sh" "$revision" "$asset_dir"
+plugins_fixture=$test_root/plugins-fixture
+mkdir -p "$plugins_fixture/managed-plugins"
+printf '%s\n' fixture > "$plugins_fixture/managed-plugins/manifest.tsv"
+tar -czf "$test_root/plugins.tar.gz" -C "$plugins_fixture" managed-plugins
+PLASTICINE_MANAGED_PLUGINS_ASSET=$test_root/plugins.tar.gz \
+    "$repo_dir/scripts/build-release.sh" "$revision" "$asset_dir" v0.0.1 "$work_repo"
 CHEZMOI_BIN=${CHEZMOI_BIN:-$(command -v chezmoi)} \
-    "$repo_dir/scripts/verify-release.sh" "$asset_dir" "$revision" "$origin_repo"
+    "$repo_dir/scripts/verify-release.sh" "$asset_dir" "$revision" v0.0.1
 
 # Exercise the generated installer's inlined bootstrap for both a missing and
 # an older managed chezmoi without relying on a live Release download.
@@ -79,7 +84,8 @@ run_generated_bootstrap() {
     HOME=$generated/home PATH=$release_fixture_bin:/usr/bin:/bin \
     PLASTICINE_TEST_RELEASE_FIXTURE=$release_fixture PLASTICINE_TEST_RELEASE_CALLS=$generated/calls \
     PLASTICINE_CHEZMOI_OS=Linux PLASTICINE_CHEZMOI_ARCH=x86_64 PLASTICINE_CHEZMOI_LIBC=glibc \
-    PLASTICINE_DOTFILES_REPO_URL=$origin_repo PLASTICINE_CHEZMOI_SOURCE_DIR=$generated/source \
+    PLASTICINE_CHEZMOI_SOURCE_DIR=$generated/source \
+    PLASTICINE_RELEASE_ASSET_DIR=$asset_dir \
     PLASTICINE_CHEZMOI_CONFIG_FILE=$generated/config/chezmoi.toml \
     PLASTICINE_CHEZMOI_STATE_FILE=$generated/config/chezmoistate.boltdb \
     PLASTICINE_CHEZMOI_DEST_DIR=$generated/home "$asset_dir/install.sh" -y >/dev/null
@@ -104,7 +110,7 @@ mkdir -p "$upgrade_dir/home"
 run_release_installer() {
     HOME=$upgrade_dir/home \
     PLASTICINE_CHEZMOI_BIN=${CHEZMOI_BIN:-$(command -v chezmoi)} \
-    PLASTICINE_DOTFILES_REPO_URL=$origin_repo \
+    PLASTICINE_RELEASE_ASSET_DIR=$1 \
     PLASTICINE_CHEZMOI_SOURCE_DIR=$upgrade_dir/source \
     PLASTICINE_CHEZMOI_CONFIG_FILE=$upgrade_dir/config/chezmoi.toml \
     PLASTICINE_CHEZMOI_STATE_FILE=$upgrade_dir/config/chezmoistate.boltdb \
@@ -147,19 +153,24 @@ git -C "$work_repo" push -q "$origin_repo" HEAD:main
 later_revision=$(git -C "$work_repo" rev-parse HEAD)
 [ "$later_revision" != "$revision" ]
 CHEZMOI_BIN=${CHEZMOI_BIN:-$(command -v chezmoi)} \
-    "$repo_dir/scripts/verify-release.sh" "$asset_dir" "$revision" "$origin_repo"
+    "$repo_dir/scripts/verify-release.sh" "$asset_dir" "$revision" v0.0.1
 next_asset_dir=$test_root/next-assets
-"$repo_dir/scripts/build-release.sh" "$later_revision" "$next_asset_dir"
+PLASTICINE_MANAGED_PLUGINS_ASSET=$test_root/plugins.tar.gz \
+    "$repo_dir/scripts/build-release.sh" "$later_revision" "$next_asset_dir" v0.0.2 "$work_repo"
 run_release_installer "$next_asset_dir"
 [ "$(git -C "$upgrade_dir/source" rev-parse HEAD)" = "$later_revision" ]
 [ "$(git -C "$upgrade_dir/source" symbolic-ref -q HEAD || true)" = '' ]
 
-if "$repo_dir/scripts/build-release.sh" short "$test_root/invalid" >/dev/null 2>&1; then
+if "$repo_dir/scripts/build-release.sh" short "$test_root/invalid" v0.0.1 "$work_repo" >/dev/null 2>&1; then
     printf '%s\n' 'release builder accepted a short revision' >&2
     exit 1
 fi
-if "$repo_dir/scripts/build-release.sh" "$revision" "$asset_dir" >/dev/null 2>&1; then
+if "$repo_dir/scripts/build-release.sh" "$revision" "$asset_dir" v0.0.1 "$work_repo" >/dev/null 2>&1; then
     printf '%s\n' 'release builder overwrote an existing output directory' >&2
+    exit 1
+fi
+if "$repo_dir/scripts/build-release.sh" "$revision" "$test_root/invalid-version" v01.0.1 "$work_repo" >/dev/null 2>&1; then
+    printf '%s\n' 'release builder accepted a non-canonical version' >&2
     exit 1
 fi
 

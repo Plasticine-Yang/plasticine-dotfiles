@@ -10,9 +10,11 @@
 sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)"
 ```
 
-安装器支持 macOS 和 Linux。chezmoi 的固定支持基线为 `2.72.1`：缺失或较旧的受管 direct install 会从精确的官方版本化归档安装/升级，并按随该版本审查入库的 SHA-256 验证；健康的同版本或更新 stable 版本直接复用，不查询 Release API、不下载归档，也不会降级。然后安装器使用 chezmoi 的默认 source、config 和 state 路径。Linux x86_64 会按 glibc/musl 选择该 Release 提供的对应资产；没有已审查资产的组合会停止。
+安装器支持 macOS 和 Linux。chezmoi 的固定支持基线为 `2.72.1`：缺失或较旧的受管 direct install 会从精确的官方版本化归档安装/升级，并按随该版本审查入库的 SHA-256 验证；健康的同版本或更新 stable 版本直接复用，不查询 Release API、不下载归档，也不会降级。发布版安装器随后从同一 Plasticine Release 下载经过 SHA-256 固定的 source Git bundle，在 chezmoi 默认 source、config 和 state 路径恢复该版本；它不会通过 Git smart-HTTP clone source。Linux x86_64 会按 glibc/musl 选择该 Release 提供的对应资产；没有已审查资产的组合会停止。
 
 chezmoi 维护和 source 获取属于安装器前置工作，会发生在 Feature 确认之前；之后取消 Feature 应用不会撤销已经完成的前置更新。外部安装归属的合格版本可以直接使用，但低于基线的版本必须由原归属更新，安装器不会覆盖它或另装一个遮蔽副本。下载、SHA-256、候选健康或发布失败都会停止安装并尽量保留原有可用命令。`PLASTICINE_CHEZMOI_BIN` 仍是测试/显式 executable override：安装器验证所需接口，但不接管、更新或联网检查这个显式路径。
+
+选择 `neovim` 或 `shell` 时，发布版还会下载同一 Release 中固定版本的受管插件快照。首次安装从快照恢复公开插件，不执行 GitHub Git clone、fetch 或 pull，因此不要求 GitHub 用户名、Token、SSH key，也不依赖 `git-config` 或 `github-ssh`。这两个身份 Feature 仍然完全独立：没有选择就不会修改 `.gitconfig`、SSH key 或 SSH 配置。Release 资产下载本身使用匿名 HTTPS；若该网络路径不可用，安装会明确失败，不会转为凭据提示。
 
 安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 Git 配置（`git-config`）、GitHub SSH、fnm（`fnm`）、Herdr（`herdr`）、Lazygit（`lazygit`）、Neovim（`neovim`）和 Zsh 环境（`shell`）；初始选择为空，不选择某个工具表示本次不处理它。
 
@@ -69,7 +71,7 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
 
 `--fnm` 不隐式选择 `shell`；所有 Feature 可以任意组合且选项顺序无关。
 
-单独安装或更新当前稳定 Neovim、迁移配置并更新插件：
+单独安装或更新当前稳定 Neovim、迁移配置并恢复该 Plasticine Release 的插件快照：
 
 ```sh
 sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)" -- \
@@ -100,6 +102,8 @@ chezmoi update
 ```
 
 重新选择工具或更换私钥时，再运行一行安装命令或本地 `install.sh`。不选择某个工具表示本次不处理它，不会自动卸载工具或删除已有配置。
+
+一行 Release 安装固定到发布时验证过的 source 与插件版本，后续直接运行 `chezmoi apply` 也会识别持久 snapshot 标记并继续做离线运行时验证。`chezmoi update` 以及插件管理器的原生更新命令属于安装后的显式 moving-upstream 操作，可能按本机 Git/网络策略访问 GitHub。它们不再是新机器完成 Release 安装的前提。
 
 如果默认的 `~/.local/share/chezmoi` 已属于其他仓库，或者当前 source 有未提交修改，安装器会停止，不会覆盖或清理它。
 
@@ -166,7 +170,7 @@ Linux 完整下载 `https://fnm.vercel.app/install` 后才执行，传入 `--ski
 
 Neovim 编辑器发行版的固定支持基线为 `0.12.5`。缺失或较旧的受管 direct install 才下载 macOS/Linux、`x86_64`/`arm64` 对应的精确官方版本化 `tar.gz`，把完整发行版发布到 `~/.local/opt/neovim`，并以 `~/.local/bin/nvim` 链接提供命令。健康的同版本或更新 stable 版本直接复用，不查询 Release API、不下载编辑器归档，也不会降级。该路线不会调用 Homebrew、APT、Cargo、AppImage、`sudo` 或第三方安装器；缺少 `curl`、`tar` 或 SHA-256 工具会给出指引并停止。只选择 Neovim 不会编辑 shell 启动文件，因此 Owner 仍需确保 `~/.local/bin` 在 `PATH`。
 
-四个官方资产的 SHA-256 随 `0.12.5` 一并审查入库；Plasticine 在安全检查 archive 成员后验证 digest、完整 runtime 布局、候选版本以及候选能否加载自身 runtime，再发布整个目录。该 digest 与 archive 都处于 GitHub Release 的同一信任边界，并不是独立签名。fresh 发布保持 no-clobber；由上述路径管理的旧稳定版本在候选验证后重验活动目标，再替换完整发行版。合格版本不重复下载或替换 distribution，但仍执行插件同步。
+四个官方资产的 SHA-256 随 `0.12.5` 一并审查入库；Plasticine 在安全检查 archive 成员后验证 digest、完整 runtime 布局、候选版本以及候选能否加载自身 runtime，再发布整个目录。该 digest 与 archive 都处于 GitHub Release 的同一信任边界，并不是独立签名。fresh 发布保持 no-clobber；由上述路径管理的旧稳定版本在候选验证后重验活动目标，再替换完整发行版。合格版本不重复下载或替换 distribution，但仍验证插件运行时。
 
 位于其他路径且达到基线的稳定编辑器可以继续使用且不会被修改。其他 owner 的旧版本以及不健康/无法比较/预发布/自定义版本会被拒绝；安装器不会调用其包管理器、降级、切换 channel 或另装遮蔽副本。下载、digest、解包、候选 runtime 或发布失败发生在配置写入前，并保留旧 installation；若完整 distribution 已发布而命令链接或最终健康检查失败，诊断会明确保留状态，Owner 修复冲突后可重跑。
 
@@ -184,9 +188,9 @@ Plasticine 只整体管理以下九个文件：
 
 变更文件在写入前备份到 `~/.plasticine/backups/neovim/`，原 mode 在 apply 后恢复；内容相同不会重复写入或备份。其他配置文件与 `lazy-lock.json` 不会被 Plasticine 接管。`init.vim`、符号链接/非普通目标、`NVIM_APPNAME` 或非默认 `XDG_CONFIG_HOME` 会被明确拒绝，避免修改一个不会被目标编辑器使用的配置树。
 
-配置保留 legacy 的编辑偏好、Tokyo Night、平滑滚动、surround、自动配对、Hop、nvim-tree 和浮动/水平/垂直终端快捷键，但移除了 plugin tag/commit pin，并适配当前插件接口。lazy.nvim 从其 moving `stable` 分支 bootstrap；每次 apply 都显式执行 `Lazy! sync`，在相同的隔离 HOME/native XDG data、cache 和 state 路径中完成插件安装与更新，然后验证配置启动、文件树命令和终端函数。`lazy-lock.json`、checkout、cache 和 state 始终是 lazy.nvim/Neovim 的原生状态。
+配置保留 legacy 的编辑偏好、Tokyo Night、平滑滚动、surround、自动配对、Hop、nvim-tree 和浮动/水平/垂直终端快捷键，并适配快照中审查过的插件接口。发布版在配置应用前从 Release 快照恢复 lazy.nvim 与全部声明插件，应用后直接验证配置启动、文件树命令和终端函数，不运行 `Lazy! sync`。快照 checkout 保留官方 `origin`，并带有 Plasticine snapshot 标记；后续新版 Plasticine Release 可以安全推进这些快照。已存在且由 lazy.nvim/Owner 管理的 checkout 不会被接管或替换。
 
-插件同步发生在九文件配置应用之后。同步或运行时检查失败时命令返回非零，已经生成的配置备份、已应用配置和 lazy.nvim 已完成的原生效果会保留；修复网络、插件或运行时错误后重跑即可，不会伪装成全事务回滚。
+从本地 checkout 运行开发安装时仍使用 lazy.nvim 的原生 moving-upstream 流程，并显式执行 `Lazy! sync`；Git 终端提示会被禁用，任何插件错误都会使安装返回非零。`lazy-lock.json`、Owner checkout、cache 和 state 始终是 lazy.nvim/Neovim 的原生状态。快照恢复、原生同步或运行时检查失败时，已经生成的配置备份、已应用配置和已完成的原生效果会保留；修复报告的问题后重跑即可，不会伪装成全事务回滚。
 
 ## Herdr（`--herdr`）
 
@@ -198,7 +202,7 @@ Plasticine 只整体管理以下九个文件：
 
 ## Zsh 环境（`--shell`）
 
-`--shell` 准备一套可用且保持当前的 Zsh 体验：Zsh 本体保留系统/APT 例外；每次 apply 都通过 Antidote 的原生机制更新 Antidote、Powerlevel10k 和声明的插件，最后才尝试切换登录 shell。
+`--shell` 准备一套可用的 Zsh 体验：Zsh 本体保留系统/APT 例外；发布版从固定的 Release 快照恢复 Antidote（Linux）、Powerlevel10k 和声明的插件，不在安装过程中对这些公开仓库执行 Git 更新，最后才尝试切换登录 shell。
 
 Shell 原生安装路线支持 macOS 14+、Debian 12+、Ubuntu 24.04+ 的 x86_64/arm64；Debian 12 与 13、Ubuntu 24.04 是明确支持的 Linux 基线，更新版本采用 best-effort。其他 Linux 发行版仅在已有依赖满足时尝试配置，不提供 APT 或 Linux Homebrew 回退。低于版本下限时，即使已有 Zsh 也会拒绝本次 Shell 选择；可重新运行并取消选择 `shell`，其他工具仍按各自的支持条件检查。此限制不是所有工具共享的最低系统要求。
 
@@ -238,9 +242,9 @@ fi
 ### 工具归属
 
 - macOS 使用系统 Zsh；Debian/Ubuntu 使用已有的健康 Zsh，缺失时通过审查过的 APT 路径安装 `zsh`。
-- macOS 的 Antidote 由 Homebrew 管理：每次选择 shell 时先刷新 metadata，只安装或升级 `antidote` formula，绝不执行 broad upgrade。Debian/Ubuntu 使用官方 Git checkout（`~/.antidote`），每次以 `git pull --ff-only` 跟随其当前 upstream；存在本地改动、未知 remote 或非 Git owner 时停止并要求 Owner 处理，不会 reset、接管或切换路线。
-- Powerlevel10k 与其余受管/Owner 可选插件都通过 Antidote 的原生 `bundle` 和 `update --bundles` 操作同步到各自移动 upstream；Antidote 本体只由上一条所述的 Git checkout/Homebrew owner 更新，插件同步不会再次自更新它或要求 GitHub 账号。仓库不固定 tag/commit，也不复制或接管 checkout。同步使用受管声明文件但不 source Owner 的 `~/.zshrc`。
-- 已存在但不健康的 Zsh、Antidote、Git、Homebrew 或 Powerlevel10k 会被原样保留并以可操作的错误结束，不会更换安装归属，也没有自动回退路径。metadata 查询、Antidote 更新、任一插件同步或最终运行时检查失败同样返回失败；已完成的配置和 native state 会保留，修复具体 upstream/checkout 后重跑即可继续。
+- macOS 的 Antidote 由 Homebrew 管理：每次选择 shell 时先刷新 metadata，只安装或升级 `antidote` formula，绝不执行 broad upgrade。Debian/Ubuntu 的首次发布版安装从固定快照恢复官方 Git checkout（`~/.antidote`）；后续 Plasticine Release 可以推进带 snapshot 标记的旧快照。已存在的 Owner checkout 不会被 reset、接管或替换。
+- 发布版从同一固定快照恢复 Powerlevel10k 与受管插件，随后仅用 Antidote 重新生成 bundle，不运行 `update --bundles`。从本地 checkout 运行开发安装时仍使用原生 moving-upstream 路线：Linux Antidote 执行 `git pull --ff-only`，插件执行 `antidote update --bundles`。这些 Git 操作禁用终端凭据提示，并在失败时返回非零。同步使用受管声明文件但不 source Owner 的 `~/.zshrc`。
+- 已存在但不健康的 Zsh、Antidote、Git、Homebrew 或 Powerlevel10k 会被原样保留并以可操作的错误结束，不会更换安装归属，也没有自动回退路径。metadata 查询、快照恢复、开发模式原生更新、bundle 生成或最终运行时检查失败同样返回失败；已完成的配置和 native state 会保留，修复报告的问题后重跑即可继续。
 - Antidote 自己拥有它的 checkout、生成的 bundle、插件克隆、缓存、快照、补全 dump 和编译文件；`~/.zsh_plugins.local.txt` 也属于 Owner。Plasticine 既不管理、也不备份或删除这些运行时状态。
 - `fnm` 只做守卫式激活：已经安装时执行 `fnm env --shell zsh`；命令失败时不会执行它的输出，只会以交互式警告提示，也不会安装、升级或迁移 fnm 及其状态。未安装 fnm 时保持静默。macOS 上若 fnm 只存在于 Homebrew 前缀中，仅在这种情况下把该前缀的可执行目录加入 `PATH`，不移动任何文件。Zellij 别名仍属于未来迁移。
 
@@ -249,7 +253,7 @@ fi
 - Debian/Ubuntu：`sudo apt-get update` 与 `sudo apt-get install -y --no-upgrade <packages>`；只有这两个子命令使用 `sudo`。没有可用终端时改用 `sudo -n`，需要凭据时会失败并提示在原生终端重试。
 - macOS：缺少 Homebrew 时先预览，再用官方安装脚本引导 Homebrew；这一步需要原生终端，而且 Homebrew 自身可能要求管理员凭据或 Apple Command Line Tools。Plasticine 不会用 `sudo bash` 执行它。
 - `--yes` 只跳过 Plasticine 自己的最终确认，不会代替 Homebrew、`sudo` 或 `chsh` 的原生提示；无法提供凭据时安装以错误结束，而不是伪造输入。
-- 预览先列出所选路径、Antidote/插件更新意图、网络访问、包管理器改动、可能的提权以及将要执行的 `chsh` 命令，然后才请求确认。取消确认不会查询最新 shell upstream 或运行 native updater：已克隆的 chezmoi source 和已记录的工具选择会保留，但不会写入 `~/.zshrc`、`~/.zsh_plugins.txt`、`~/.p10k.zsh` 或 `~/.plasticine`，也不会调用任何安装命令或 `chsh`。
+- 预览先列出所选路径、Release 快照或开发模式 Antidote/插件更新意图、网络访问、包管理器改动、可能的提权以及将要执行的 `chsh` 命令，然后才请求确认。取消确认不会恢复插件快照、查询 shell upstream 或运行 native updater：已经恢复的 chezmoi source 和已记录的工具选择会保留，但不会写入 `~/.zshrc`、`~/.zsh_plugins.txt`、`~/.p10k.zsh` 或 `~/.plasticine`，也不会调用任何安装命令或 `chsh`。
 - 上游安装脚本的行为部分不透明；失败时直接报错，不会自动改用其他路径。
 
 ### 登录 shell（`chsh`）
@@ -285,6 +289,7 @@ PLASTICINE_LIVE_NEOVIM_SMOKE=1 ./tests/neovim-live.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/herdr.sh
 ./tests/shell-runtime.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/release.sh
+./tests/release-payload.sh
 ```
 
 `tests/combined-installation.sh` 通过真实 `install.sh` 与 chezmoi 入口覆盖七个 Feature 的交互/非交互全选、顺序无关性、跨工具 target 更新、配置前准备、配置后原生同步、取消、dry-run、部分失败与安全重试；各 Feature 的网络、包管理器、完整发行版、owner、完整性与竞态细节仍由其专项 suite 覆盖。`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、登录 shell 切换与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/fnm.sh` 覆盖 Linux 官方脚本候选发布和 macOS Homebrew currency 路线；`tests/lazygit-runtime.sh` 与 `tests/shell-runtime.sh` 使用真实 Zsh，后者包含受控 fnm 的成功/失败激活、Owner 后续代码继续执行和单次初始化验证。`tests/neovim.sh` 使用受控 Release 与编辑器边界覆盖公开 chezmoi 入口；`tests/neovim-runtime.sh` 在一次性 HOME 中用真实 Neovim 和本地受控插件 fixture 验证启动、快捷键、文件树与终端，routine 测试不依赖 live Release；显式设置 `PLASTICINE_LIVE_NEOVIM_SMOKE=1` 后运行 `tests/neovim-live.sh`，可另行使用当前 upstream 插件执行 smoke；Zsh runtime 套件需要本机存在 `zsh`。
@@ -293,6 +298,6 @@ CHEZMOI_BIN=/path/to/chezmoi ./tests/release.sh
 
 本仓库使用独立的 SemVer 版本线，从 `v0.1.0` 开始。日常提交和 Pull Request 会在 Ubuntu 与 macOS 上执行完整测试，并在 Debian 12 的 x86_64/arm64 容器中执行 Shell 和安装器回归，以及真实 APT Zsh、Antidote 和当前插件的安装、启动与重跑检查。Debian 容器使用一次性非 root 用户，登录 shell 预设为目标路径；真实 `chsh` 账户认证仍需在独立 Debian 终端验证，不能由容器测试替代。稳定版本只能从 GitHub Actions 的 `Release` workflow 手动触发，并输入 `vMAJOR.MINOR.PATCH` 格式的版本号。
 
-发布流程验证触发时的 `main` commit，生成 `install.sh` 和 `SHA256SUMS`，先创建 draft Release，核对 tag、commit 与附件后再发布。发布版安装器固定到该 Release 的完整 commit，并内含 chezmoi `2.72.1` 的版本/完整性数据；随 source 固定的 Lazygit `0.65.1` 与 Neovim `0.12.5` 元组也只会随新的 Base Dotfiles Release 前进。因此历史 Release 的安装内容不会随上游新版本或 `main` 推进而改变，而顶层 `/releases/latest/download/install.sh` 仍只负责选择最新 Base Dotfiles 稳定版本。
+发布流程验证触发时的 `main` commit，生成 `install.sh`、`plasticine-source.bundle`、`plasticine-managed-plugins.tar.gz` 和 `SHA256SUMS`，先创建 draft Release，核对 tag、commit 与四个附件后再发布。发布版安装器固定到该 Release 的完整 commit，并内含 source/plugin payload 与 chezmoi `2.72.1` 的版本/完整性数据；随 source 固定的 Lazygit `0.65.1`、Neovim `0.12.5` 与 Neovim/Zsh 插件快照也只会随新的 Base Dotfiles Release 前进。因此历史 Release 的安装内容不会随上游新版本或 `main` 推进而改变，而顶层 `/releases/latest/download/install.sh` 仍只负责选择最新 Base Dotfiles 稳定版本。
 
 发布前应在仓库设置中将 `CI / Test (ubuntu-24.04)`、`CI / Test (macos-14)`、`CI / Debian 12 shell (ubuntu-24.04)` 和 `CI / Debian 12 shell (ubuntu-24.04-arm)` 配置为 `main` 的 required checks，并启用 GitHub immutable releases。CI 和 Release workflow 中使用的第三方 Actions 固定到完整 commit，由 Dependabot 每月提出更新。

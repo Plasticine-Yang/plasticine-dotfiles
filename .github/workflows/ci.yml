@@ -142,6 +142,9 @@ jobs:
       - name: Run release pipeline tests
         run: CHEZMOI_BIN=chezmoi ./tests/release.sh
 
+      - name: Run credential-free release payload tests
+        run: ./tests/release-payload.sh
+
   debian-shell:
     name: Debian 12 shell (${{ matrix.os }})
     strategy:
@@ -213,4 +216,5 @@ jobs:
           ./tests/combined-installation.sh
           ./tests/installer.sh
           ./tests/release.sh
+          ./tests/release-payload.sh
           EOF

@@ -198,7 +198,7 @@ plasticine_shell_account() {
 plasticine_shell_antidote_command() {
     # -f avoids Owner startup files; HOME/ANTIDOTE_HOME keep plugin state in dest.
     # shellcheck disable=SC2016
-    HOME=$shell_dest_dir ANTIDOTE_HOME=$shell_dest_dir/.cache/antidote \
+    HOME=$shell_dest_dir ANTIDOTE_HOME=$shell_dest_dir/.cache/antidote GIT_TERMINAL_PROMPT=0 \
         "$shell_zsh" -f -c '. "$1" && shift && antidote "$@"' plasticine-shell "$shell_antidote" "$@"
 }
 
@@ -206,7 +206,7 @@ plasticine_shell_antidote_file_command() {
     # Run native operations against the selected declarations without loading
     # ~/.zshrc or any other Owner startup code.
     # shellcheck disable=SC2016
-    HOME=$shell_dest_dir ANTIDOTE_HOME=$shell_dest_dir/.cache/antidote \
+    HOME=$shell_dest_dir ANTIDOTE_HOME=$shell_dest_dir/.cache/antidote GIT_TERMINAL_PROMPT=0 \
         "$shell_zsh" -f -c '. "$1" && command=$2 && declarations=$3 && output=$4 && shift 4 && antidote "$command" "$@" < "$declarations" >| "$output"' \
         plasticine-shell "$shell_antidote" "$@"
 }
@@ -318,7 +318,12 @@ plasticine_shell_discover_antidote() {
                 plasticine_shell_error 'existing Antidote checkout has local changes; commit or remove them before native update. Left untouched.'
                 return 1
             }
-            shell_antidote_route=git-update
+            if [ -n "${PLASTICINE_MANAGED_PLUGINS_ARCHIVE:-}" ] ||
+                [ -f "$shell_dest_dir/.antidote/.git/plasticine-release-snapshot" ]; then
+                shell_antidote_route=existing
+            else
+                shell_antidote_route=git-update
+            fi
             return 0
         fi
         shell_antidote=$shell_dest_dir/.antidote/antidote.zsh
@@ -376,6 +381,12 @@ plasticine_shell_discover_antidote() {
     case $shell_antidote_route in
         brew | brew-bootstrap) shell_brew_formulae=antidote ;;
     esac
+}
+
+plasticine_shell_uses_release_snapshot() {
+    [ -n "${PLASTICINE_MANAGED_PLUGINS_ARCHIVE:-}" ] ||
+        [ -f "$shell_dest_dir/.antidote/.git/plasticine-release-snapshot" ] ||
+        [ -f "$shell_dest_dir/.cache/antidote/github.com/romkatv/powerlevel10k/.git/plasticine-release-snapshot" ]
 }
 
 plasticine_shell_plan() {
@@ -459,7 +470,9 @@ plasticine_shell_plan() {
 plasticine_shell_preview() {
     printf 'plasticine-dotfiles: shell: platform %s/%s (%s); Zsh route: %s; Antidote route: %s\n' \
         "$shell_os" "$shell_arch" "$shell_support" "$shell_zsh_route" "$shell_antidote_route"
-    if [ -z "$shell_apt_packages" ] && [ -z "$shell_brew_formulae" ] &&
+    if plasticine_shell_uses_release_snapshot; then
+        printf '%s\n' '  Managed Antidote/plugin checkouts come from the verified Plasticine Release snapshot; existing Owner checkouts are left untouched.'
+    elif [ -z "$shell_apt_packages" ] && [ -z "$shell_brew_formulae" ] &&
         [ "$shell_prompt_route" = existing ] &&
         [ "$shell_transition" -eq 0 ]; then
         printf '%s\n' '  Zsh keeps its healthy system/APT owner; selected Antidote and plugins are still checked through their native upstream routes.'
@@ -497,8 +510,13 @@ plasticine_shell_preview() {
         printf '%s\n' "  command: HOMEBREW_NO_ANALYTICS=1 brew update; then brew install $shell_brew_formulae; network: HTTPS" \
             '  Homebrew itself may request administrator credentials/privilege; Plasticine does not wrap sudo brew; --yes does not answer native prompts.'
     fi
-    printf '%s\n' '  After managed configuration: generate managed and optional Owner bundles, then run antidote update --bundles on every selected apply.' \
-        '  Network: plugin-declared upstreams; privilege: none. No plugin or unrelated Owner startup code is sourced.'
+    if plasticine_shell_uses_release_snapshot; then
+        printf '%s\n' '  After managed configuration: generate managed and optional Owner bundles without running a Git-backed Antidote update.' \
+            '  Network: none for plugin repositories; privilege: none. No plugin or unrelated Owner startup code is sourced.'
+    else
+        printf '%s\n' '  After managed configuration: generate managed and optional Owner bundles, then run antidote update --bundles on every selected apply.' \
+            '  Network: plugin-declared upstreams; privilege: none. No plugin or unrelated Owner startup code is sourced.'
+    fi
     printf '%s\n' '  Upstream installer effects are partly opaque; no automatic fallback.' \
         '  Other managed/optional plugins load through Antidote at Zsh startup, not during installation.'
     if [ "$shell_transition" -eq 1 ]; then
@@ -596,7 +614,7 @@ plasticine_shell_prepare() {
                 plasticine_shell_error 'Git is present but unhealthy; repair its installation owner. Left untouched.'
                 return 1
             }
-            git clone --depth=1 https://github.com/mattmc3/antidote.git "$shell_dest_dir/.antidote" || {
+            GIT_TERMINAL_PROMPT=0 git clone --depth=1 https://github.com/mattmc3/antidote.git "$shell_dest_dir/.antidote" || {
                 plasticine_shell_error 'official Antidote Git checkout failed; no fallback or configuration applied.'
                 return 1
             }
@@ -643,7 +661,7 @@ plasticine_shell_prepare() {
             fi
             ;;
         git-update)
-            git -C "$shell_dest_dir/.antidote" pull --ff-only || {
+            GIT_TERMINAL_PROMPT=0 git -C "$shell_dest_dir/.antidote" pull --ff-only || {
                 plasticine_shell_error 'native Antidote checkout update failed; existing checkout retained. Resolve its branch/upstream state and retry.'
                 return 1
             }
@@ -686,10 +704,12 @@ plasticine_shell_sync_plugins() {
     # Antidote itself was already updated through its identified native owner
     # during preparation. Limit this pass to public plugin bundles so it does
     # not perform a second checkout pull through an unrelated auth route.
-    plasticine_shell_antidote_command update --bundles || {
-        plasticine_shell_error 'Antidote plugin update failed; completed checkout/configuration effects retained. Repair the reported plugin and retry.'
-        return 1
-    }
+    if ! plasticine_shell_uses_release_snapshot; then
+        plasticine_shell_antidote_command update --bundles || {
+            plasticine_shell_error 'Antidote plugin update failed; completed checkout/configuration effects retained. Repair the reported plugin and retry.'
+            return 1
+        }
+    fi
     # Regenerate bundles after checkout updates, then verify the selected prompt.
     plasticine_shell_antidote_file_command bundle "$shell_managed_plugins" "$shell_managed_bundle" || return 1
     if [ -f "$shell_owner_plugins" ]; then

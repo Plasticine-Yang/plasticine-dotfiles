@@ -188,6 +188,7 @@ apply_case "$fresh" "$test_root/fresh-state" env >/dev/null
 [ -f "$fresh/.local/opt/neovim/share/nvim/runtime/filetype.lua" ]
 [ "$(find "$fresh/.config/nvim" -type f | wc -l | tr -d ' ')" -eq 9 ]
 grep -Fq 'Lazy! sync' "$fresh/calls"
+grep -Fq 'has_errors' "$fresh/calls"
 grep -Fq 'NvimTreeToggle' "$fresh/calls"
 printf owner > "$fresh/.config/nvim/lua/local.lua"
 distribution_before=$(find -L "$fresh/.local/opt/neovim" -type f -exec shasum -a 256 {} + | sort | shasum -a 256 | awk '{print $1}')
@@ -197,6 +198,18 @@ distribution_after=$(find -L "$fresh/.local/opt/neovim" -type f -exec shasum -a 
 [ "$distribution_before" = "$distribution_after" ]
 [ "$(grep -c '^curl$' "$fresh/calls" || true)" -eq 0 ]
 [ -f "$fresh/.config/nvim/lua/local.lua" ]
+
+# A released lazy.nvim marker keeps later standalone chezmoi applies on the
+# pinned snapshot instead of silently returning to moving-upstream Git sync.
+mkdir -p "$fresh/.local/share/nvim/lazy/lazy.nvim/.git"
+printf '%040d\n' 0 > "$fresh/.local/share/nvim/lazy/lazy.nvim/.git/plasticine-release-snapshot"
+: > "$fresh/calls"
+apply_case "$fresh" "$test_root/fresh-state" env >/dev/null
+if grep -Fq 'Lazy! sync' "$fresh/calls"; then
+    printf '%s\n' 'marked Release snapshot was unexpectedly updated through lazy.nvim.' >&2
+    exit 1
+fi
+grep -Fq 'NvimTreeToggle' "$fresh/calls"
 
 # Preparation failures preserve an existing direct installation and precede configuration.
 for scenario in digest symlink hardlink malformed extraction candidate-health; do

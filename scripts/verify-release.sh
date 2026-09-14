@@ -1,14 +1,13 @@
 #!/bin/sh
 set -eu
 
-repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
 asset_dir=${1:-}
 revision=${2:-}
-repo_url=${3:-$repo_dir}
+release_version=${3:-}
 chezmoi_bin=${CHEZMOI_BIN:-}
 
-if [ -z "$asset_dir" ] || [ -z "$revision" ]; then
-    printf '%s\n' 'usage: scripts/verify-release.sh <asset-directory> <full-commit-id> [repository-url]' >&2
+if [ -z "$asset_dir" ] || [ -z "$revision" ] || [ -z "$release_version" ]; then
+    printf '%s\n' 'usage: scripts/verify-release.sh <asset-directory> <full-commit-id> <release-version>' >&2
     exit 2
 fi
 case $revision in
@@ -21,6 +20,11 @@ esac
     printf '%s\n' 'release revision must be a full 40-character commit ID' >&2
     exit 2
 }
+if ! printf '%s\n' "$release_version" |
+    LC_ALL=C grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+    printf '%s\n' 'release version must be a stable vMAJOR.MINOR.PATCH tag' >&2
+    exit 2
+fi
 [ -n "$chezmoi_bin" ] || chezmoi_bin=$(command -v chezmoi)
 
 if [ ! -f "$asset_dir/install.sh" ] || [ ! -x "$asset_dir/install.sh" ]; then
@@ -31,8 +35,12 @@ fi
     printf '%s\n' 'release SHA256SUMS is missing' >&2
     exit 1
 }
-[ "$(find "$asset_dir" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" -eq 2 ] || {
-    printf '%s\n' 'release directory must contain exactly install.sh and SHA256SUMS' >&2
+[ -f "$asset_dir/plasticine-source.bundle" ] && [ -f "$asset_dir/plasticine-managed-plugins.tar.gz" ] || {
+    printf '%s\n' 'release payload assets are missing' >&2
+    exit 1
+}
+[ "$(find "$asset_dir" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" -eq 4 ] || {
+    printf '%s\n' 'release directory must contain exactly four expected assets' >&2
     exit 1
 }
 
@@ -41,18 +49,34 @@ grep -Fqx "readonly_repo_revision='$revision'" "$asset_dir/install.sh" || {
     printf '%s\n' 'release installer does not pin the expected revision' >&2
     exit 1
 }
+grep -Fqx "readonly_release_version='$release_version'" "$asset_dir/install.sh" || {
+    printf '%s\n' 'release installer does not contain the expected version' >&2
+    exit 1
+}
 if grep -Fqx "readonly_repo_revision=''" "$asset_dir/install.sh"; then
     printf '%s\n' 'release installer still contains the development revision' >&2
     exit 1
 fi
 (cd "$asset_dir" && shasum -a 256 -c SHA256SUMS)
+git bundle verify "$asset_dir/plasticine-source.bundle" >/dev/null 2>&1
+git bundle list-heads "$asset_dir/plasticine-source.bundle" |
+    awk -v revision="$revision" '
+        $1 != revision { bad=1 }
+        $2 != "HEAD" && $2 != "refs/heads/plasticine-release" { bad=1 }
+        $2 == "HEAD" { head++ }
+        $2 == "refs/heads/plasticine-release" { branch++ }
+        END { exit bad || head != 1 || branch != 1 }
+    ' || {
+        printf '%s\n' 'source bundle contains unexpected refs or revisions' >&2
+        exit 1
+    }
 
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-release-test.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 mkdir -p "$test_root/home"
 HOME=$test_root/home \
 PLASTICINE_CHEZMOI_BIN=$chezmoi_bin \
-PLASTICINE_DOTFILES_REPO_URL=$repo_url \
+PLASTICINE_RELEASE_ASSET_DIR=$asset_dir \
 PLASTICINE_CHEZMOI_SOURCE_DIR=$test_root/source \
 PLASTICINE_CHEZMOI_CONFIG_FILE=$test_root/config/chezmoi.toml \
 PLASTICINE_CHEZMOI_STATE_FILE=$test_root/config/chezmoistate.boltdb \

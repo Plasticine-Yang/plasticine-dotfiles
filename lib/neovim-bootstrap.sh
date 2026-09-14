@@ -98,11 +98,19 @@ plasticine_neovim_preview() {
     printf '%s\n' \
         '  Fixed supported baseline: Neovim 0.12.5 from its exact official versioned GitHub Release asset.' \
         '  Missing Neovim is installed; an outdated managed distribution is safely replaced; a current installation is retained.' \
-        '  Current external owners may be used without mutation; outdated, prerelease, custom, unhealthy, or ambiguous owners are refused.' \
-        '  network during apply: the pinned github.com/neovim/neovim archive only when needed, plus lazy.nvim/plugin Git repositories.' \
+        '  Current external owners may be used without mutation; outdated, prerelease, custom, unhealthy, or ambiguous owners are refused.'
+    if plasticine_neovim_uses_release_snapshot; then
+        printf '%s\n' \
+            '  network during apply: the pinned github.com/neovim/neovim archive only when needed; plugins come from the verified Plasticine Release snapshot without Git updates.' \
+            '  effects after editor preparation: manage exactly nine ~/.config/nvim Lua files, then verify the restored plugin runtime.'
+    else
+        printf '%s\n' \
+            '  network during apply: the pinned github.com/neovim/neovim archive only when needed, plus lazy.nvim/plugin Git repositories.' \
+            '  effects after editor preparation: manage exactly nine ~/.config/nvim Lua files, then run native lazy.nvim update/synchronization.'
+    fi
+    printf '%s\n' \
         "  verification: reviewed pinned SHA-256, safe archive layout, candidate version and complete runtime; the digest shares GitHub's release trust boundary and is not an independent signature." \
-        "  distribution: $neovim_install_dir; command link: $neovim_target_command; package manager/privilege: none." \
-        '  effects after editor preparation: manage exactly nine ~/.config/nvim Lua files, then run native lazy.nvim update/synchronization.'
+        "  distribution: $neovim_install_dir; command link: $neovim_target_command; package manager/privilege: none."
 }
 
 plasticine_neovim_prepare() {
@@ -188,6 +196,11 @@ plasticine_neovim_observed_version() {
     plasticine_neovim_version "$plasticine_neovim_bin" >/dev/null || { plasticine_neovim_error 'the selected editor is not healthy after preparation.'; return 1; }
 }
 
+plasticine_neovim_uses_release_snapshot() {
+    [ -n "${PLASTICINE_MANAGED_PLUGINS_ARCHIVE:-}" ] ||
+        [ -f "$neovim_home/.local/share/nvim/lazy/lazy.nvim/.git/plasticine-release-snapshot" ]
+}
+
 plasticine_neovim_sync() {
     neovim_home=$1; neovim_target_command=$neovim_home/.local/bin/nvim
     if [ -L "$neovim_target_command" ] && [ "$(readlink "$neovim_target_command")" = ../opt/neovim/bin/nvim ] && [ -x "$neovim_target_command" ]; then
@@ -195,10 +208,20 @@ plasticine_neovim_sync() {
     else
         plasticine_neovim_observed_version || return 1
     fi
-    printf '%s\n' 'plasticine-dotfiles: neovim: updating plugins through lazy.nvim...'
-    HOME="$neovim_home" XDG_CONFIG_HOME="$neovim_home/.config" XDG_DATA_HOME="$neovim_home/.local/share" XDG_STATE_HOME="$neovim_home/.local/state" XDG_CACHE_HOME="$neovim_home/.cache" \
-        "$plasticine_neovim_bin" --headless '+Lazy! sync' '+lua vim.wait(1000)' '+qa' || { plasticine_neovim_error 'native plugin synchronization or startup failed after configuration application; configuration/backups, editor publication, and completed native effects remain. Fix the reported error and retry.'; return 1; }
-    HOME="$neovim_home" XDG_CONFIG_HOME="$neovim_home/.config" XDG_DATA_HOME="$neovim_home/.local/share" XDG_STATE_HOME="$neovim_home/.local/state" XDG_CACHE_HOME="$neovim_home/.cache" \
-        "$plasticine_neovim_bin" --headless '+lua local ok, err = pcall(function() assert(vim.fn.maparg("<C-n>", "n") ~= ""); assert(type(_FLOAT_TERM) == "function"); assert(vim.fn.exists(":NvimTreeToggle") == 2) end); if not ok then io.stderr:write(tostring(err) .. "\n"); vim.cmd("cquit") end' '+qa' || { plasticine_neovim_error 'runtime readiness check failed after plugin synchronization; retry after correcting the reported configuration/plugin error.'; return 1; }
+    if ! plasticine_neovim_uses_release_snapshot; then
+        printf '%s\n' 'plasticine-dotfiles: neovim: updating plugins through lazy.nvim...'
+        HOME="$neovim_home" XDG_CONFIG_HOME="$neovim_home/.config" XDG_DATA_HOME="$neovim_home/.local/share" XDG_STATE_HOME="$neovim_home/.local/state" XDG_CACHE_HOME="$neovim_home/.cache" GIT_TERMINAL_PROMPT=0 \
+            "$plasticine_neovim_bin" --headless '+Lazy! sync' '+lua local p=require("lazy.core.plugin"); for _,x in pairs(require("lazy.core.config").plugins) do if p.has_errors(x) then vim.cmd("cquit") end end' '+qa' || { plasticine_neovim_error 'native plugin synchronization or startup failed after configuration application; configuration/backups, editor publication, and completed native effects remain. Fix the reported error and retry.'; return 1; }
+    else
+        printf '%s\n' 'plasticine-dotfiles: neovim: using the verified Release plugin snapshot; no Git update during installation.'
+    fi
+    if plasticine_neovim_uses_release_snapshot; then
+        HOME="$neovim_home" XDG_CONFIG_HOME="$neovim_home/.config" XDG_DATA_HOME="$neovim_home/.local/share" XDG_STATE_HOME="$neovim_home/.local/state" XDG_CACHE_HOME="$neovim_home/.cache" \
+            PLASTICINE_MANAGED_PLUGINS_ARCHIVE=release-snapshot \
+            "$plasticine_neovim_bin" --headless '+lua local ok, err = pcall(function() assert(vim.fn.maparg("<C-n>", "n") ~= ""); assert(type(_FLOAT_TERM) == "function"); assert(vim.fn.exists(":NvimTreeToggle") == 2) end); if not ok then io.stderr:write(tostring(err) .. "\n"); vim.cmd("cquit") end' '+qa' || { plasticine_neovim_error 'runtime readiness check failed after plugin synchronization; retry after correcting the reported configuration/plugin error.'; return 1; }
+    else
+        HOME="$neovim_home" XDG_CONFIG_HOME="$neovim_home/.config" XDG_DATA_HOME="$neovim_home/.local/share" XDG_STATE_HOME="$neovim_home/.local/state" XDG_CACHE_HOME="$neovim_home/.cache" \
+            "$plasticine_neovim_bin" --headless '+lua local ok, err = pcall(function() assert(vim.fn.maparg("<C-n>", "n") ~= ""); assert(type(_FLOAT_TERM) == "function"); assert(vim.fn.exists(":NvimTreeToggle") == 2) end); if not ok then io.stderr:write(tostring(err) .. "\n"); vim.cmd("cquit") end' '+qa' || { plasticine_neovim_error 'runtime readiness check failed after plugin synchronization; retry after correcting the reported configuration/plugin error.'; return 1; }
+    fi
     printf '%s\n' 'plasticine-dotfiles: neovim: complete distribution, managed configuration, and current plugins passed runtime readiness.'
 }

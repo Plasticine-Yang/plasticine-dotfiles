@@ -254,6 +254,21 @@ grep -Fq 'git pull --ff-only' "$shell_dir/calls" || fail 'existing Antidote chec
 grep -Fq 'bundle bundle' "$shell_dir/calls" || fail 'managed plugins were not bundled from selected declarations.'
 grep -Fxq 'update --bundles' "$shell_dir/calls" || fail 'Antidote native bundle update was not invoked without self-update.'
 
+# A released Antidote marker persists snapshot mode across later standalone
+# chezmoi applies, so they do not silently resume Git pull/plugin updates.
+printf '%s\n' "$(git -C "$shell_dir/home/.antidote" rev-parse HEAD)" > \
+    "$shell_dir/home/.antidote/.git/plasticine-release-snapshot"
+: > "$shell_dir/calls"
+if ! PLASTICINE_TEST_CALLS=$shell_dir/calls run_linux_installer "$shell_dir" -y --shell \
+    >"$shell_dir/snapshot-out" 2>"$shell_dir/snapshot-err"; then
+    tail -20 "$shell_dir/snapshot-out" >&2
+    cat "$shell_dir/snapshot-err" >&2
+    fail 'marked shell Release snapshot did not survive a later apply'
+fi
+if grep -Fq 'git pull --ff-only' "$shell_dir/calls" || grep -Fxq 'update --bundles' "$shell_dir/calls"; then
+    fail 'marked shell Release snapshot unexpectedly used moving-upstream Git operations'
+fi
+
 # A checkout with Owner changes is not reset or updated.
 dirty_antidote_dir=$test_root/dirty-antidote
 mkdir -p "$dirty_antidote_dir/home"

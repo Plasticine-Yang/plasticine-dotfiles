@@ -7,6 +7,18 @@ source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
 
 # This is the only selected-tool mutation stage. Configuration backup, mode
 # normalization and application begin only after every selected tool succeeds.
+{{- if or (has "shell" .tools) (has "neovim" .tools) }}
+if [ -n "${PLASTICINE_MANAGED_PLUGINS_ARCHIVE:-}" ]; then
+    # shellcheck disable=SC1091
+    . "$source_dir/lib/managed-plugins.sh"
+{{- if has "shell" .tools }}
+    plasticine_managed_plugins_restore "$PLASTICINE_MANAGED_PLUGINS_ARCHIVE" "$dest_dir" shell || exit 1
+{{- end }}
+{{- if has "neovim" .tools }}
+    plasticine_managed_plugins_restore "$PLASTICINE_MANAGED_PLUGINS_ARCHIVE" "$dest_dir" neovim || exit 1
+{{- end }}
+fi
+{{- end }}
 {{- if has "fnm" .tools }}
 # shellcheck disable=SC1091
 . "$source_dir/lib/fnm-bootstrap.sh"

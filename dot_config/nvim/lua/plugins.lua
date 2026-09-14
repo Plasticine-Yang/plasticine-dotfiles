@@ -1,5 +1,8 @@
 local lazypath = vim.fn.stdpath('data') .. '/lazy/lazy.nvim'
 local uv = vim.uv or vim.loop
+local release_snapshot = vim.env.PLASTICINE_MANAGED_PLUGINS_ARCHIVE ~= nil
+  and vim.env.PLASTICINE_MANAGED_PLUGINS_ARCHIVE ~= ''
+  or uv.fs_stat(lazypath .. '/.git/plasticine-release-snapshot') ~= nil
 if not uv.fs_stat(lazypath) then
   local output = vim.fn.system({
     'git', 'clone', '--filter=blob:none', '--branch=stable',
@@ -30,7 +33,10 @@ require('lazy').setup({
   { 'akinsho/toggleterm.nvim', config = function() require('plugins-config.toggleterm') end },
 }, {
   local_spec = false,
-  install = { missing = true },
+  -- A released install restores every managed checkout before Neovim starts.
+  -- Suppress implicit Git clones while its snapshot marker remains; explicit
+  -- lazy.nvim commands stay available when the Owner wants upstream changes.
+  install = { missing = not release_snapshot },
   checker = { enabled = false },
   change_detection = { notify = false },
 })

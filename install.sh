@@ -2,9 +2,13 @@
 set -eu
 
 readonly_repo_url='https://github.com/Plasticine-Yang/plasticine-dotfiles.git'
+readonly_release_base_url='https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/download'
 # Empty in the source checkout. scripts/build-release.sh replaces this exact
-# assignment with the full commit published by a GitHub Release.
+# metadata with the immutable assets published by a GitHub Release.
 readonly_repo_revision=''
+readonly_release_version=''
+readonly_source_sha256=''
+readonly_plugins_sha256=''
 
 error() {
     printf 'plasticine-dotfiles: %s\n' "$1" >&2
@@ -34,7 +38,7 @@ Options:
       --herdr                     Install or update Herdr from its stable channel
       --lazygit                   Prepare Lazygit if missing and configure its alias
       --fnm                       Install or update fnm through the permitted platform route
-      --neovim                    Install/update Neovim, configure it, and update plugins
+      --neovim                    Install/update Neovim, configure it, and prepare plugins
       --shell                     Configure Zsh, install missing reviewed tools, and attempt chsh last
   -h, --help                      Show this help
 EOF
@@ -131,19 +135,31 @@ plasticine_chezmoi_bootstrap "$HOME" "${PLASTICINE_CHEZMOI_BIN:-}" || exit 1
 # Assigned by plasticine_chezmoi_bootstrap from the sourced module.
 # shellcheck disable=SC2154
 : "${chezmoi_bin:?}"
+[ -f "$(dirname -- "$0")/lib/release-payload.sh" ] || { error 'The installer does not contain lib/release-payload.sh.'; exit 1; }
+# shellcheck disable=SC1091
+. "$(dirname -- "$0")/lib/release-payload.sh"
 
 source_dir=${PLASTICINE_CHEZMOI_SOURCE_DIR:-$HOME/.local/share/chezmoi}
 config_file=${PLASTICINE_CHEZMOI_CONFIG_FILE:-$HOME/.config/chezmoi/chezmoi.toml}
 state_file=${PLASTICINE_CHEZMOI_STATE_FILE:-$HOME/.config/chezmoi/chezmoistate.boltdb}
 destination_dir=${PLASTICINE_CHEZMOI_DEST_DIR:-$HOME}
 repo_url=${PLASTICINE_DOTFILES_REPO_URL:-$readonly_repo_url}
+release_base_url=${PLASTICINE_RELEASE_BASE_URL:-$readonly_release_base_url/$readonly_release_version}
 
 case $source_dir:$config_file:$state_file:$destination_dir in
     /*:/*:/*:/*) ;;
     *) error 'chezmoi paths must be absolute.'; exit 1 ;;
 esac
 
-if [ -e "$source_dir" ]; then
+if [ -n "$readonly_release_version" ] && [ -z "${PLASTICINE_DOTFILES_REPO_URL:-}" ]; then
+    [ -n "$readonly_repo_revision" ] && [ -n "$readonly_source_sha256" ] && [ -n "$readonly_plugins_sha256" ] || {
+        error 'Release payload metadata is incomplete.'
+        exit 1
+    }
+    log "Restoring released chezmoi source: $readonly_repo_revision"
+    plasticine_release_acquire_source "$HOME" "$release_base_url" "$readonly_release_version" \
+        "$readonly_source_sha256" "$readonly_repo_revision" "$readonly_repo_url" "$source_dir" || exit 1
+elif [ -e "$source_dir" ]; then
     if [ ! -d "$source_dir/.git" ] || [ -L "$source_dir" ]; then
         error "Existing chezmoi source is not a Git checkout: $source_dir"
         exit 1
@@ -295,6 +311,16 @@ if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"herdr"/); exit } END { exit !f
 fi
 if [ "$shell_selected" -eq 1 ] || [ "$lazygit_selected" -eq 1 ]; then
     zsh_integration_selected=1
+fi
+
+if [ -n "$readonly_release_version" ] && { [ "$shell_selected" -eq 1 ] || [ "$neovim_selected" -eq 1 ]; }; then
+    # The released installer has this module inlined before source acquisition.
+    # A local installer reaches the same interface from its source checkout.
+    plasticine_release_acquire_plugins "$HOME" "$release_base_url" "$readonly_release_version" \
+        "$readonly_plugins_sha256" || exit 1
+    export PLASTICINE_MANAGED_PLUGINS_ARCHIVE="$plasticine_release_plugins_path"
+else
+    unset PLASTICINE_MANAGED_PLUGINS_ARCHIVE
 fi
 
 # Validate every selected Integration Block namespace before probing or

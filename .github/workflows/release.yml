@@ -90,14 +90,15 @@ jobs:
 
       - name: Build and verify release assets
         run: |
-          ./scripts/build-release.sh "$RELEASE_SHA" dist
-          CHEZMOI_BIN=chezmoi ./scripts/verify-release.sh dist "$RELEASE_SHA" "$GITHUB_WORKSPACE"
+          ./scripts/build-release.sh "$RELEASE_SHA" dist "$VERSION" "$GITHUB_WORKSPACE"
+          CHEZMOI_BIN=chezmoi ./scripts/verify-release.sh dist "$RELEASE_SHA" "$VERSION"
 
       - name: Create the draft Release and upload assets
         shell: bash
         run: |
           set -euo pipefail
-          gh release create "$VERSION" dist/install.sh dist/SHA256SUMS \
+          gh release create "$VERSION" dist/install.sh dist/plasticine-source.bundle \
+            dist/plasticine-managed-plugins.tar.gz dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --target "$RELEASE_SHA" \
             --title "$VERSION" \
@@ -113,9 +114,9 @@ jobs:
           [[ "$(jq -r .isDraft <<<"$release_json")" == true ]]
           [[ "$(jq -r .tagName <<<"$release_json")" == "$VERSION" ]]
           [[ "$(jq -r .targetCommitish <<<"$release_json")" == "$RELEASE_SHA" ]]
-          [[ "$(jq -r '.assets | length' <<<"$release_json")" == 2 ]]
+          [[ "$(jq -r '.assets | length' <<<"$release_json")" == 4 ]]
           diff -u \
-            <(printf '%s\n' SHA256SUMS install.sh) \
+            <(printf '%s\n' SHA256SUMS install.sh plasticine-managed-plugins.tar.gz plasticine-source.bundle | sort) \
             <(jq -r '.assets[].name' <<<"$release_json" | sort)
           expected_digest=sha256:$(awk '$2 == "install.sh" { print $1 }' dist/SHA256SUMS)
           actual_digest=$(jq -r '.assets[] | select(.name == "install.sh") | .digest' <<<"$release_json")
