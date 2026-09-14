@@ -212,7 +212,7 @@ Plasticine 只整体管理以下九个文件：
 
 ## Zsh 环境（`--shell`）
 
-`--shell` 准备一套可用的 Zsh 体验：Zsh 本体保留系统/APT 例外；发布版从固定的 Release 快照恢复 Antidote（Linux）、Powerlevel10k 和声明的插件，不在安装过程中对这些公开仓库执行 Git 更新，最后才尝试切换登录 shell。
+`--shell` 准备一套可用的 Zsh 体验：Zsh 本体保留系统/APT 例外；发布版从固定的 Release 快照恢复 Antidote（Linux）、Powerlevel10k 和声明的插件，不在安装过程中对这些公开仓库执行 Git 更新，也不修改账户的默认登录 Shell。只有同时选择 `--login-shell` 时，才在环境配置成功后尝试切换。
 
 Shell 原生安装路线支持 macOS 14+、Debian 12+、Ubuntu 24.04+ 的 x86_64/arm64；Debian 12 与 13、Ubuntu 24.04 是明确支持的 Linux 基线，更新版本采用 best-effort。其他 Linux 发行版仅在已有依赖满足时尝试配置，不提供 APT 或 Linux Homebrew 回退。低于版本下限时，即使已有 Zsh 也会拒绝本次 Shell 选择；可重新运行并取消选择 `shell`，其他工具仍按各自的支持条件检查。此限制不是所有工具共享的最低系统要求。
 
@@ -263,7 +263,7 @@ fi
 - Debian/Ubuntu：`sudo apt-get update` 与 `sudo apt-get install -y --no-upgrade <packages>`；只有这两个子命令使用 `sudo`。没有可用终端时改用 `sudo -n`，需要凭据时会失败并提示在原生终端重试。
 - macOS：缺少 Homebrew 时先预览，再用官方安装脚本引导 Homebrew；这一步需要原生终端，而且 Homebrew 自身可能要求管理员凭据或 Apple Command Line Tools。Plasticine 不会用 `sudo bash` 执行它。
 - `--yes` 只跳过 Plasticine 自己的最终确认，不会代替 Homebrew、`sudo` 或 `chsh` 的原生提示；无法提供凭据时安装以错误结束，而不是伪造输入。
-- 预览先列出所选路径、Release 快照或开发模式 Antidote/插件更新意图、网络访问、包管理器改动、可能的提权以及将要执行的 `chsh` 命令，然后才请求确认。取消确认不会恢复插件快照、查询 shell upstream 或运行 native updater：已经恢复的 chezmoi source 和已记录的工具选择会保留，但不会写入 `~/.zshrc`、`~/.zsh_plugins.txt`、`~/.p10k.zsh` 或 `~/.plasticine`，也不会调用任何安装命令或 `chsh`。
+- 预览先列出所选路径、Release 快照或开发模式 Antidote/插件更新意图、网络访问、包管理器改动和可能的提权；显式选择 `login-shell` 且需要切换时，还会列出将要执行的 `chsh` 命令，然后才请求确认。取消确认不会恢复插件快照、查询 shell upstream 或运行 native updater：已经恢复的 chezmoi source 和已记录的工具选择会保留，但不会写入 `~/.zshrc`、`~/.zsh_plugins.txt`、`~/.p10k.zsh` 或 `~/.plasticine`，也不会调用任何安装命令或 `chsh`。
 - 上游安装脚本的行为部分不透明；失败时直接报错，不会自动改用其他路径。
 
 ### 默认登录 Shell（`login-shell`）
