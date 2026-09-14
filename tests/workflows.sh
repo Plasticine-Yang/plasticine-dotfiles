@@ -14,6 +14,13 @@ for suite in integration combined-installation chezmoi git-config installer shel
     }
 done
 
+# Timed-out suites can orphan descendants. Debian containers need an init
+# process to reap them, just as the non-container CI runners do.
+perl -0777ne 'exit(/container:\s*\n\s+image: debian:12-slim\s*\n\s+options: --init\s*\n/ ? 0 : 1)' "$ci" || {
+    printf '%s\n' 'Debian CI container must use --init to reap orphaned test processes' >&2
+    exit 1
+}
+
 if grep -Fq 'uses: ./.github/workflows/ci.yml' "$release"; then
     printf '%s\n' 'Release still reruns the complete CI workflow' >&2
     exit 1

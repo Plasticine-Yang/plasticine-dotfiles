@@ -163,7 +163,9 @@ jobs:
           - ubuntu-24.04
           - ubuntu-24.04-arm
     runs-on: ${{ matrix.os }}
-    container: debian:12-slim
+    container:
+      image: debian:12-slim
+      options: --init
     timeout-minutes: 25
     steps:
       - name: Install Debian test prerequisites
