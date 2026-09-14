@@ -497,7 +497,7 @@ plasticine_shell_preview() {
         printf '%s\n' "  command: HOMEBREW_NO_ANALYTICS=1 brew update; then brew install $shell_brew_formulae; network: HTTPS" \
             '  Homebrew itself may request administrator credentials/privilege; Plasticine does not wrap sudo brew; --yes does not answer native prompts.'
     fi
-    printf '%s\n' '  After managed configuration: generate managed and optional Owner bundles, then run antidote update on every selected apply.' \
+    printf '%s\n' '  After managed configuration: generate managed and optional Owner bundles, then run antidote update --bundles on every selected apply.' \
         '  Network: plugin-declared upstreams; privilege: none. No plugin or unrelated Owner startup code is sourced.'
     printf '%s\n' '  Upstream installer effects are partly opaque; no automatic fallback.' \
         '  Other managed/optional plugins load through Antidote at Zsh startup, not during installation.'
@@ -683,7 +683,10 @@ plasticine_shell_sync_plugins() {
             return 1
         }
     fi
-    plasticine_shell_antidote_command update || {
+    # Antidote itself was already updated through its identified native owner
+    # during preparation. Limit this pass to public plugin bundles so it does
+    # not perform a second checkout pull through an unrelated auth route.
+    plasticine_shell_antidote_command update --bundles || {
         plasticine_shell_error 'Antidote plugin update failed; completed checkout/configuration effects retained. Repair the reported plugin and retry.'
         return 1
     }

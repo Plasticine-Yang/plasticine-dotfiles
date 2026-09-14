@@ -176,8 +176,8 @@ antidote() {
             return 0
             ;;
         update)
-            print -r -- update >> "${PLASTICINE_TEST_CALLS:-/dev/null}"
-            return 0
+            print -r -- "update ${*:2}" >> "${PLASTICINE_TEST_CALLS:-/dev/null}"
+            [[ $# == 2 && $2 == --bundles ]]
             ;;
         *)
             return 1
@@ -252,7 +252,7 @@ if ! PLASTICINE_TEST_CALLS=$shell_dir/calls run_linux_installer "$shell_dir" -y 
 fi
 grep -Fq 'git pull --ff-only' "$shell_dir/calls" || fail 'existing Antidote checkout was not updated.'
 grep -Fq 'bundle bundle' "$shell_dir/calls" || fail 'managed plugins were not bundled from selected declarations.'
-grep -Fq update "$shell_dir/calls" || fail 'Antidote native plugin update was not invoked.'
+grep -Fxq 'update --bundles' "$shell_dir/calls" || fail 'Antidote native bundle update was not invoked without self-update.'
 
 # A checkout with Owner changes is not reset or updated.
 dirty_antidote_dir=$test_root/dirty-antidote
@@ -663,8 +663,8 @@ antidote() {
             mkdir -p "\$HOME/.cache/antidote/github.com/romkatv/powerlevel10k"
             print -r -- ':' > "\$HOME/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme" ;;
         update)
-            print -r -- update >> '$fake_bin/calls'
-            [[ ! -f '$fake_bin/update-fails' ]] ;;
+            print -r -- "update \${*:2}" >> '$fake_bin/calls'
+            [[ \$# == 2 && \$2 == --bundles && ! -f '$fake_bin/update-fails' ]] ;;
         *) return 99 ;;
     esac
 }
@@ -884,7 +884,7 @@ grep -Fq 'Antidote route: git' "$linux_fresh/stdout"
 grep -Fq 'sudo apt-get update' "$linux_fresh/stdout"
 grep -Fq 'sudo apt-get install -y --no-upgrade zsh' "$linux_fresh/stdout"
 grep -Fq 'git clone --depth=1' "$linux_fresh/stdout"
-grep -Fq 'run antidote update on every selected apply' "$linux_fresh/stdout"
+grep -Fq 'run antidote update --bundles on every selected apply' "$linux_fresh/stdout"
 grep -Fq 'LAST, after usable configuration: chsh' "$linux_fresh/stdout"
 grep -Fq HTTPS "$linux_fresh/stdout"
 grep -Fq privilege "$linux_fresh/stdout"
@@ -921,7 +921,7 @@ linux_rerun_after=$(find "$linux_fresh/home" -type f -exec shasum -a 256 {} + | 
 test "$linux_rerun_before" = "$linux_rerun_after"
 grep -Fq 'git pull --ff-only' "$linux_fresh/fake-bin/calls" || fail 'healthy rerun did not update Antidote.'
 grep -Fq 'bundle bundle' "$linux_fresh/fake-bin/calls" || fail 'healthy rerun did not synchronize plugins.'
-grep -Fq update "$linux_fresh/fake-bin/calls" || fail 'healthy rerun did not invoke Antidote update.'
+grep -Fxq 'update --bundles' "$linux_fresh/fake-bin/calls" || fail 'healthy rerun did not invoke the bundles-only Antidote update.'
 if grep -Eq 'apt-get |git clone|brew install|chsh ' "$linux_fresh/fake-bin/calls"; then
     cat "$linux_fresh/fake-bin/calls" >&2
     fail 'healthy Linux rerun reinstalled tools or retried chsh'
@@ -967,7 +967,7 @@ test "$linux_chsh_fail_before" = "$linux_chsh_fail_after"
 grep -Fxq "chsh -s $linux_chsh_fail/fake-bin/zsh" "$linux_chsh_fail/fake-bin/calls"
 grep -Fq 'git pull --ff-only' "$linux_chsh_fail/fake-bin/calls"
 grep -Fq 'bundle bundle' "$linux_chsh_fail/fake-bin/calls"
-grep -Fq update "$linux_chsh_fail/fake-bin/calls"
+grep -Fxq 'update --bundles' "$linux_chsh_fail/fake-bin/calls"
 if grep -Eq 'apt-get |git clone|brew install' "$linux_chsh_fail/fake-bin/calls"; then
     fail 'chsh retry reinstalled healthy shell tools.'
 fi
@@ -1188,8 +1188,8 @@ for distro_spec in 'debian 12 x86_64 0' 'debian 12 arm64 0' 'debian 13 arm64 0' 
             fail "supported $1 $2 $3 did not update the existing Antidote checkout."
         grep -Fq 'bundle bundle' "$linux_plat/fake-bin/calls" ||
             fail "supported $1 $2 $3 did not synchronize the managed plugin declarations."
-        grep -Fq update "$linux_plat/fake-bin/calls" ||
-            fail "supported $1 $2 $3 did not run the native plugin update."
+        grep -Fxq 'update --bundles' "$linux_plat/fake-bin/calls" ||
+            fail "supported $1 $2 $3 did not run the native bundles-only plugin update."
         if grep -Eq 'apt-get |git clone|brew install|chsh ' "$linux_plat/fake-bin/calls"; then
             cat "$linux_plat/fake-bin/calls" >&2
             fail "supported $1 $2 $3 reinstalled healthy tools or changed the login shell."

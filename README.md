@@ -239,7 +239,7 @@ fi
 
 - macOS 使用系统 Zsh；Debian/Ubuntu 使用已有的健康 Zsh，缺失时通过审查过的 APT 路径安装 `zsh`。
 - macOS 的 Antidote 由 Homebrew 管理：每次选择 shell 时先刷新 metadata，只安装或升级 `antidote` formula，绝不执行 broad upgrade。Debian/Ubuntu 使用官方 Git checkout（`~/.antidote`），每次以 `git pull --ff-only` 跟随其当前 upstream；存在本地改动、未知 remote 或非 Git owner 时停止并要求 Owner 处理，不会 reset、接管或切换路线。
-- Powerlevel10k 与其余受管/Owner 可选插件都通过 Antidote 的原生 `bundle` 和 `update` 操作同步到各自移动 upstream；仓库不固定 tag/commit，也不复制或接管 checkout。同步使用受管声明文件但不 source Owner 的 `~/.zshrc`。
+- Powerlevel10k 与其余受管/Owner 可选插件都通过 Antidote 的原生 `bundle` 和 `update --bundles` 操作同步到各自移动 upstream；Antidote 本体只由上一条所述的 Git checkout/Homebrew owner 更新，插件同步不会再次自更新它或要求 GitHub 账号。仓库不固定 tag/commit，也不复制或接管 checkout。同步使用受管声明文件但不 source Owner 的 `~/.zshrc`。
 - 已存在但不健康的 Zsh、Antidote、Git、Homebrew 或 Powerlevel10k 会被原样保留并以可操作的错误结束，不会更换安装归属，也没有自动回退路径。metadata 查询、Antidote 更新、任一插件同步或最终运行时检查失败同样返回失败；已完成的配置和 native state 会保留，修复具体 upstream/checkout 后重跑即可继续。
 - Antidote 自己拥有它的 checkout、生成的 bundle、插件克隆、缓存、快照、补全 dump 和编译文件；`~/.zsh_plugins.local.txt` 也属于 Owner。Plasticine 既不管理、也不备份或删除这些运行时状态。
 - `fnm` 只做守卫式激活：已经安装时执行 `fnm env --shell zsh`；命令失败时不会执行它的输出，只会以交互式警告提示，也不会安装、升级或迁移 fnm 及其状态。未安装 fnm 时保持静默。macOS 上若 fnm 只存在于 Homebrew 前缀中，仅在这种情况下把该前缀的可执行目录加入 `PATH`，不移动任何文件。Zellij 别名仍属于未来迁移。
