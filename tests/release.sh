@@ -21,8 +21,11 @@ plugins_fixture=$test_root/plugins-fixture
 mkdir -p "$plugins_fixture/managed-plugins"
 printf '%s\n' fixture > "$plugins_fixture/managed-plugins/manifest.tsv"
 tar -czf "$test_root/plugins.tar.gz" -C "$plugins_fixture" managed-plugins
-PLASTICINE_MANAGED_PLUGINS_ASSET=$test_root/plugins.tar.gz \
-    "$repo_dir/scripts/build-release.sh" "$revision" "$asset_dir" v0.0.1 "$work_repo"
+(
+    cd "$test_root"
+    PLASTICINE_MANAGED_PLUGINS_ASSET=$test_root/plugins.tar.gz \
+        "$repo_dir/scripts/build-release.sh" "$revision" assets v0.0.1 "$work_repo"
+)
 CHEZMOI_BIN=${CHEZMOI_BIN:-$(command -v chezmoi)} \
     "$repo_dir/scripts/verify-release.sh" "$asset_dir" "$revision" v0.0.1
 

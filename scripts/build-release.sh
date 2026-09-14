@@ -33,6 +33,7 @@ git -C "$source_repository" cat-file -e "$revision^{commit}" 2>/dev/null || {
     exit 1
 }
 mkdir -p "$output_dir"
+output_dir=$(cd "$output_dir" && pwd -P)
 
 release_bundle_repo=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-release-bundle.XXXXXX")
 trap 'rm -rf "$release_bundle_repo"' EXIT HUP INT TERM
