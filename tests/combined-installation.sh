@@ -31,6 +31,32 @@ plasticine_shell_sync_plugins() { fixture_call shell-sync; fixture_fail shell-sy
 plasticine_neovim_sync() { fixture_call neovim-sync; fixture_fail neovim-sync || return 1; fixture_assert_config; }' ;;
         fnm) extra='
 plasticine_fnm_plan() { fixture_call fnm-plan; fnm_os=Linux; fnm_brew_route=none; }' ;;
+        herdr) extra='
+plasticine_herdr_prepare() {
+    fixture_call herdr-query
+    fixture_fail herdr-query || return 1
+    target=$(cat "$PLASTICINE_COMBINED_TARGETS/herdr")
+    state=$PLASTICINE_CHEZMOI_DEST_DIR/.fixture/herdr
+    current=$(cat "$state" 2>/dev/null || true)
+    if [ "$current" != "$target" ]; then
+        fixture_call herdr-mutate-$target
+        fixture_fail herdr-mutate || return 1
+        mkdir -p "${state%/*}" "$PLASTICINE_CHEZMOI_DEST_DIR/.local/bin"
+        printf "%s\n" "$target" > "$state"
+    else
+        fixture_call herdr-current-$target
+    fi
+    cat > "$PLASTICINE_CHEZMOI_DEST_DIR/.local/bin/herdr" <<HERDR_FIXTURE
+#!/bin/sh
+case \${1:-} in
+    --version) printf "%s\\n" "herdr $target" ;;
+    config) [ "\${2:-}" = check ] ;;
+    status) exit 1 ;;
+    *) exit 90 ;;
+esac
+HERDR_FIXTURE
+    chmod 755 "$PLASTICINE_CHEZMOI_DEST_DIR/.local/bin/herdr"
+}' ;;
         *) extra='' ;;
     esac
     module=$work_repo/lib/$feature-bootstrap.sh

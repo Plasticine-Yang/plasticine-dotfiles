@@ -1,0 +1,22 @@
+{{- if has "herdr" .tools -}}
+#!/bin/sh
+set -eu
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+reload_pending=$dest_dir/.plasticine/backups/herdr/reload-pending
+[ -f "$reload_pending" ] || exit 0
+herdr_command=$(command -v herdr 2>/dev/null || true)
+if [ -z "$herdr_command" ] && [ -x "$dest_dir/.local/bin/herdr" ]; then
+    herdr_command=$dest_dir/.local/bin/herdr
+fi
+[ -n "$herdr_command" ] || {
+    printf '%s\n' 'plasticine-dotfiles: herdr: installed command unavailable while reloading configuration.' >&2
+    exit 1
+}
+if "$herdr_command" status server >/dev/null 2>&1; then
+    "$herdr_command" server reload-config >/dev/null || {
+        printf '%s\n' 'plasticine-dotfiles: herdr: running server could not reload configuration; retry chezmoi apply.' >&2
+        exit 1
+    }
+fi
+rm -f "$reload_pending"
+{{- end }}

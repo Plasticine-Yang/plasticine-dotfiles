@@ -35,8 +35,14 @@ plasticine-demo/**
 .plasticine
 .plasticine/**
 {{ end }}
-{{ if not (has "neovim" .tools) }}
+{{ if and (not (has "neovim" .tools)) (not (has "herdr" .tools)) }}
 .config
+{{ end }}
+{{ if not (has "neovim" .tools) }}
 .config/nvim
 .config/nvim/**
+{{ end }}
+{{ if not (has "herdr" .tools) }}
+.config/herdr
+.config/herdr/**
 {{ end }}

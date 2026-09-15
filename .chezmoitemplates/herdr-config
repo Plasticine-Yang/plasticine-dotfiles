@@ -1,0 +1,36 @@
+# shellcheck shell=sh
+{{- $herdrShell := lookPath "zsh" -}}
+{{- if eq $herdrShell "" -}}
+{{- if eq .chezmoi.os "darwin" -}}{{- $herdrShell = "/bin/zsh" -}}{{- else -}}{{- $herdrShell = "/usr/bin/zsh" -}}{{- end -}}
+{{- end }}
+plasticine_herdr_shell={{ template "shell-quote" $herdrShell }}
+plasticine_herdr_config_default_shell={{ template "shell-quote" (printf "default_shell = %s" ($herdrShell | toJson)) }}
+
+plasticine_herdr_config_compose() {
+    plasticine_herdr_config_input=$1
+    plasticine_herdr_config_output=$2
+    LC_ALL=C awk -v default_shell="$plasticine_herdr_config_default_shell" '
+        function emit_terminal_policy() {
+            print default_shell
+            print "shell_mode = \"non_login\""
+        }
+        /^[[:space:]]*\[[[:space:]]*terminal[[:space:]]*\][[:space:]]*(#.*)?$/ {
+            terminal_sections++
+            in_terminal = 1
+            print
+            emit_terminal_policy()
+            next
+        }
+        /^[[:space:]]*\[/ { in_terminal = 0 }
+        in_terminal && /^[[:space:]]*(default_shell|"default_shell")[[:space:]]*=/ { next }
+        in_terminal && /^[[:space:]]*(shell_mode|"shell_mode")[[:space:]]*=/ { next }
+        { print }
+        END {
+            if (terminal_sections == 0) {
+                if (NR > 0) print ""
+                print "[terminal]"
+                emit_terminal_policy()
+            }
+        }
+    ' "$plasticine_herdr_config_input" > "$plasticine_herdr_config_output"
+}

@@ -1,0 +1,49 @@
+{{- if has "herdr" .tools -}}
+#!/bin/sh
+set -eu
+
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+target=$dest_dir/.config/herdr/config.toml
+backup_dir=$dest_dir/.plasticine/backups/herdr
+pending_mode=$backup_dir/pending-mode
+reload_pending=$backup_dir/reload-pending
+{{ template "whole-file-protection" . }}
+{{ template "herdr-config" . }}
+
+plasticine_whole_file_restore_modes "$pending_mode" "$dest_dir" herdr .config/herdr/config.toml
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-herdr-config-prepare.XXXXXX")
+trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
+if [ -f "$target" ]; then cat "$target" > "$work_dir/current"; else : > "$work_dir/current"; fi
+plasticine_herdr_config_compose "$work_dir/current" "$work_dir/candidate"
+
+[ -x "$plasticine_herdr_shell" ] && "$plasticine_herdr_shell" --version >/dev/null 2>&1 || {
+    printf 'plasticine-dotfiles: herdr: Zsh is unavailable at %s; select shell too or install Zsh first.\n' \
+        "$plasticine_herdr_shell" >&2
+    exit 1
+}
+
+herdr_command=$(command -v herdr 2>/dev/null || true)
+if [ -z "$herdr_command" ] && [ -x "$dest_dir/.local/bin/herdr" ]; then
+    herdr_command=$dest_dir/.local/bin/herdr
+fi
+[ -n "$herdr_command" ] || {
+    printf '%s\n' 'plasticine-dotfiles: herdr: installed command unavailable while validating configuration.' >&2
+    exit 1
+}
+HERDR_CONFIG_PATH="$work_dir/candidate" "$herdr_command" config check >/dev/null || {
+    printf '%s\n' 'plasticine-dotfiles: herdr: candidate config is invalid; existing config left untouched.' >&2
+    exit 1
+}
+
+if [ -f "$target" ] && cmp -s "$work_dir/candidate" "$target"; then exit 0; fi
+plasticine_whole_file_backup_if_changed "$target" "$work_dir/candidate" \
+    "$backup_dir" config.toml
+if [ -f "$target" ]; then
+    : > "$work_dir/modes"
+    plasticine_whole_file_record_mode "$target" "$dest_dir" 644 \
+        "$work_dir/modes" herdr
+    plasticine_whole_file_publish_modes "$work_dir/modes" "$pending_mode" "$backup_dir"
+fi
+plasticine_whole_file_secure_backup_dir "$backup_dir"
+: > "$reload_pending"
+{{- end }}

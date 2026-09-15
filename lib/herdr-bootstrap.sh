@@ -101,7 +101,9 @@ plasticine_herdr_preview() {
     printf '%s\n' \
         '  Missing: fully download https://herdr.dev/install.sh, then run it with HERDR_INSTALL_DIR in private candidate storage.' \
         '  Supported direct install: query https://herdr.dev/latest.json, then run herdr update without --handoff only when outdated.' \
-        "  destination: $herdr_target; no package manager, sudo, aliases, shell edits, configuration, sessions, server launch, or agent integrations." \
+        "  destination: $herdr_target; configure new panes to use Zsh after validating the candidate with Herdr." \
+        '  Existing unrelated config.toml settings are retained; a changed file is backed up and a running server is reloaded without stopping panes.' \
+        '  No package manager, sudo, aliases, shell edits, sessions, server launch, or agent integrations.' \
         '  The official installer verifies manifest-provided SHA-256 within the same herdr.dev trust boundary; it is not an independent signature.' \
         '  Native update prompts remain native and explicit; refusal or required unattended interaction fails with retry guidance.'
     case :$PATH: in *:"$herdr_install_dir":*) ;; *) printf '  PATH: %s is not currently present; select shell too or add it yourself.\n' "$herdr_install_dir" ;; esac

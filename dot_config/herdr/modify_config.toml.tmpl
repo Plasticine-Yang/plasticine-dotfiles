@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+{{ template "herdr-config" . }}
+
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-herdr-config.XXXXXX")
+trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
+cat > "$work_dir/input"
+plasticine_herdr_config_compose "$work_dir/input" "$work_dir/output"
+cat "$work_dir/output"

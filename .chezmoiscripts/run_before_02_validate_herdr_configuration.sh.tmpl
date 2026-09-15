@@ -1,0 +1,20 @@
+{{- if has "herdr" .tools -}}
+#!/bin/sh
+set -eu
+
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+{{ template "whole-file-protection" . }}
+
+for command_name in awk cat chmod cmp mkdir mktemp rm stat; do
+    command -v "$command_name" >/dev/null 2>&1 || {
+        printf 'plasticine-dotfiles: herdr: missing local command: %s\n' "$command_name" >&2
+        exit 1
+    }
+done
+plasticine_whole_file_validate_dir "$dest_dir/.config" herdr
+plasticine_whole_file_validate_dir "$dest_dir/.config/herdr" herdr
+plasticine_whole_file_validate_dir "$dest_dir/.plasticine" herdr
+plasticine_whole_file_validate_dir "$dest_dir/.plasticine/backups" herdr
+plasticine_whole_file_validate_dir "$dest_dir/.plasticine/backups/herdr" herdr
+plasticine_whole_file_validate_file "$dest_dir/.config/herdr/config.toml" herdr
+{{- end }}

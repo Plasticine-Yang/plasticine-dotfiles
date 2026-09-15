@@ -208,7 +208,9 @@ Plasticine 只整体管理以下九个文件：
 
 `~/.local/bin/herdr` 的稳定 direct install 过期时，Plasticine 调用原生命令 `herdr update`，随后再次核对版本。不会传 `--handoff`，不会替 Herdr 回答确认、停止 server/session 或把 `-y` 当作 native process-control 授权；若旧 server 需要人为干预，更新失败并提示在终端中重试。当前稳定版本保持不变。PATH 中其他归属的当前版本可以保留；过期的 Homebrew、mise、Nix 或其他外部归属必须由其 Owner 更新，Plasticine 不会覆盖或另装副本。preview/custom channel、异常版本、损坏命令以及比 stable manifest 更新的版本也不会被静默切换或降级。
 
-此 Feature 只维护命令，不启动 Herdr UI/server、不创建 session、不安装 agent integration，也不创建、读取、迁移或清理 Herdr 配置、插件、缓存和 session 数据。它不创建 alias 或修改 shell 文件；只选 Herdr 时，Owner 需自行将 `~/.local/bin` 加入 `PATH`，同时选择 `shell` 时可复用现有共享 PATH。元数据、官方 installer、上游校验、候选健康、native update、发布或最终目标检查失败都返回非零；当前已有命令和 native state 尽量保留，可排除提示的问题后安全重跑。
+此 Feature 还维护 `~/.config/herdr/config.toml` 中 `[terminal]` 的 `default_shell` 与 `shell_mode`：渲染时解析本机 Zsh 绝对路径，并固定使用非 login 的交互式 Zsh，从而不依赖启动 Herdr server 的 `SHELL` 环境变量。已有主题、快捷键及其他 Owner 配置会原样保留；发生变化前，原文件会备份到 `~/.plasticine/backups/herdr/` 并保留原权限。候选配置先通过 `herdr config check`，应用后若 server 正在运行则执行 `herdr server reload-config`，因此新建 pane 立即使用 Zsh，既有 pane 保持不变且不会被终止。没有可用 Zsh 时会要求同时选择 `shell` 或先安装 Zsh，不会退回 `/bin/sh`。
+
+除上述两个终端键外，此 Feature 不启动 Herdr UI/server、不创建 session、不安装 agent integration，也不迁移或清理 Herdr 插件、缓存和 session 数据。它不创建 alias 或修改 shell 文件；只选 Herdr 时，Owner 仍需自行将 `~/.local/bin` 加入 `PATH`，同时选择 `shell` 时可复用现有共享 PATH。元数据、官方 installer、上游校验、候选健康、配置校验、native update、发布、reload 或最终目标检查失败都返回非零；当前已有命令、配置备份和 native state 尽量保留，可排除提示的问题后安全重跑。
 
 ## Zsh 环境（`--shell`）
 

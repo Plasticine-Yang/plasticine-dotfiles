@@ -23,6 +23,16 @@ write_herdr() {
 #!/bin/sh
 case ${1:-} in
     --version) printf '%s\n' 'herdr @VERSION@' ;;
+    config)
+        [ "${2:-}" = check ] || exit 93
+        grep -Fq 'default_shell = "' "$HERDR_CONFIG_PATH" || exit 94
+        grep -Fq 'shell_mode = "non_login"' "$HERDR_CONFIG_PATH" || exit 95 ;;
+    status)
+        [ "${2:-}" = server ] || exit 96
+        [ "${PLASTICINE_TEST_HERDR_SERVER_RUNNING:-0}" = 1 ] ;;
+    server)
+        [ "${2:-}" = reload-config ] || exit 97
+        printf '%s\n' reload-config >> "$PLASTICINE_TEST_HERDR_COMMANDS" ;;
     channel) [ "${2:-}" = show ] || exit 91; printf '%s\n' '@CHANNEL@' ;;
     update)
         printf '%s\n' update >> "$PLASTICINE_TEST_HERDR_COMMANDS"
@@ -132,21 +142,48 @@ run() {
     PLASTICINE_TEST_HERDR_INSTALL=${PLASTICINE_TEST_HERDR_INSTALL:-ok} \
     PLASTICINE_TEST_HERDR_FAIL=${PLASTICINE_TEST_HERDR_FAIL:-} \
     PLASTICINE_TEST_HERDR_PUBLISH=${PLASTICINE_TEST_HERDR_PUBLISH:-} \
+    PLASTICINE_TEST_HERDR_SERVER_RUNNING=${PLASTICINE_TEST_HERDR_SERVER_RUNNING:-0} \
         "$repo_dir/install.sh" -y --herdr "$@"
 }
 
 # Missing installation uses the downloaded official script in private staging,
-# publishes safely, and converges without shell/config/session effects.
-s=$root/missing; run "$s" 1.2.3 > "$s.out"
+# publishes safely, and converges the Herdr terminal configuration on Zsh while
+# preserving unrelated Owner settings and modes.
+s=$root/missing; mkdir -p "$s/home/.config/herdr"
+cat > "$s/home/.config/herdr/config.toml" <<'EOF'
+[theme]
+name = "tokyo-night"
+EOF
+cp "$s/home/.config/herdr/config.toml" "$s/config-before"
+chmod 640 "$s/home/.config/herdr/config.toml"
+run "$s" 1.2.3 > "$s.out"
 [ "$("$s/home/.local/bin/herdr" --version)" = 'herdr 1.2.3' ] || fail 'missing install did not reach target'
 [ "$(grep -Fc installer "$s/commands")" -eq 1 ] || fail 'official installer was not used exactly once'
 grep -Fq 'action=install' "$s.out" || fail 'install result missing'
 [ ! -e "$s/home/.zshrc" ] || fail 'standalone selection edited shell'
-mkdir -p "$s/home/.config/herdr"; printf session > "$s/home/.config/herdr/session"
+expected_zsh=$(PATH="$s/home/.local/bin:$bin:/usr/bin:/bin" command -v zsh)
+grep -Fq 'name = "tokyo-night"' "$s/home/.config/herdr/config.toml" || fail 'Owner Herdr setting was not preserved'
+grep -Fq "default_shell = \"$expected_zsh\"" "$s/home/.config/herdr/config.toml" || fail 'Herdr default shell did not converge on Zsh'
+grep -Fq 'shell_mode = "non_login"' "$s/home/.config/herdr/config.toml" || fail 'Herdr shell mode did not converge'
+[ "$(grep -Fc 'default_shell = ' "$s/home/.config/herdr/config.toml")" -eq 1 ] || fail 'Herdr default shell key was duplicated'
+[ "$(grep -Fc 'shell_mode = ' "$s/home/.config/herdr/config.toml")" -eq 1 ] || fail 'Herdr shell mode key was duplicated'
+backup=$(find "$s/home/.plasticine/backups/herdr" -name 'config.toml.plasticine-backup-*')
+cmp -s "$s/config-before" "$backup" || fail 'Herdr config backup differs from original'
+[ "$(stat -c '%a' "$s/home/.config/herdr/config.toml" 2>/dev/null || stat -f '%Lp' "$s/home/.config/herdr/config.toml")" = 640 ] || fail 'Herdr config mode was not restored'
+printf session > "$s/home/.config/herdr/session"
 : > "$s/network"; : > "$s/commands"; run "$s" 1.2.3 > "$s.current"
 [ "$(wc -l < "$s/network" | tr -d ' ')" -eq 1 ] || fail 'current install downloaded installer/assets'
 [ ! -s "$s/commands" ] || fail 'current install invoked updater or launch'
 [ "$(cat "$s/home/.config/herdr/session")" = session ] || fail 'native state changed'
+[ "$(find "$s/home/.plasticine/backups/herdr" -name 'config.toml.plasticine-backup-*' | wc -l | tr -d ' ')" -eq 1 ] || fail 'converged rerun created a redundant Herdr config backup'
+
+# A running server reloads the converged terminal policy without stopping panes.
+sed 's/shell_mode = "non_login"/shell_mode = "auto"/' \
+    "$s/home/.config/herdr/config.toml" > "$s/config-changed"
+mv "$s/config-changed" "$s/home/.config/herdr/config.toml"
+: > "$s/network"; : > "$s/commands"
+PLASTICINE_TEST_HERDR_SERVER_RUNNING=1 run "$s" 1.2.3 > "$s.reload"
+[ "$(cat "$s/commands")" = reload-config ] || fail 'running Herdr server did not reload configuration'
 
 # A later stable target uses only the direct native updater and verifies it.
 : > "$s/network"; : > "$s/commands"; PLASTICINE_TEST_HERDR_PAYLOAD=$fixture/herdr-1.3.0 run "$s" 1.3.0 > "$s.update"

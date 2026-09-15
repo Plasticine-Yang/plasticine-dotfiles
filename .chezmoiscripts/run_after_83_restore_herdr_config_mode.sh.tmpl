@@ -1,0 +1,8 @@
+{{- if has "herdr" .tools -}}
+#!/bin/sh
+set -eu
+dest_dir={{ template "shell-quote" .chezmoi.destDir }}
+pending_mode=$dest_dir/.plasticine/backups/herdr/pending-mode
+{{ template "whole-file-protection" . }}
+plasticine_whole_file_restore_modes "$pending_mode" "$dest_dir" herdr .config/herdr/config.toml
+{{- end }}
