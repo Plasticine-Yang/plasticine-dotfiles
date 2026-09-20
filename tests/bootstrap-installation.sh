@@ -259,15 +259,12 @@ set env(PLASTICINE_RELEASE_ASSET_DIR) $env(PLASTICINE_TEST_RELEASE_ASSETS)
 set env(PLASTICINE_DOTFILES_REPO_URL) $env(PLASTICINE_TEST_REPO)
 set env(PLASTICINE_CHEZMOI_BIN) $env(PLASTICINE_TEST_CHEZMOI)
 spawn $env(PLASTICINE_TEST_BOOTSTRAP)
-expect "选择要处理的工具"
-send "\r"
+expect -exact {ctrl+a select all}
+send -- "\r"
 expect -exact {Apply these changes? [y/N] }
-after 100
-send "n\r"
-expect {
-    eof {}
-    timeout { exit 124 }
-}
+send -- "n\r"
+expect -exact {plasticine-dotfiles: Cancelled; no changes were applied.}
+expect eof
 catch wait result
 exit [lindex $result 3]
 EOF
