@@ -121,6 +121,18 @@ jobs:
       - name: Run installer tests
         run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 installer ./tests/installer.sh
 
+      - name: Run local CLI tests
+        run: ./scripts/run-test.sh 30 cli ./tests/cli.sh
+
+      - name: Run self-update tests
+        run: ./scripts/run-test.sh 180 self-update ./tests/self-update.sh
+
+      - name: Run CLI bootstrap tests
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 bootstrap-installation ./tests/bootstrap-installation.sh
+
+      - name: Run diff configuration tests
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 diff-config ./tests/diff-config.sh
+
       - name: Run shell tests
         run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 300 shell ./tests/shell.sh
 

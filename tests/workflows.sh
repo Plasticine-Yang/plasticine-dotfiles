@@ -7,7 +7,8 @@ release=$repo_dir/.github/workflows/release.yml
 
 for suite in integration combined-installation chezmoi git-config installer shell \
     shell-runtime lazygit lazygit-runtime fnm fnm-runtime neovim neovim-runtime \
-    herdr release release-payload test-runner workflows ci-gate; do
+    herdr release release-payload cli self-update bootstrap-installation \
+    diff-config test-runner workflows ci-gate; do
     grep -Eq "scripts/run-test\.sh [0-9]+ $suite (\./)?tests/$suite\.sh" "$ci" || {
         printf 'CI does not run %s through the timeout runner\n' "$suite" >&2
         exit 1
