@@ -261,9 +261,13 @@ set env(PLASTICINE_CHEZMOI_BIN) $env(PLASTICINE_TEST_CHEZMOI)
 spawn $env(PLASTICINE_TEST_BOOTSTRAP)
 expect "选择要处理的工具"
 send "\r"
-expect -exact {Apply these changes?}
+expect -exact {Apply these changes? [y/N] }
+after 100
 send "n\r"
-expect eof
+expect {
+    eof {}
+    timeout { exit 124 }
+}
 catch wait result
 exit [lindex $result 3]
 EOF
