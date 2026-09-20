@@ -140,6 +140,9 @@
 {{- $test = promptBool "配置完成后测试 GitHub SSH 连接" false -}}
 {{- end -}}
 {{- end -}}
+[diff]
+    exclude = ["scripts"]
+
 [data]
     tools = {{ $tools | default (list) | toJson }}
     plasticineShellTargets = {{ $shellTargets | toJson }}
