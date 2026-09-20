@@ -18,6 +18,216 @@ log() {
     printf 'plasticine-dotfiles: %s\n' "$1"
 }
 
+install_cli_sha256() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk 'NF == 2 {print tolower($1)}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk 'NF == 2 {print tolower($1)}'
+    else
+        error 'Cannot install the local command without sha256sum or shasum.'
+        return 1
+    fi
+}
+
+install_cli_real_directory() {
+    install_cli_directory=$1
+    if [ -L "$install_cli_directory" ] ||
+        { [ -e "$install_cli_directory" ] && [ ! -d "$install_cli_directory" ]; }; then
+        error "CLI install path is not a real directory: $install_cli_directory"
+        return 1
+    fi
+    mkdir -p "$install_cli_directory"
+}
+
+install_release_cli() {
+    [ -n "$readonly_release_version" ] || return 0
+    install_cli_invocation_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P) || return 1
+    if [ -f "$install_cli_invocation_dir/VERSION" ] &&
+        [ ! -L "$install_cli_invocation_dir/VERSION" ] &&
+        [ -x "$install_cli_invocation_dir/plasticine" ] &&
+        [ -x "$install_cli_invocation_dir/self-update" ] &&
+        [ "$(cat "$install_cli_invocation_dir/VERSION")" = "$readonly_release_version" ]; then
+        return 0
+    fi
+
+    install_cli_prefix=$HOME/.local
+    install_cli_bin=$install_cli_prefix/bin
+    install_cli_root=$install_cli_prefix/share/plasticine
+    install_cli_releases=$install_cli_root/releases
+    install_cli_release=$install_cli_releases/$readonly_release_version
+    install_cli_launcher=$install_cli_bin/plasticine
+    install_cli_current=$install_cli_root/current
+    install_cli_base_url=$readonly_release_base_url/$readonly_release_version
+
+    for install_cli_directory in "$install_cli_prefix" "$install_cli_bin" \
+        "$install_cli_prefix/share" "$install_cli_root" "$install_cli_releases"; do
+        install_cli_real_directory "$install_cli_directory" || return 1
+    done
+    if [ -L "$install_cli_launcher" ] ||
+        { [ -e "$install_cli_launcher" ] && [ ! -f "$install_cli_launcher" ]; }; then
+        error "Refusing to overwrite unsafe command target: $install_cli_launcher"
+        return 1
+    fi
+    if [ -e "$install_cli_current" ] && [ ! -L "$install_cli_current" ]; then
+        error "Current CLI selector is not a symlink: $install_cli_current"
+        return 1
+    fi
+
+    install_cli_stage=$(mktemp -d "$install_cli_root/.install.XXXXXX") || return 1
+    install_cli_cleanup() { rm -rf "$install_cli_stage"; }
+    trap install_cli_cleanup EXIT HUP INT TERM
+    install_cli_archive=$install_cli_stage/plasticine-cli.tar.gz
+    install_cli_sums=$install_cli_stage/SHA256SUMS
+    if [ -n "${PLASTICINE_RELEASE_ASSET_DIR:-}" ]; then
+        case $PLASTICINE_RELEASE_ASSET_DIR in
+            /*) ;;
+            *) error 'PLASTICINE_RELEASE_ASSET_DIR must be absolute.'; return 1 ;;
+        esac
+        for install_cli_asset in plasticine-cli.tar.gz SHA256SUMS; do
+            install_cli_source=$PLASTICINE_RELEASE_ASSET_DIR/$install_cli_asset
+            [ -f "$install_cli_source" ] && [ ! -L "$install_cli_source" ] || {
+                error "Local Release asset is unavailable: $install_cli_source"
+                return 1
+            }
+            cp "$install_cli_source" "$install_cli_stage/$install_cli_asset" || return 1
+        done
+    else
+        for install_cli_asset in plasticine-cli.tar.gz SHA256SUMS; do
+            curl --proto '=https' --proto-redir '=https' -fsSL \
+                -o "$install_cli_stage/$install_cli_asset" \
+                "$install_cli_base_url/$install_cli_asset" || {
+                error "Release asset download failed: $install_cli_asset"
+                return 1
+            }
+        done
+    fi
+
+    install_cli_expected=$(awk '
+        $2 == "plasticine-cli.tar.gz" && NF == 2 && $1 ~ /^[0-9A-Fa-f]{64}$/ {
+            digest=tolower($1); matches++
+        }
+        END { if (matches == 1) print digest; else exit 1 }
+    ' "$install_cli_sums") || {
+        error 'SHA256SUMS does not contain exactly one valid plasticine-cli.tar.gz entry.'
+        return 1
+    }
+    install_cli_actual=$(install_cli_sha256 "$install_cli_archive") || return 1
+    [ "$install_cli_actual" = "$install_cli_expected" ] || {
+        error 'SHA-256 mismatch: plasticine-cli.tar.gz'
+        return 1
+    }
+
+    install_cli_candidate=$install_cli_stage/package
+    mkdir "$install_cli_candidate"
+    tar -tzf "$install_cli_archive" | awk '
+        $0 == "./" || $0 == "plasticine" || $0 == "./plasticine" ||
+            $0 == "install.sh" || $0 == "./install.sh" ||
+            $0 == "self-update" || $0 == "./self-update" ||
+            $0 == "VERSION" || $0 == "./VERSION" { next }
+        { exit 1 }
+    ' || {
+        error 'Release CLI package contains an unsafe or unexpected path.'
+        return 1
+    }
+    tar -xzf "$install_cli_archive" -C "$install_cli_candidate" || {
+        error 'Could not extract plasticine-cli.tar.gz.'
+        return 1
+    }
+    [ "$(find "$install_cli_candidate" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d ' ')" -eq 4 ] &&
+        [ "$(find "$install_cli_candidate" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" -eq 4 ] &&
+        [ -x "$install_cli_candidate/plasticine" ] &&
+        [ -x "$install_cli_candidate/install.sh" ] &&
+        [ -x "$install_cli_candidate/self-update" ] &&
+        [ -f "$install_cli_candidate/VERSION" ] && [ ! -L "$install_cli_candidate/VERSION" ] || {
+        error 'Release CLI package layout is invalid.'
+        return 1
+    }
+    [ "$(cat "$install_cli_candidate/VERSION")" = "$readonly_release_version" ] &&
+        [ "$("$install_cli_candidate/plasticine" --version)" = "plasticine $readonly_release_version" ] || {
+        error 'Release CLI package health check failed.'
+        return 1
+    }
+
+    install_cli_launcher_stage=$install_cli_stage/launcher
+    cat >"$install_cli_launcher_stage" <<'EOF'
+#!/bin/sh
+set -eu
+
+plasticine_error() {
+    printf 'plasticine: %s\n' "$1" >&2
+}
+
+launcher_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P) || {
+    plasticine_error 'could not resolve the launcher directory.'
+    exit 1
+}
+install_prefix=$(dirname -- "$launcher_dir")
+current_package=$install_prefix/share/plasticine/current
+package_cli=$current_package/plasticine
+
+if [ ! -f "$package_cli" ] || [ ! -x "$package_cli" ]; then
+    plasticine_error 'current version package is unavailable.'
+    exit 1
+fi
+
+exec "$package_cli" "$@"
+EOF
+    chmod 755 "$install_cli_launcher_stage"
+    if [ -e "$install_cli_launcher" ] &&
+        ! cmp -s "$install_cli_launcher_stage" "$install_cli_launcher"; then
+        error "Refusing to overwrite non-Plasticine command: $install_cli_launcher"
+        return 1
+    fi
+
+    if [ -e "$install_cli_release" ] || [ -L "$install_cli_release" ]; then
+        if ! { [ -d "$install_cli_release" ] && [ ! -L "$install_cli_release" ] &&
+            [ -x "$install_cli_release/plasticine" ] &&
+            [ -x "$install_cli_release/install.sh" ] &&
+            [ -x "$install_cli_release/self-update" ] &&
+            [ -f "$install_cli_release/VERSION" ] && [ ! -L "$install_cli_release/VERSION" ] &&
+            [ "$(find "$install_cli_release" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d ' ')" -eq 4 ] &&
+            [ "$(find "$install_cli_release" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" -eq 4 ] &&
+            cmp -s "$install_cli_candidate/plasticine" "$install_cli_release/plasticine" &&
+            cmp -s "$install_cli_candidate/install.sh" "$install_cli_release/install.sh" &&
+            cmp -s "$install_cli_candidate/self-update" "$install_cli_release/self-update" &&
+            cmp -s "$install_cli_candidate/VERSION" "$install_cli_release/VERSION"; }; then
+            error "Existing CLI release is unsafe or invalid: $install_cli_release"
+            return 1
+        fi
+    else
+        mv "$install_cli_candidate" "$install_cli_release" || return 1
+    fi
+
+    if [ ! -e "$install_cli_launcher" ]; then
+        install_cli_launcher_publish=$(mktemp "$install_cli_bin/.plasticine.XXXXXX") || return 1
+        if ! cp "$install_cli_launcher_stage" "$install_cli_launcher_publish" ||
+            ! chmod 755 "$install_cli_launcher_publish" ||
+            ! mv "$install_cli_launcher_publish" "$install_cli_launcher"; then
+            rm -f "$install_cli_launcher_publish"
+            return 1
+        fi
+    fi
+    chmod 755 "$install_cli_launcher" || return 1
+
+    install_cli_current_stage=$install_cli_root/.current.$$
+    [ ! -e "$install_cli_current_stage" ] && [ ! -L "$install_cli_current_stage" ] || {
+        error "Temporary CLI selector already exists: $install_cli_current_stage"
+        return 1
+    }
+    ln -s "releases/$readonly_release_version" "$install_cli_current_stage"
+    mv -f "$install_cli_current_stage" "$install_cli_current"
+
+    trap - EXIT HUP INT TERM
+    install_cli_cleanup
+    case :${PATH:-}: in
+        *:"$install_cli_bin":*) log 'Installed command: plasticine' ;;
+        *)
+            log "Installed command: $install_cli_launcher"
+            log "Add it to PATH for future shells: export PATH=\"$install_cli_bin:\$PATH\""
+            ;;
+    esac
+}
+
 usage() {
     cat <<'EOF'
 Usage: install.sh [options]
@@ -131,6 +341,11 @@ else
         exit 2
     fi
 fi
+
+# A released bootstrap publishes its durable local command before the Owner
+# confirms any Feature changes. Source-checkout installers have no immutable
+# version metadata and intentionally remain development-only entrypoints.
+install_release_cli || exit 1
 
 [ -f "$(dirname -- "$0")/lib/chezmoi-bootstrap.sh" ] || { error 'The installer does not contain lib/chezmoi-bootstrap.sh.'; exit 1; }
 # shellcheck disable=SC1091
