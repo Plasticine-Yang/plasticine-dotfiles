@@ -1,6 +1,6 @@
 # Plasticine 本地命令、显式自更新与清晰配置预览
 
-Status: ready-for-agent
+Status: done
 
 ## Problem Statement
 

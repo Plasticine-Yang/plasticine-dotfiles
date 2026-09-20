@@ -1,6 +1,6 @@
 # 01: 发布并安装 plasticine 本地命令
 
-Status: ready-for-agent
+Status: done
 
 按 [统一规格](../spec.md) 建立稳定启动入口和版本化发布包，复用现有选装流程。
 

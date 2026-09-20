@@ -1,6 +1,6 @@
 # 03: 初始化时默认隐藏 chezmoi diff 脚本预览
 
-Status: ready-for-agent
+Status: done
 
 按 [规格](../spec.md) 实现持久的 diff 展示默认值。
 

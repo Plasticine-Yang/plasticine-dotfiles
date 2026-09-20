@@ -18,6 +18,29 @@ chezmoi 维护和 source 获取属于安装器前置工作，会发生在 Featur
 
 安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 Git 配置（`git-config`）、GitHub SSH、fnm（`fnm`）、Herdr（`herdr`）、Lazygit（`lazygit`）、Neovim（`neovim`）、Zsh 环境（`shell`）和默认登录 Shell（`login-shell`）；初始选择为空，不选择某个工具表示本次不处理它。
 
+## 本地 `plasticine` 命令
+
+一行安装会在 Feature 确认前安装当前 Release 的本地版本包和稳定入口 `~/.local/bin/plasticine`。因此即使工具选择为空、未选择 `shell` 或最后取消应用，入口也会保留；它不会为了设置命令而隐式选择工具或修改 shell 配置。
+
+安装后不带参数运行 `plasticine` 会再次进入交互式工具选择。初始选择仍为空，未选择的工具不会被处理或卸载。自动化时可继续使用安装器已有的 `-y` 和 Feature 参数，例如：
+
+```sh
+plasticine
+plasticine -y --fnm --neovim
+plasticine --help
+plasticine --version
+```
+
+普通运行始终使用本机当前的 Plasticine Release，不会自动查询或升级安装器。需要升级 Plasticine 本身时显式运行：
+
+```sh
+plasticine self-update
+```
+
+`self-update` 只下载、验证并切换到最新稳定 Plasticine Release；它不选择或维护工具，不运行 `chezmoi init` / `apply`，也不切换 chezmoi source。它与 `chezmoi update` 不同：后者是 chezmoi 的原生命令，会更新 source 后应用配置，并不更新本地 `plasticine` 版本包。
+
+默认入口目录是 `~/.local/bin`。若该目录已在 `PATH` 中，安装结束会提示直接运行 `plasticine`；否则会显示可立即执行的绝对路径和准确的 `export PATH=...` 指引，但不会擅自改写 shell 启动文件。
+
 ## 自动化调用
 
 `-y` 跳过工具选择和最终确认、保留变更预览并直接应用，但不会自动选择任何工具，也不会代替 `sudo`、Homebrew 或 `chsh` 的原生凭据提示：
@@ -111,7 +134,9 @@ chezmoi apply
 chezmoi update
 ```
 
-重新选择工具或更换私钥时，再运行一行安装命令或本地 `install.sh`。不选择某个工具表示本次不处理它，不会自动卸载工具或删除已有配置。
+重新选择工具或更换私钥时运行 `plasticine`，也可以重跑一行安装命令。不选择某个工具表示本次不处理它，不会自动卸载工具或删除已有配置。
+
+Plasticine 生成的 chezmoi 配置默认从 `chezmoi diff` 中隐藏待执行脚本的正文，只展示真实的受管配置差异；工具维护摘要和最终确认仍会照常显示。空 diff 只表示没有可见的配置文件差异，不代表下一次 `chezmoi apply` 没有维护动作：必要的 before/after 脚本仍会执行。
 
 一行 Release 安装固定到发布时验证过的 source 与插件版本，后续直接运行 `chezmoi apply` 也会识别持久 snapshot 标记并继续做离线运行时验证。`chezmoi update` 以及插件管理器的原生更新命令属于安装后的显式 moving-upstream 操作，可能按本机 Git/网络策略访问 GitHub。它们不再是新机器完成 Release 安装的前提。
 
@@ -291,7 +316,11 @@ fi
 CHEZMOI_BIN=/path/to/chezmoi ./tests/integration.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/combined-installation.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/chezmoi.sh
+CHEZMOI_BIN=/path/to/chezmoi ./tests/diff-config.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/installer.sh
+CHEZMOI_BIN=/path/to/chezmoi ./tests/bootstrap-installation.sh
+CHEZMOI_BIN=/path/to/chezmoi ./tests/cli.sh
+./tests/self-update.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/shell.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/lazygit.sh
 CHEZMOI_BIN=/path/to/chezmoi ./tests/lazygit-runtime.sh
@@ -315,6 +344,6 @@ CHEZMOI_BIN=/path/to/chezmoi ./tests/release.sh
 
 本仓库使用独立的 SemVer 版本线，从 `v0.1.0` 开始。日常提交和 Pull Request 会在 Ubuntu 与 macOS 上执行完整测试，并在 Debian 12 的 x86_64/arm64 容器中执行 Shell 和安装器回归，以及真实 APT Zsh、Antidote 和当前插件的安装、启动与重跑检查。Debian 容器使用一次性非 root 用户，登录 shell 预设为目标路径；真实 `chsh` 账户认证仍需在独立 Debian 终端验证，不能由容器测试替代。稳定版本只能从 GitHub Actions 的 `Release` workflow 手动触发，并输入 `vMAJOR.MINOR.PATCH` 格式的版本号。
 
-发布流程先等待并复用触发时 `main` commit 的成功 push CI，精确核对 Ubuntu、macOS 和 Debian x86_64/arm64 四个 job；不会在 Release workflow 中重复执行完整测试矩阵。随后通过 `scripts/release-gate.sh` 统一构建并验证 `install.sh`、`plasticine-source.bundle`、`plasticine-managed-plugins.tar.gz` 和 `SHA256SUMS`，先创建 draft Release，核对 tag、commit 与四个附件后再发布。该门禁可从非 Git 工作目录运行，并支持相对输出目录，避免本地与 GitHub Actions 使用不同的发布路径。发布版安装器固定到该 Release 的完整 commit，并内含 source/plugin payload 与 chezmoi `2.72.1` 的版本/完整性数据；随 source 固定的 Lazygit `0.65.1`、Neovim `0.12.5` 与 Neovim/Zsh 插件快照也只会随新的 Base Dotfiles Release 前进。因此历史 Release 的安装内容不会随上游新版本或 `main` 推进而改变，而顶层 `/releases/latest/download/install.sh` 仍只负责选择最新 Base Dotfiles 稳定版本。
+发布流程先等待并复用触发时 `main` commit 的成功 push CI，精确核对 Ubuntu、macOS 和 Debian x86_64/arm64 四个 job；不会在 Release workflow 中重复执行完整测试矩阵。随后通过 `scripts/release-gate.sh` 统一构建并验证 `install.sh`、`plasticine-cli.tar.gz`、`plasticine-source.bundle`、`plasticine-managed-plugins.tar.gz` 和 `SHA256SUMS`，先创建 draft Release，核对 tag、commit 与五个附件后再发布。该门禁可从非 Git 工作目录运行，并支持相对输出目录，避免本地与 GitHub Actions 使用不同的发布路径。发布版安装器固定到该 Release 的完整 commit，并内含 source/plugin payload 与 chezmoi `2.72.1` 的版本/完整性数据；随 source 固定的 Lazygit `0.65.1`、Neovim `0.12.5` 与 Neovim/Zsh 插件快照也只会随新的 Base Dotfiles Release 前进。因此历史 Release 的安装内容不会随上游新版本或 `main` 推进而改变，而顶层 `/releases/latest/download/install.sh` 仍只负责选择最新 Base Dotfiles 稳定版本。
 
 发布前应在仓库设置中将 `CI / Test (ubuntu-24.04)`、`CI / Test (macos-14)`、`CI / Debian 12 shell (ubuntu-24.04)` 和 `CI / Debian 12 shell (ubuntu-24.04-arm)` 配置为 `main` 的 required checks，并启用 GitHub immutable releases。CI 和 Release workflow 中使用的第三方 Actions 固定到完整 commit，由 Dependabot 每月提出更新。

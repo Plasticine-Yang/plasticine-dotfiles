@@ -1,6 +1,6 @@
 # 02: 实现 plasticine self-update
 
-Status: ready-for-agent
+Status: done
 
 依赖任务 01 的本地入口与版本包接口，按 [统一规格](../spec.md) 实现显式自更新。
 
