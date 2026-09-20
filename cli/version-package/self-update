@@ -1,0 +1,183 @@
+#!/bin/sh
+set -eu
+
+error() { printf 'plasticine: self-update: %s\n' "$1" >&2; }
+
+package_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P) || {
+    error 'could not resolve the current version package.'
+    exit 1
+}
+version_file=$package_dir/VERSION
+[ -f "$version_file" ] && [ ! -L "$version_file" ] || {
+    error 'current version metadata is unavailable.'
+    exit 1
+}
+IFS= read -r current_version <"$version_file" || {
+    error 'current version metadata is invalid.'
+    exit 1
+}
+if [ "$(wc -l <"$version_file" | tr -d ' ')" -ne 1 ] ||
+    ! printf '%s\n' "$current_version" |
+        LC_ALL=C grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+    error 'current version metadata is invalid.'
+    exit 1
+fi
+
+data_root=$(dirname -- "$(dirname -- "$package_dir")")
+releases_dir=$data_root/releases
+current_link=$data_root/current
+install_prefix=$(dirname -- "$(dirname -- "$data_root")")
+launcher=$install_prefix/bin/plasticine
+api_url=https://api.github.com/repos/Plasticine-Yang/plasticine-dotfiles/releases/latest
+release_download_base=https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/download
+archive_name=plasticine-cli.tar.gz
+checksums_name=SHA256SUMS
+
+lock_dir=$data_root/.self-update.lock
+if ! mkdir "$lock_dir" 2>/dev/null; then
+    error 'another self-update is already running.'
+    exit 1
+fi
+work_dir=$(mktemp -d "$data_root/.self-update.XXXXXX") || {
+    rmdir "$lock_dir" 2>/dev/null || true
+    error 'could not create update staging directory.'
+    exit 1
+}
+cleanup() {
+    rm -rf "$work_dir"
+    rmdir "$lock_dir" 2>/dev/null || true
+}
+trap cleanup EXIT HUP INT TERM
+
+release_json=$work_dir/latest.json
+if ! curl --proto '=https' --proto-redir '=https' -fsSL \
+    -o "$release_json" "$api_url"; then
+    error 'latest stable Release discovery failed.'
+    exit 1
+fi
+latest_version=$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$release_json")
+if ! printf '%s\n' "$latest_version" |
+    LC_ALL=C grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+    error 'latest stable Release metadata is invalid.'
+    exit 1
+fi
+
+if [ "$latest_version" = "$current_version" ]; then
+    printf 'plasticine: %s is already the latest stable version.\n' "$current_version"
+    exit 0
+fi
+
+release_url=$release_download_base/$latest_version
+checksums=$work_dir/$checksums_name
+archive=$work_dir/$archive_name
+if ! curl --proto '=https' --proto-redir '=https' -fsSL \
+    -o "$checksums" "$release_url/$checksums_name"; then
+    error "download failed: $checksums_name"
+    exit 1
+fi
+if ! curl --proto '=https' --proto-redir '=https' -fsSL \
+    -o "$archive" "$release_url/$archive_name"; then
+    error "download failed: $archive_name"
+    exit 1
+fi
+
+expected_digest=$(awk -v name="$archive_name" '
+    NF == 2 && ($2 == name || $2 == "*" name) { print $1; matches++ }
+    END { if (matches != 1) exit 1 }
+' "$checksums") || {
+    error "$checksums_name does not contain exactly one $archive_name entry."
+    exit 1
+}
+if ! printf '%s\n' "$expected_digest" | LC_ALL=C grep -Eq '^[0-9a-f]{64}$'; then
+    error "$archive_name checksum is invalid."
+    exit 1
+fi
+actual_digest=$(shasum -a 256 "$archive" | awk '{ print $1 }') || {
+    error "could not calculate $archive_name checksum."
+    exit 1
+}
+[ "$actual_digest" = "$expected_digest" ] || {
+    error "SHA-256 mismatch: $archive_name"
+    exit 1
+}
+
+candidate=$work_dir/candidate
+mkdir "$candidate"
+archive_manifest=$work_dir/archive-manifest
+if ! tar -tzf "$archive" >"$archive_manifest" 2>/dev/null ||
+    ! awk '
+        $0 == "plasticine" { cli++ ; next }
+        $0 == "install.sh" { installer++ ; next }
+        $0 == "self-update" { updater++ ; next }
+        $0 == "VERSION" { version++ ; next }
+        { bad=1 }
+        END { exit bad || cli != 1 || installer != 1 || updater != 1 || version != 1 }
+    ' "$archive_manifest"; then
+    error 'candidate archive layout is invalid.'
+    exit 1
+fi
+if ! tar -xzf "$archive" -C "$candidate"; then
+    error "could not extract $archive_name."
+    exit 1
+fi
+for name in plasticine install.sh self-update VERSION; do
+    [ -f "$candidate/$name" ] && [ ! -L "$candidate/$name" ] || {
+        error "candidate package layout is invalid."
+        exit 1
+    }
+done
+for name in plasticine install.sh self-update; do
+    [ -x "$candidate/$name" ] || {
+        error "candidate package executable is invalid: $name"
+        exit 1
+    }
+done
+IFS= read -r candidate_version <"$candidate/VERSION" || {
+    error 'candidate package version is invalid.'
+    exit 1
+}
+if [ "$(wc -l <"$candidate/VERSION" | tr -d ' ')" -ne 1 ] ||
+    [ "$candidate_version" != "$latest_version" ]; then
+    error 'candidate package version does not match the discovered Release.'
+    exit 1
+fi
+health_output=$("$candidate/plasticine" --version 2>/dev/null) || {
+    error 'candidate package health check failed.'
+    exit 1
+}
+[ "$health_output" = "plasticine $latest_version" ] || {
+    error 'candidate package health check returned an unexpected version.'
+    exit 1
+}
+[ -f "$launcher" ] && [ -x "$launcher" ] || {
+    error 'installed launcher is unavailable.'
+    exit 1
+}
+
+published=$releases_dir/$latest_version
+[ ! -e "$published" ] && [ ! -L "$published" ] || {
+    error "release package already exists: $latest_version"
+    exit 1
+}
+mv "$candidate" "$published" || {
+    error 'could not publish candidate package.'
+    exit 1
+}
+next_link=$data_root/.current.$latest_version.$$
+ln -s "releases/$latest_version" "$next_link" || {
+    error 'could not prepare the current version switch.'
+    exit 1
+}
+case $(uname -s) in
+    Darwin) switch_status=0; mv -fh "$next_link" "$current_link" || switch_status=$? ;;
+    Linux) switch_status=0; mv -fT "$next_link" "$current_link" || switch_status=$? ;;
+    *) switch_status=1 ;;
+esac
+if [ "$switch_status" -ne 0 ]; then
+    rm -f "$next_link"
+    rm -rf "$published"
+    error 'could not switch the current version.'
+    exit 1
+fi
+
+printf 'plasticine: updated from %s to %s.\n' "$current_version" "$latest_version"
