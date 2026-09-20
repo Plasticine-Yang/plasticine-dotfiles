@@ -28,6 +28,49 @@ tar -czf "$test_root/plugins.tar.gz" -C "$plugins_fixture" managed-plugins
         "$repo_dir/scripts/release-gate.sh" "$revision" assets v0.0.1 "$work_repo"
 )
 
+cat >"$test_root/expected-assets" <<'EOF'
+SHA256SUMS
+install.sh
+plasticine-cli.tar.gz
+plasticine-managed-plugins.tar.gz
+plasticine-source.bundle
+EOF
+find "$asset_dir" -mindepth 1 -maxdepth 1 -type f -exec basename {} \; |
+    LC_ALL=C sort >"$test_root/actual-assets"
+cmp -s "$test_root/expected-assets" "$test_root/actual-assets" || {
+    diff -u "$test_root/expected-assets" "$test_root/actual-assets" >&2 || true
+    printf '%s\n' 'release gate did not build the exact asset contract' >&2
+    exit 1
+}
+[ "$(wc -l <"$asset_dir/SHA256SUMS" | tr -d ' ')" -eq 4 ]
+for payload in install.sh plasticine-cli.tar.gz plasticine-managed-plugins.tar.gz \
+    plasticine-source.bundle; do
+    [ "$(awk -v asset="$payload" '$2 == asset { matches++ } END { print matches + 0 }' \
+        "$asset_dir/SHA256SUMS")" -eq 1 ] || {
+        printf 'SHA256SUMS does not cover %s exactly once\n' "$payload" >&2
+        exit 1
+    }
+done
+mkdir "$test_root/cli-package"
+tar -xzf "$asset_dir/plasticine-cli.tar.gz" -C "$test_root/cli-package"
+printf '%s\n' VERSION install.sh plasticine self-update | LC_ALL=C sort \
+    >"$test_root/expected-package"
+find "$test_root/cli-package" -mindepth 1 -maxdepth 1 -type f -exec basename {} \; |
+    LC_ALL=C sort >"$test_root/actual-package"
+cmp -s "$test_root/expected-package" "$test_root/actual-package" || {
+    printf '%s\n' 'CLI archive is not the required flat four-file package' >&2
+    exit 1
+}
+cmp -s "$asset_dir/install.sh" "$test_root/cli-package/install.sh" || {
+    printf '%s\n' 'release and packaged installers differ' >&2
+    exit 1
+}
+[ "$(cat "$test_root/cli-package/VERSION")" = v0.0.1 ]
+[ -x "$test_root/cli-package/plasticine" ]
+[ -x "$test_root/cli-package/install.sh" ]
+[ -x "$test_root/cli-package/self-update" ]
+[ ! -x "$test_root/cli-package/VERSION" ]
+
 # Exercise the generated installer's inlined bootstrap for both a missing and
 # an older managed chezmoi without relying on a live Release download.
 release_fixture=$test_root/release-fixture
@@ -173,6 +216,25 @@ if "$repo_dir/scripts/build-release.sh" "$revision" "$asset_dir" v0.0.1 "$work_r
 fi
 if "$repo_dir/scripts/build-release.sh" "$revision" "$test_root/invalid-version" v01.0.1 "$work_repo" >/dev/null 2>&1; then
     printf '%s\n' 'release builder accepted a non-canonical version' >&2
+    exit 1
+fi
+
+malformed_assets=$test_root/malformed-assets
+cp -R "$asset_dir" "$malformed_assets"
+mkdir "$test_root/malformed-package"
+tar -xzf "$malformed_assets/plasticine-cli.tar.gz" -C "$test_root/malformed-package"
+printf '%s\n' unexpected >"$test_root/malformed-package/EXTRA"
+tar -czf "$malformed_assets/plasticine-cli.tar.gz" -C "$test_root/malformed-package" \
+    plasticine install.sh self-update VERSION EXTRA
+(
+    cd "$malformed_assets"
+    shasum -a 256 install.sh plasticine-cli.tar.gz plasticine-source.bundle \
+        plasticine-managed-plugins.tar.gz >SHA256SUMS
+)
+if CHEZMOI_BIN=${CHEZMOI_BIN:-$(command -v chezmoi)} \
+    "$repo_dir/scripts/verify-release.sh" "$malformed_assets" "$revision" v0.0.1 \
+        >/dev/null 2>&1; then
+    printf '%s\n' 'release verifier accepted an archive with an extra entry' >&2
     exit 1
 fi
 

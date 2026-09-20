@@ -97,7 +97,8 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$VERSION" dist/install.sh dist/plasticine-source.bundle \
-            dist/plasticine-managed-plugins.tar.gz dist/SHA256SUMS \
+            dist/plasticine-managed-plugins.tar.gz dist/plasticine-cli.tar.gz \
+            dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --target "$RELEASE_SHA" \
             --title "$VERSION" \
@@ -113,13 +114,15 @@ jobs:
           [[ "$(jq -r .isDraft <<<"$release_json")" == true ]]
           [[ "$(jq -r .tagName <<<"$release_json")" == "$VERSION" ]]
           [[ "$(jq -r .targetCommitish <<<"$release_json")" == "$RELEASE_SHA" ]]
-          [[ "$(jq -r '.assets | length' <<<"$release_json")" == 4 ]]
+          [[ "$(jq -r '.assets | length' <<<"$release_json")" == 5 ]]
           diff -u \
-            <(printf '%s\n' SHA256SUMS install.sh plasticine-managed-plugins.tar.gz plasticine-source.bundle | sort) \
+            <(printf '%s\n' SHA256SUMS install.sh plasticine-cli.tar.gz plasticine-managed-plugins.tar.gz plasticine-source.bundle | sort) \
             <(jq -r '.assets[].name' <<<"$release_json" | sort)
-          expected_digest=sha256:$(awk '$2 == "install.sh" { print $1 }' dist/SHA256SUMS)
-          actual_digest=$(jq -r '.assets[] | select(.name == "install.sh") | .digest' <<<"$release_json")
-          [[ "$actual_digest" == "$expected_digest" ]]
+          for asset in install.sh plasticine-cli.tar.gz plasticine-managed-plugins.tar.gz plasticine-source.bundle; do
+            expected_digest=sha256:$(awk -v asset="$asset" '$2 == asset { print $1 }' dist/SHA256SUMS)
+            actual_digest=$(jq -r ".assets[] | select(.name == \"$asset\") | .digest" <<<"$release_json")
+            [[ "$actual_digest" == "$expected_digest" ]]
+          done
           gh release edit "$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest
           tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" --jq .object.sha)
           [[ "$tag_sha" == "$RELEASE_SHA" ]]

@@ -101,9 +101,18 @@ awk -v chezmoi_module="$repo_dir/lib/chezmoi-bootstrap.sh" \
 rm -f "$rendered_installer"
 chmod 755 "$output_dir/install.sh"
 
+version_package=$output_dir/.plasticine-cli-package
+"$repo_dir/cli/build-version-package.sh" "$release_version" \
+    "$output_dir/install.sh" "$repo_dir/cli/version-package/self-update" \
+    "$version_package"
+tar -czf "$output_dir/plasticine-cli.tar.gz" -C "$version_package" \
+    plasticine install.sh self-update VERSION
+rm -rf "$version_package"
+
 (
     cd "$output_dir"
-    shasum -a 256 install.sh plasticine-source.bundle plasticine-managed-plugins.tar.gz > SHA256SUMS
+    shasum -a 256 install.sh plasticine-cli.tar.gz plasticine-source.bundle \
+        plasticine-managed-plugins.tar.gz > SHA256SUMS
 )
 
 printf 'built release assets for %s in %s\n' "$revision" "$output_dir"

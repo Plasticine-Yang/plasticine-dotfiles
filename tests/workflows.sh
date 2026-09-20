@@ -30,5 +30,13 @@ grep -Fq 'actions: read' "$release"
 grep -Fq './scripts/require-ci-success.sh "$GITHUB_REPOSITORY" "$RELEASE_SHA"' "$release"
 # shellcheck disable=SC2016
 grep -Fq './scripts/release-gate.sh "$RELEASE_SHA" dist "$VERSION" "$GITHUB_WORKSPACE"' "$release"
+grep -Fq 'dist/plasticine-cli.tar.gz' "$release"
+# shellcheck disable=SC2016
+grep -Fq '[[ "$(jq -r '"'"'.assets | length'"'"' <<<"$release_json")" == 5 ]]' "$release"
+grep -Fq 'SHA256SUMS install.sh plasticine-cli.tar.gz plasticine-managed-plugins.tar.gz plasticine-source.bundle' "$release"
+# Every uploaded payload is checked against both SHA256SUMS and GitHub's digest.
+grep -Fq 'for asset in install.sh plasticine-cli.tar.gz plasticine-managed-plugins.tar.gz plasticine-source.bundle; do' "$release"
+# shellcheck disable=SC2016
+grep -Fq 'select(.name == \"$asset\") | .digest' "$release"
 
 printf '%s\n' 'workflow tests passed'
