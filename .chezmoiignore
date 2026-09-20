@@ -4,6 +4,8 @@ tests
 tests/**
 lib
 lib/**
+cli
+cli/**
 AGENTS.md
 docs
 docs/**

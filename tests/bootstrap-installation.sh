@@ -67,6 +67,7 @@ mkdir -p "$home"
 run_bootstrap "$home" -y >"$test_root/install.out"
 
 launcher=$home/.local/bin/plasticine
+[ ! -e "$home/cli" ] || fail 'CLI build sources leaked into the managed destination'
 [ -x "$launcher" ] || fail 'empty selection did not install an executable launcher'
 [ "$("$launcher" --version)" = "plasticine $release_version" ] ||
     fail 'installed launcher did not select the released package'
