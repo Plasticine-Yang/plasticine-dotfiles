@@ -1,0 +1,77 @@
+#!/bin/sh
+set -eu
+
+plasticine_error() {
+    printf 'plasticine: %s\n' "$1" >&2
+}
+
+plasticine_usage() {
+    cat <<'EOF'
+Usage: plasticine [installer options]
+       plasticine self-update
+       plasticine --help
+       plasticine --version
+
+Without arguments, Plasticine opens interactive tool selection. Installer
+options such as -y and tool flags are passed unchanged to the local release.
+EOF
+}
+
+plasticine_usage_error() {
+    plasticine_error "$1"
+    plasticine_usage >&2
+    exit 2
+}
+
+package_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P) || {
+    plasticine_error 'could not resolve the version package.'
+    exit 1
+}
+version_file=$package_dir/VERSION
+installer=$package_dir/install.sh
+updater=$package_dir/self-update
+
+[ -f "$version_file" ] && [ ! -L "$version_file" ] || {
+    plasticine_error 'version package metadata is unavailable.'
+    exit 1
+}
+IFS= read -r release_version <"$version_file" || {
+    plasticine_error 'version package metadata is invalid.'
+    exit 1
+}
+if ! printf '%s\n' "$release_version" |
+    LC_ALL=C grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+    plasticine_error 'version package metadata is invalid.'
+    exit 1
+fi
+
+case $#:${1:-} in
+    1:--help|1:-h)
+        plasticine_usage
+        exit 0
+        ;;
+    1:--version)
+        printf 'plasticine %s\n' "$release_version"
+        exit 0
+        ;;
+    1:self-update)
+        [ -f "$updater" ] && [ -x "$updater" ] || {
+            plasticine_error 'self-update executable is unavailable.'
+            exit 1
+        }
+        exec "$updater"
+        ;;
+    0:) ;;
+    *)
+        for argument in "$@"; do
+            [ "$argument" != self-update ] ||
+                plasticine_usage_error 'self-update does not accept installer options.'
+        done
+        ;;
+esac
+
+[ -f "$installer" ] && [ -x "$installer" ] || {
+    plasticine_error 'released installer is unavailable.'
+    exit 1
+}
+exec "$installer" "$@"

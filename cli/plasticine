@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+
+plasticine_error() {
+    printf 'plasticine: %s\n' "$1" >&2
+}
+
+launcher_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P) || {
+    plasticine_error 'could not resolve the launcher directory.'
+    exit 1
+}
+install_prefix=$(dirname -- "$launcher_dir")
+current_package=$install_prefix/share/plasticine/current
+package_cli=$current_package/plasticine
+
+if [ ! -f "$package_cli" ] || [ ! -x "$package_cli" ]; then
+    plasticine_error 'current version package is unavailable.'
+    exit 1
+fi
+
+exec "$package_cli" "$@"
