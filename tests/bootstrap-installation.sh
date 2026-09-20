@@ -105,6 +105,39 @@ after=$(find "$home/.local/share/plasticine/releases/$release_version" -type f \
 [ "$("$launcher" --version)" = "plasticine $release_version" ] ||
     fail 'same-version bootstrap broke the installed command'
 
+# Re-running the one-line bootstrap for a newer Release switches current while
+# preserving the old immutable four-file package.
+next_release_version=v1.2.4
+next_release_dir=$test_root/next-release
+mkdir "$next_release_dir"
+sed "s/readonly_release_version='$release_version'/readonly_release_version='$next_release_version'/" \
+    "$release_dir/install.sh" >"$next_release_dir/install.sh"
+chmod 755 "$next_release_dir/install.sh"
+next_package_dir=$test_root/next-package
+"$repo_dir/cli/build-version-package.sh" "$next_release_version" \
+    "$next_release_dir/install.sh" "$test_root/self-update" "$next_package_dir"
+tar -czf "$next_release_dir/plasticine-cli.tar.gz" -C "$next_package_dir" .
+next_package_digest=$(shasum -a 256 "$next_release_dir/plasticine-cli.tar.gz" | awk '{print $1}')
+printf '%s  %s\n' "$next_package_digest" plasticine-cli.tar.gz \
+    >"$next_release_dir/SHA256SUMS"
+upgrade_home=$test_root/upgrade-home
+mkdir "$upgrade_home"
+run_bootstrap "$upgrade_home" -y >/dev/null
+HOME=$upgrade_home \
+PLASTICINE_RELEASE_ASSET_DIR=$next_release_dir \
+PLASTICINE_DOTFILES_REPO_URL=$repo_dir \
+PLASTICINE_CHEZMOI_BIN=${CHEZMOI_BIN:-$(command -v chezmoi)} \
+    "$next_release_dir/install.sh" -y >/dev/null
+[ "$(readlink "$upgrade_home/.local/share/plasticine/current")" = \
+    "releases/$next_release_version" ] ||
+    fail 'newer bootstrap did not switch current to the new release'
+[ "$("$upgrade_home/.local/bin/plasticine" --version)" = \
+    "plasticine $next_release_version" ] ||
+    fail 'newer bootstrap left the old release active'
+[ "$(find "$upgrade_home/.local/share/plasticine/releases/$release_version" \
+    -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" -eq 4 ] ||
+    fail 'newer bootstrap contaminated the old immutable package'
+
 # A foreign same-name command is never overwritten.
 foreign_home=$test_root/foreign-home
 mkdir -p "$foreign_home/.local/bin"
@@ -228,7 +261,7 @@ set env(PLASTICINE_CHEZMOI_BIN) $env(PLASTICINE_TEST_CHEZMOI)
 spawn $env(PLASTICINE_TEST_BOOTSTRAP)
 expect "选择要处理的工具"
 send "\r"
-expect -exact {Apply these changes? [y/N] }
+expect -exact {Apply these changes?}
 send "n\r"
 expect eof
 catch wait result

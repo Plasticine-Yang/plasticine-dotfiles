@@ -215,7 +215,16 @@ EOF
         return 1
     }
     ln -s "releases/$readonly_release_version" "$install_cli_current_stage"
-    mv -f "$install_cli_current_stage" "$install_cli_current"
+    install_cli_switch_status=0
+    case $(uname -s) in
+        Darwin) mv -fh "$install_cli_current_stage" "$install_cli_current" || install_cli_switch_status=$? ;;
+        Linux) mv -fT "$install_cli_current_stage" "$install_cli_current" || install_cli_switch_status=$? ;;
+    esac
+    if [ "$install_cli_switch_status" -ne 0 ]; then
+        rm -f "$install_cli_current_stage"
+        error 'Could not switch the current CLI release.'
+        return 1
+    fi
 
     trap - EXIT HUP INT TERM
     install_cli_cleanup
