@@ -103,7 +103,8 @@ install_release_cli() {
     fi
 
     install_cli_expected=$(awk '
-        $2 == "plasticine-cli.tar.gz" && NF == 2 && $1 ~ /^[0-9A-Fa-f]{64}$/ {
+        $2 == "plasticine-cli.tar.gz" && NF == 2 &&
+            length($1) == 64 && $1 !~ /[^0-9A-Fa-f]/ {
             digest=tolower($1); matches++
         }
         END { if (matches == 1) print digest; else exit 1 }

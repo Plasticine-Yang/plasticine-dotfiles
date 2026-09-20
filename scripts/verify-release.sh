@@ -75,7 +75,7 @@ fi
 (
     cd "$asset_dir"
     awk '
-        NF != 2 || $1 !~ /^[0-9A-Fa-f]{64}$/ { exit 1 }
+        NF != 2 || length($1) != 64 || $1 ~ /[^0-9A-Fa-f]/ { exit 1 }
         $2 == "install.sh" || $2 == "plasticine-cli.tar.gz" ||
             $2 == "plasticine-managed-plugins.tar.gz" ||
             $2 == "plasticine-source.bundle" { seen[$2]++; next }

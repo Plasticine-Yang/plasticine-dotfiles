@@ -5,6 +5,23 @@ repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-release-pipeline-test.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 
+# Debian 12's mawk treats interval expressions such as {64} literally. Run
+# the public release gate with that behavior so checksum validation remains
+# portable across every supported CI environment.
+portable_awk_bin=$test_root/portable-awk-bin
+mkdir "$portable_awk_bin"
+real_awk=$(command -v awk)
+cat >"$portable_awk_bin/awk" <<'EOF'
+#!/bin/sh
+for argument do
+    case $argument in
+        *"{64}"*) exit 97 ;;
+    esac
+done
+exec "$PLASTICINE_TEST_REAL_AWK" "$@"
+EOF
+chmod 755 "$portable_awk_bin/awk"
+
 work_repo=$test_root/work
 mkdir -p "$work_repo"
 find "$repo_dir" -mindepth 1 -maxdepth 1 ! -name .git ! -name dist -exec cp -R {} "$work_repo/" \;
@@ -23,6 +40,8 @@ printf '%s\n' fixture > "$plugins_fixture/managed-plugins/manifest.tsv"
 tar -czf "$test_root/plugins.tar.gz" -C "$plugins_fixture" managed-plugins
 (
     cd "$test_root"
+    PATH=$portable_awk_bin:$PATH \
+    PLASTICINE_TEST_REAL_AWK=$real_awk \
     PLASTICINE_MANAGED_PLUGINS_ASSET=$test_root/plugins.tar.gz \
     CHEZMOI_BIN=${CHEZMOI_BIN:-$(command -v chezmoi)} \
         "$repo_dir/scripts/release-gate.sh" "$revision" assets v0.0.1 "$work_repo"
