@@ -201,7 +201,36 @@ plasticine_neovim_uses_release_snapshot() {
         [ -f "$neovim_home/.local/share/nvim/lazy/lazy.nvim/.git/plasticine-release-snapshot" ]
 }
 
+plasticine_neovim_fnm_node_bin() {
+    printf '%s\n' "$1" |
+        grep -E '(^|[[:space:]])PATH=' |
+        sed -e 's/^[^=]*=//' -e 's/[$]PATH//g' |
+        tr -d '"' |
+        tr -d "'" |
+        tr ':' '\n' |
+        while IFS= read -r plasticine_neovim_fnm_entry; do
+            [ -n "$plasticine_neovim_fnm_entry" ] || continue
+            if [ -x "$plasticine_neovim_fnm_entry/node" ] && [ -x "$plasticine_neovim_fnm_entry/npm" ]; then
+                printf '%s\n' "$plasticine_neovim_fnm_entry"
+                break
+            fi
+        done
+}
+
 plasticine_neovim_node_available() {
+    if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+        return 0
+    fi
+    # fnm may own Node without it being on the current PATH. Resolve the
+    # managed bin directory and front-load it before deciding, so an installed
+    # but inactive Node is not mistaken for a missing one.
+    command -v fnm >/dev/null 2>&1 || return 1
+    plasticine_neovim_fnm_env=$(fnm env 2>/dev/null || true)
+    [ -n "$plasticine_neovim_fnm_env" ] || return 1
+    plasticine_neovim_fnm_bin=$(plasticine_neovim_fnm_node_bin "$plasticine_neovim_fnm_env")
+    [ -n "$plasticine_neovim_fnm_bin" ] || return 1
+    PATH=$plasticine_neovim_fnm_bin:$PATH
+    export PATH
     command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1
 }
 

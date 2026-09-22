@@ -238,6 +238,70 @@ for supply_round in 1 2; do
         printf '%s\n' 'the Node-free supply branch reached the network.' >&2; exit 1; }
 done
 
+# Node resolution is deterministic and covers a fnm-managed Node that is not
+# yet on PATH, a Node already on PATH, and neither. The installer only observes
+# local state: no upstream metadata and no Node installation.
+node_bin=$test_root/node-bin
+fnm_bin=$test_root/fnm-bin
+fnm_node_bin=$test_root/fnm-node-bin
+mkdir -p "$node_bin" "$fnm_bin" "$fnm_node_bin"
+for node_command in node npm; do
+    printf '#!/bin/sh\nexit 0\n' > "$node_bin/$node_command"
+    cp "$node_bin/$node_command" "$fnm_node_bin/$node_command"
+    chmod 755 "$node_bin/$node_command" "$fnm_node_bin/$node_command"
+done
+cat > "$fnm_bin/fnm" <<EOF
+#!/bin/sh
+[ "\${1:-}" = env ] || exit 2
+printf '%s\n' 'export PATH="$fnm_node_bin":\$PATH'
+EOF
+chmod 755 "$fnm_bin/fnm"
+
+run_supply_case() {
+    supply_case=$1; supply_path=$2
+    supply_home=$test_root/supply-$supply_case
+    mkdir -p "$supply_home"; : > "$supply_home/calls"
+    PATH=$supply_path PLASTICINE_NEOVIM_OS=Linux PLASTICINE_NEOVIM_ARCH=x86_64 \
+        PLASTICINE_NEOVIM_TEST_ASSETS=$fixture_assets PLASTICINE_NEOVIM_TEST_CALLS=$supply_home/calls \
+        "$chezmoi_bin" -S "$repo_dir" -D "$supply_home" -c "$config" \
+        --persistent-state "$test_root/supply-$supply_case-state" apply --no-tty \
+        >"$supply_home/out" 2>"$supply_home/err"
+}
+
+# Only fnm: the toolchain is available through `fnm env`.
+run_supply_case fnm-only "$fnm_bin:$fixture_bin:$fixture_system_bin"
+grep -Fq 'Node toolchain detected' "$test_root/supply-fnm-only/out" || {
+    printf '%s\n' 'a fnm-managed Node was not detected.' >&2; exit 1; }
+if grep -Fq 'Node toolchain was not found' "$test_root/supply-fnm-only/err"; then
+    printf '%s\n' 'a fnm-managed Node was reported as missing.' >&2; exit 1
+fi
+grep -Fq 'MasonToolsInstallSync' "$test_root/supply-fnm-only/calls" || {
+    printf '%s\n' 'fnm-managed Node did not drive mason provisioning.' >&2; exit 1; }
+# A rerun over the prepared environment neither warns nor downloads.
+: > "$test_root/supply-fnm-only/calls"
+run_supply_case fnm-only "$fnm_bin:$fixture_bin:$fixture_system_bin"
+[ "$(grep -c '^curl$' "$test_root/supply-fnm-only/calls" || true)" -eq 0 ] || {
+    printf '%s\n' 'a prepared fnm environment reached the network on rerun.' >&2; exit 1; }
+if grep -Fq 'Node toolchain was not found' "$test_root/supply-fnm-only/err"; then
+    printf '%s\n' 'an idempotent fnm rerun warned about a missing Node.' >&2; exit 1
+fi
+
+# fnm plus a Node already on PATH.
+run_supply_case fnm-and-node "$node_bin:$fnm_bin:$fixture_bin:$fixture_system_bin"
+grep -Fq 'Node toolchain detected' "$test_root/supply-fnm-and-node/out" || {
+    printf '%s\n' 'a PATH Node was not detected.' >&2; exit 1; }
+if grep -Fq 'Node toolchain was not found' "$test_root/supply-fnm-and-node/err"; then
+    printf '%s\n' 'a PATH Node was reported as missing.' >&2; exit 1
+fi
+
+# Neither: the documented degradation still applies.
+run_supply_case neither "$fixture_bin:$fixture_system_bin"
+if grep -Fq 'Node toolchain detected' "$test_root/supply-neither/out"; then
+    printf '%s\n' 'a missing Node toolchain was reported as present.' >&2; exit 1
+fi
+[ "$(grep -c 'Node toolchain was not found' "$test_root/supply-neither/err")" -eq 1 ] || {
+    printf '%s\n' 'a missing Node toolchain did not warn exactly once.' >&2; exit 1; }
+
 # Preparation failures preserve an existing direct installation and precede configuration.
 for scenario in digest symlink hardlink malformed extraction candidate-health; do
     failed=$test_root/$scenario-home
