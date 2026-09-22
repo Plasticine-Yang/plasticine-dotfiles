@@ -1,8 +1,16 @@
 -- Formatter dispatch. Formatting is always explicit: <leader>f formats the
 -- current buffer, and no autocmd rewrites a file on save.
+local prettier = { 'prettier' }
 local shfmt = { 'shfmt' }
 
 local formatters_by_ft = {
+  javascript = prettier,
+  javascriptreact = prettier,
+  typescript = prettier,
+  typescriptreact = prettier,
+  json = prettier,
+  jsonc = prettier,
+  markdown = prettier,
   sh = shfmt,
   bash = shfmt,
   zsh = shfmt,

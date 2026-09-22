@@ -240,7 +240,7 @@ plasticine_neovim_supply_tools() {
     if plasticine_neovim_node_available; then
         printf '%s\n' 'plasticine-dotfiles: neovim: Node toolchain detected; installing LSP and formatter tools through mason.'
     else
-        printf '%s\n' 'plasticine-dotfiles: neovim: warning: Node toolchain was not found; skipping Node-dependent LSP and formatter tools (typescript-language-server, vscode-langservers-extracted, prettier) for javascript/typescript and json. Markdown LSP (marksman) and shell formatting (shfmt) stay available. Install fnm and a Node version, then re-run --neovim to complete the tool set.' >&2
+        printf '%s\n' 'plasticine-dotfiles: neovim: warning: Node toolchain was not found; skipping Node-dependent LSP and formatter tools (typescript-language-server, typescript, bash-language-server, vscode-langservers-extracted, prettier) for javascript/typescript, shell LSP and json. Markdown LSP (marksman) and shell formatting (shfmt) stay available. Install fnm and a Node version, then re-run --neovim to complete the tool set.' >&2
     fi
     HOME="$plasticine_neovim_supply_home" XDG_CONFIG_HOME="$plasticine_neovim_supply_home/.config" \
         XDG_DATA_HOME="$plasticine_neovim_supply_home/.local/share" \

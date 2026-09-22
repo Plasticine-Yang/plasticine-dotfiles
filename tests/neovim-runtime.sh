@@ -133,10 +133,82 @@ cat > "$lazy/colors/tokyonight.vim" <<'EOF'
 let g:colors_name = 'tokyonight-fixture'
 EOF
 
-HOME=$home PLASTICINE_HOME=$home/.plasticine XDG_CONFIG_HOME=$home/.config XDG_DATA_HOME=$home/.local/share \
-    XDG_STATE_HOME=$home/.local/state XDG_CACHE_HOME=$home/.cache \
-    "$nvim_bin" --headless \
-    '+lua if vim.g.fixture_legacy_tree_loaded then io.stderr:write("legacy packer plugin was loaded alongside lazy plugins\n"); vim.cmd("cquit") end' \
-    '+lua local ok, err = pcall(function() local expected = { "fixture_lazy_setup", "fixture_neoscroll", "fixture_surround", "fixture_autopairs", "fixture_hop_spec", "fixture_nvim_tree", "fixture_toggleterm", "plasticine_lsp_configured", "plasticine_conform_configured", "plasticine_mason_configured" }; for _, name in ipairs(expected) do assert(vim.g[name] == 1, name .. " was not configured") end; local managed = { "neovim/nvim-lspconfig", "williamboman/mason.nvim", "WhoIsSethDaniel/mason-tool-installer.nvim", "stevearc/conform.nvim" }; for _, name in ipairs(managed) do assert(vim.tbl_contains(vim.g.fixture_plugin_specs, name), name .. " plugin was not declared") end; assert(vim.tbl_contains(vim.g.plasticine_lsp_servers, "marksman"), "marksman was not registered"); assert(vim.tbl_contains(vim.g.fixture_lsp_enabled, "marksman"), "vim.lsp.enable was not called with marksman"); assert(vim.g.fixture_mason == 1); assert(vim.g.fixture_mason_tools == 1); assert(not vim.g.fixture_mason_run_on_start, "mason-tool-installer installs on start"); local installed = vim.g.fixture_mason_ensure_installed; assert(#installed == 2 and vim.tbl_contains(installed, "marksman") and vim.tbl_contains(installed, "shfmt"), "unexpected ensure_installed: " .. vim.inspect(installed)); local mason_bin = vim.fn.stdpath("data") .. "/mason/bin"; assert(vim.env.PATH:sub(1, #mason_bin) == mason_bin, "mason bin was not prepended to PATH"); assert(vim.g.fixture_conform == 1); assert(vim.g.fixture_conform_lsp_format == "fallback", "lsp_format fallback was not configured"); assert(not vim.g.fixture_conform_format_on_save, "format_on_save was enabled"); local by_ft = vim.g.fixture_conform_by_ft; for _, ft in ipairs({ "sh", "bash", "zsh", "dash", "ksh" }) do assert(vim.tbl_contains(by_ft[ft] or {}, "shfmt"), ft .. " was not mapped to shfmt") end; local format_map = vim.fn.maparg("<leader>f", "n", false, true); assert(format_map and format_map.desc == "Format buffer", "<leader>f was not bound to formatting"); assert(#vim.api.nvim_get_autocmds({ event = "BufWritePre" }) == 0, "a save-time formatting autocmd was registered"); vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>f", true, false, true), "x", false); assert(vim.g.fixture_conform_format_called == 1, "<leader>f did not invoke conform.format"); assert(vim.g.colors_name == "tokyonight-fixture"); assert(vim.fn.maparg("<C-n>", "n") ~= ""); assert(vim.fn.exists(":NvimTreeToggle") == 2); assert(type(_FLOAT_TERM) == "function"); assert(type(_HORIZONTAL_TERM) == "function"); assert(type(_VERTICAL_TERM) == "function"); _FLOAT_TERM(); _HORIZONTAL_TERM(); _VERTICAL_TERM(); assert(vim.g.fixture_terminal_toggles == 3) end); if not ok then io.stderr:write(tostring(err) .. "\n"); vim.cmd("cquit") end' \
-    '+qa'
+# The Node toolchain decision is exercised in both directions from a PATH this
+# suite owns, so the result never depends on the runner's own Node.
+node_path=$runtime_root/node-path
+empty_path=$runtime_root/empty-path
+mkdir -p "$node_path" "$empty_path"
+for node_command in node npm; do
+    printf '#!/bin/sh\nexit 0\n' > "$node_path/$node_command"
+    chmod 755 "$node_path/$node_command"
+done
+
+cat > "$runtime_root/assertions.lua" <<'LUA_EOF'
+local ok, err = pcall(function()
+  local expected = { "fixture_lazy_setup", "fixture_neoscroll", "fixture_surround", "fixture_autopairs", "fixture_hop_spec", "fixture_nvim_tree", "fixture_toggleterm", "plasticine_lsp_configured", "plasticine_conform_configured", "plasticine_mason_configured" }
+  for _, name in ipairs(expected) do assert(vim.g[name] == 1, name .. " was not configured") end
+
+  local managed = { "neovim/nvim-lspconfig", "williamboman/mason.nvim", "WhoIsSethDaniel/mason-tool-installer.nvim", "stevearc/conform.nvim" }
+  for _, name in ipairs(managed) do assert(vim.tbl_contains(vim.g.fixture_plugin_specs, name), name .. " plugin was not declared") end
+
+  local servers = { "marksman", "ts_ls", "bashls", "jsonls" }
+  for _, name in ipairs(servers) do
+    assert(vim.tbl_contains(vim.g.plasticine_lsp_servers, name), name .. " was not registered")
+    assert(vim.tbl_contains(vim.g.fixture_lsp_enabled, name), "vim.lsp.enable was not called with " .. name)
+  end
+
+  assert(vim.g.fixture_mason == 1)
+  assert(vim.g.fixture_mason_tools == 1)
+  assert(not vim.g.fixture_mason_run_on_start, "mason-tool-installer installs on start")
+
+  local node_free = { "marksman", "shfmt" }
+  local node_required = { "typescript-language-server", "typescript", "bash-language-server", "vscode-langservers-extracted", "prettier" }
+  local installed = vim.g.fixture_mason_ensure_installed
+  for _, name in ipairs(node_free) do assert(vim.tbl_contains(installed, name), name .. " was not requested") end
+  if vim.fn.executable("node") == 1 then
+    assert(#installed == #node_free + #node_required, "unexpected ensure_installed with Node: " .. vim.inspect(installed))
+    for _, name in ipairs(node_required) do assert(vim.tbl_contains(installed, name), name .. " was not requested with Node") end
+  else
+    assert(#installed == #node_free, "unexpected ensure_installed without Node: " .. vim.inspect(installed))
+  end
+
+  local mason_bin = vim.fn.stdpath("data") .. "/mason/bin"
+  assert(vim.env.PATH:sub(1, #mason_bin) == mason_bin, "mason bin was not prepended to PATH")
+
+  assert(vim.g.fixture_conform == 1)
+  assert(vim.g.fixture_conform_lsp_format == "fallback", "lsp_format fallback was not configured")
+  assert(not vim.g.fixture_conform_format_on_save, "format_on_save was enabled")
+  local by_ft = vim.g.fixture_conform_by_ft
+  for _, ft in ipairs({ "sh", "bash", "zsh", "dash", "ksh" }) do assert(vim.tbl_contains(by_ft[ft] or {}, "shfmt"), ft .. " was not mapped to shfmt") end
+  for _, ft in ipairs({ "javascript", "javascriptreact", "typescript", "typescriptreact", "json", "jsonc", "markdown" }) do assert(vim.tbl_contains(by_ft[ft] or {}, "prettier"), ft .. " was not mapped to prettier") end
+
+  local format_map = vim.fn.maparg("<leader>f", "n", false, true)
+  assert(format_map and format_map.desc == "Format buffer", "<leader>f was not bound to formatting")
+  assert(#vim.api.nvim_get_autocmds({ event = "BufWritePre" }) == 0, "a save-time formatting autocmd was registered")
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>f", true, false, true), "x", false)
+  assert(vim.g.fixture_conform_format_called == 1, "<leader>f did not invoke conform.format")
+
+  assert(vim.g.colors_name == "tokyonight-fixture")
+  assert(vim.fn.maparg("<C-n>", "n") ~= "")
+  assert(vim.fn.exists(":NvimTreeToggle") == 2)
+  assert(type(_FLOAT_TERM) == "function")
+  assert(type(_HORIZONTAL_TERM) == "function")
+  assert(type(_VERTICAL_TERM) == "function")
+  _FLOAT_TERM(); _HORIZONTAL_TERM(); _VERTICAL_TERM()
+  assert(vim.g.fixture_terminal_toggles == 3)
+end)
+if not ok then io.stderr:write(tostring(err) .. "\n"); vim.cmd("cquit") end
+LUA_EOF
+
+run_runtime() {
+    PATH=$1 HOME=$home PLASTICINE_HOME=$home/.plasticine XDG_CONFIG_HOME=$home/.config \
+        XDG_DATA_HOME=$home/.local/share XDG_STATE_HOME=$home/.local/state XDG_CACHE_HOME=$home/.cache \
+        "$nvim_bin" --headless \
+        '+lua if vim.g.fixture_legacy_tree_loaded then io.stderr:write("legacy packer plugin was loaded alongside lazy plugins\n"); vim.cmd("cquit") end' \
+        "+luafile $runtime_root/assertions.lua" \
+        '+qa'
+}
+
+run_runtime "$empty_path"
+run_runtime "$node_path"
 printf '%s\n' 'deterministic real-Neovim runtime tests passed'

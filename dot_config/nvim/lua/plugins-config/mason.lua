@@ -4,7 +4,15 @@
 -- after it has corrected PATH for a fnm-managed Node. At editor start this
 -- module only recomputes the same manifest and never installs on its own.
 local node_free = { 'marksman', 'shfmt' }
-local node_required = {}
+-- typescript-language-server ships the server; `typescript` provides the
+-- bundled tsserver it drives.
+local node_required = {
+  'typescript-language-server',
+  'typescript',
+  'bash-language-server',
+  'vscode-langservers-extracted',
+  'prettier',
+}
 
 local ensure_installed = vim.deepcopy(node_free)
 if vim.fn.executable('node') == 1 then

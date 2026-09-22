@@ -1,7 +1,7 @@
 -- Language servers wired through the 0.11+ built-in LSP entrypoints. mason
 -- decides which binaries are actually provisioned based on the Node toolchain,
 -- so the server set is declared here in full and started by `vim.lsp.enable`.
-local servers = { 'marksman' }
+local servers = { 'marksman', 'ts_ls', 'bashls', 'jsonls' }
 
 local capabilities = vim.lsp.protocol.make_client_capabilities()
 
