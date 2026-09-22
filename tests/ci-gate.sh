@@ -28,21 +28,16 @@ case $* in
                 ;;
         esac
         ;;
-    *'conclusion == "success"'*)
+    *'ci.yml/runs'*)
         count=0
         [ ! -f "$PLASTICINE_TEST_GH_STATE" ] || count=$(cat "$PLASTICINE_TEST_GH_STATE")
         count=$((count + 1))
         printf '%s\n' "$count" > "$PLASTICINE_TEST_GH_STATE"
         case $PLASTICINE_TEST_SCENARIO:$count in
-            wait:1|failed:*) ;;
-            *) printf '%s\n' 101 ;;
+            wait:1) printf '%s\t%s\t%s\n' 100 in_progress '' ;;
+            failed:*) printf '%s\t%s\t%s\n' 102 completed failure ;;
+            *) printf '%s\t%s\t%s\n' 101 completed success ;;
         esac
-        ;;
-    *'status != "completed"'*)
-        [ "$PLASTICINE_TEST_SCENARIO" != wait ] || printf '%s\n' 100
-        ;;
-    *'status == "completed"'*)
-        [ "$PLASTICINE_TEST_SCENARIO" != failed ] || printf '%s\t%s\n' 102 failure
         ;;
     *)
         printf 'unexpected gh invocation: %s\n' "$*" >&2
