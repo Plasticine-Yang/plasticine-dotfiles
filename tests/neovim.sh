@@ -242,14 +242,17 @@ done
 # yet on PATH, a Node already on PATH, and neither. The installer only observes
 # local state: no upstream metadata and no Node installation.
 node_bin=$test_root/node-bin
+node_only_bin=$test_root/node-only-bin
 fnm_bin=$test_root/fnm-bin
 fnm_node_bin=$test_root/fnm-node-bin
-mkdir -p "$node_bin" "$fnm_bin" "$fnm_node_bin"
+mkdir -p "$node_bin" "$node_only_bin" "$fnm_bin" "$fnm_node_bin"
 for node_command in node npm; do
     printf '#!/bin/sh\nexit 0\n' > "$node_bin/$node_command"
     cp "$node_bin/$node_command" "$fnm_node_bin/$node_command"
     chmod 755 "$node_bin/$node_command" "$fnm_node_bin/$node_command"
 done
+printf '#!/bin/sh\nexit 0\n' > "$node_only_bin/node"
+chmod 755 "$node_only_bin/node"
 cat > "$fnm_bin/fnm" <<EOF
 #!/bin/sh
 [ "\${1:-}" = env ] || exit 2
@@ -301,6 +304,15 @@ if grep -Fq 'Node toolchain detected' "$test_root/supply-neither/out"; then
 fi
 [ "$(grep -c 'Node toolchain was not found' "$test_root/supply-neither/err")" -eq 1 ] || {
     printf '%s\n' 'a missing Node toolchain did not warn exactly once.' >&2; exit 1; }
+
+# A Node without npm cannot install npm-based tools, so it degrades exactly like
+# a missing toolchain.
+run_supply_case node-without-npm "$node_only_bin:$fixture_bin:$fixture_system_bin"
+if grep -Fq 'Node toolchain detected' "$test_root/supply-node-without-npm/out"; then
+    printf '%s\n' 'a Node without npm was reported as a usable toolchain.' >&2; exit 1
+fi
+[ "$(grep -c 'Node toolchain was not found' "$test_root/supply-node-without-npm/err")" -eq 1 ] || {
+    printf '%s\n' 'a Node without npm did not degrade with one warning.' >&2; exit 1; }
 
 # Preparation failures preserve an existing direct installation and precede configuration.
 for scenario in digest symlink hardlink malformed extraction candidate-health; do

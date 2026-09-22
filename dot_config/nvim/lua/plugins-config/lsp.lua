@@ -27,10 +27,8 @@ end
 -- Guard them so an older external editor still loads this configuration instead
 -- of erroring on an unknown API.
 if vim.lsp.config then
+  -- `'*'` is merged into every server config, so one call covers the set.
   vim.lsp.config('*', { capabilities = capabilities })
-  for _, server in ipairs(servers) do
-    vim.lsp.config(server, { capabilities = capabilities })
-  end
 end
 
 vim.diagnostic.config({

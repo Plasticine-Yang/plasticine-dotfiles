@@ -232,16 +232,16 @@ Plasticine 只整体管理以下十二个文件：
 
 | 语言 | LSP（mason 包） | 格式化（mason 包） | 依赖 Node |
 | --- | --- | --- | --- |
-| javascript / typescript | `typescript-language-server`（及提供 tsserver 的 `typescript`） | `prettier` | 是 |
+| javascript / typescript | `typescript-language-server`（自动附带 `typescript`/tsserver） | `prettier` | 是 |
 | shell | `bash-language-server` | `shfmt` | 否（仅 formatter） |
-| json | `vscode-langservers-extracted` | `prettier` | 是 |
+| json | `json-lsp`（提供 `vscode-json-language-server`） | `prettier` | 是 |
 | markdown | `marksman` | `prettier` | 否（LSP）/ 是（formatter） |
 
 格式化只在显式按下 `<leader>f` 时发生，不做保存时自动格式化；外部 formatter 不可用时回退到 LSP 格式化，不弹出错误。补全使用 Neovim 内置 `vim.lsp.completion`，不引入 nvim-cmp 生态。
 
 当找不到可用的 `node`/`npm`（包括通过 `fnm env` 解析出的 fnm 管理 Node）时，`--neovim` 的供给步只安装不依赖 Node 的 `marksman` 与 `shfmt`，在 stderr 打印一次警告后仍然成功：Markdown LSP 与 shell 格式化保持可用。安装 fnm 与一个 Node 版本后重跑 `plasticine -y --neovim` 即可补齐其余工具，重复执行是幂等的。判定只读取本机状态，不查询上游元数据，也不会安装 Node 版本或 pnpm。
 
-mason 下载的工具不在 Release 快照的独立签名/digest 校验范围内：插件快照固定这些工具对应的版本，只能近似可复现，不提供独立签名校验。
+mason 下载的语言服务器与格式化工具不随 Release 快照分发，也不在快照的独立签名/digest 校验范围内。受管配置为每个工具固定了一个版本号（取自当时的 mason registry），只能近似可复现；不提供独立签名校验，上游移除该版本时对应工具会安装失败。
 
 `--fnm` 与本次改动无关，行为保持不变：它只维护 manager，不自动安装 Node 版本或 pnpm；Node 与 pnpm 都不在 `--neovim` 内自动安装。实现完成后需要一次新的 Base Dotfiles Release，发布版安装才会带上新的插件快照与受管配置。
 

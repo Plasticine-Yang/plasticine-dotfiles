@@ -218,30 +218,33 @@ plasticine_neovim_fnm_node_bin() {
         done
 }
 
-plasticine_neovim_node_available() {
+plasticine_neovim_node_path_prefix() {
     if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
         return 0
     fi
-    # fnm may own Node without it being on the current PATH. Resolve the
-    # managed bin directory and front-load it before deciding, so an installed
-    # but inactive Node is not mistaken for a missing one.
+    # fnm may own Node without it being on the current PATH. Resolve the managed
+    # bin directory and hand it back so this stays a pure query; the caller
+    # front-loads it, and an installed but inactive Node is not mistaken for a
+    # missing one.
     command -v fnm >/dev/null 2>&1 || return 1
     plasticine_neovim_fnm_env=$(fnm env 2>/dev/null || true)
     [ -n "$plasticine_neovim_fnm_env" ] || return 1
     plasticine_neovim_fnm_bin=$(plasticine_neovim_fnm_node_bin "$plasticine_neovim_fnm_env")
     [ -n "$plasticine_neovim_fnm_bin" ] || return 1
-    PATH=$plasticine_neovim_fnm_bin:$PATH
-    export PATH
-    command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1
+    printf '%s\n' "$plasticine_neovim_fnm_bin"
 }
 
 plasticine_neovim_supply_tools() {
     plasticine_neovim_supply_home=$1
     plasticine_neovim_supply_bin=$2
-    if plasticine_neovim_node_available; then
+    if plasticine_neovim_node_prefix=$(plasticine_neovim_node_path_prefix); then
+        if [ -n "$plasticine_neovim_node_prefix" ]; then
+            PATH=$plasticine_neovim_node_prefix:$PATH
+            export PATH
+        fi
         printf '%s\n' 'plasticine-dotfiles: neovim: Node toolchain detected; installing LSP and formatter tools through mason.'
     else
-        printf '%s\n' 'plasticine-dotfiles: neovim: warning: Node toolchain was not found; skipping Node-dependent LSP and formatter tools (typescript-language-server, typescript, bash-language-server, vscode-langservers-extracted, prettier) for javascript/typescript, shell LSP and json. Markdown LSP (marksman) and shell formatting (shfmt) stay available. Install fnm and a Node version, then re-run --neovim to complete the tool set.' >&2
+        printf '%s\n' 'plasticine-dotfiles: neovim: warning: Node toolchain was not found; skipping Node-dependent LSP and formatter tools (typescript-language-server, bash-language-server, json-lsp, prettier) for javascript/typescript, shell LSP and json. Markdown LSP (marksman) and shell formatting (shfmt) stay available. Install fnm and a Node version, then re-run --neovim to complete the tool set.' >&2
     fi
     HOME="$plasticine_neovim_supply_home" XDG_CONFIG_HOME="$plasticine_neovim_supply_home/.config" \
         XDG_DATA_HOME="$plasticine_neovim_supply_home/.local/share" \

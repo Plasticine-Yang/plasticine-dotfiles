@@ -56,7 +56,7 @@ Neovim 侧使用其 0.11+ 内置的 LSP 能力（基线 0.12.5），因此只引
 - 供给步以 `node` 与 `npm` 是否可执行为准。若 `fnm` 存在且 `node` 不在 `PATH`，先通过 `fnm env`（或等价的原生解析）把 fnm 管理的 Node bin 目录前置到 `PATH` 再判定。
 - Node 可用时，`ensure_installed` 包含全部 6 个 mason 包；不可用时只包含 `marksman` 与 `shfmt`。
 - 降级路径必须**退出码为 0**，仅在 stderr 打印一次警告，内容需包含：被跳过的语言与工具、原因是缺少 Node、以及"安装 fnm 与 Node 后重跑 `--neovim`"的指引。
-- `ensure_installed` 在 Neovim 启动时依据 `vim.fn.executable('node')` 计算，因此安装器只需保证 `PATH` 正确，无需额外传递参数。
+- `ensure_installed` 在 Neovim 启动时依据 `vim.fn.executable('node')` 与 `vim.fn.executable('npm')` 计算（两者齐备才算可用，避免安装了 Node 却缺少 npm 时清单与警告互相矛盾），因此安装器只需保证 `PATH` 正确，无需额外传递参数。
 
 ### 工具矩阵
 
@@ -133,3 +133,9 @@ Implemented locally on branch `feat/neovim-lsp-format` (no-PR mode). The tracer 
 - `06-docs-and-verification` — README capability matrix, Preview copy and full-suite verification.
 
 A new Base Dotfiles Release is still required before a released install can carry the new plugin snapshot and configuration.
+
+Reconciliations made while implementing:
+
+- **Tool count.** "6 个工具" counts capability classes. `ensure_installed` holds exactly six mason packages: the Node-free `marksman` and `shfmt`, plus the Node-dependent `typescript-language-server`, `bash-language-server`, `json-lsp` and `prettier`. `typescript`/tsserver is no longer listed separately because `typescript-language-server` pulls it in through its registry `extra_packages`.
+- **Package rename.** The current mason registry names the JSON server package `json-lsp` (it provides the `vscode-json-language-server` binary and the `jsonls` lspconfig server). The table above still shows its former name `vscode-langservers-extracted`.
+- **Version pinning.** Each `ensure_installed` entry carries the `version` recorded in the mason registry at implementation time, which is what "只能通过固定版本号近似可复现" refers to; these artifacts remain outside the Release snapshot's digest verification.

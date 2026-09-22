@@ -109,8 +109,15 @@ EOF
 cat > "$lazy/lua/mason-tool-installer/init.lua" <<'EOF'
 return { setup = function(opts)
   assert(type(opts.ensure_installed) == 'table')
+  local names, versions = {}, {}
+  for _, entry in ipairs(opts.ensure_installed) do
+    local name = type(entry) == 'table' and entry[1] or entry
+    names[#names + 1] = name
+    versions[#versions + 1] = name .. '@' .. tostring(type(entry) == 'table' and entry.version or '')
+  end
   vim.g.fixture_mason_tools = 1
-  vim.g.fixture_mason_ensure_installed = opts.ensure_installed
+  vim.g.fixture_mason_ensure_installed = names
+  vim.g.fixture_mason_ensure_versions = versions
   vim.g.fixture_mason_run_on_start = opts.run_on_start
 end }
 EOF
@@ -136,12 +143,16 @@ EOF
 # The Node toolchain decision is exercised in both directions from a PATH this
 # suite owns, so the result never depends on the runner's own Node.
 node_path=$runtime_root/node-path
+node_only_path=$runtime_root/node-only-path
 empty_path=$runtime_root/empty-path
-mkdir -p "$node_path" "$empty_path"
+mkdir -p "$node_path" "$node_only_path" "$empty_path"
 for node_command in node npm; do
     printf '#!/bin/sh\nexit 0\n' > "$node_path/$node_command"
     chmod 755 "$node_path/$node_command"
 done
+# A Node without npm must still degrade, matching the installer's decision.
+printf '#!/bin/sh\nexit 0\n' > "$node_only_path/node"
+chmod 755 "$node_only_path/node"
 
 cat > "$runtime_root/assertions.lua" <<'LUA_EOF'
 local ok, err = pcall(function()
@@ -162,14 +173,18 @@ local ok, err = pcall(function()
   assert(not vim.g.fixture_mason_run_on_start, "mason-tool-installer installs on start")
 
   local node_free = { "marksman", "shfmt" }
-  local node_required = { "typescript-language-server", "typescript", "bash-language-server", "vscode-langservers-extracted", "prettier" }
+  local node_required = { "typescript-language-server", "bash-language-server", "json-lsp", "prettier" }
   local installed = vim.g.fixture_mason_ensure_installed
   for _, name in ipairs(node_free) do assert(vim.tbl_contains(installed, name), name .. " was not requested") end
-  if vim.fn.executable("node") == 1 then
+  if vim.fn.executable("node") == 1 and vim.fn.executable("npm") == 1 then
     assert(#installed == #node_free + #node_required, "unexpected ensure_installed with Node: " .. vim.inspect(installed))
     for _, name in ipairs(node_required) do assert(vim.tbl_contains(installed, name), name .. " was not requested with Node") end
   else
     assert(#installed == #node_free, "unexpected ensure_installed without Node: " .. vim.inspect(installed))
+  end
+  for _, entry in ipairs(vim.g.fixture_mason_ensure_versions) do
+    local name, version = entry:match("^([^@]+)@(.+)$")
+    assert(name and version, "tool was not version-pinned: " .. entry)
   end
 
   local mason_bin = vim.fn.stdpath("data") .. "/mason/bin"
@@ -210,5 +225,6 @@ run_runtime() {
 }
 
 run_runtime "$empty_path"
+run_runtime "$node_only_path"
 run_runtime "$node_path"
 printf '%s\n' 'deterministic real-Neovim runtime tests passed'
