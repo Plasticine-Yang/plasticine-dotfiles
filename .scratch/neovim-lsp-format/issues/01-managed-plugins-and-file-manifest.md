@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] `neovim/nvim-lspconfig`、`williamboman/mason.nvim`、`WhoIsSethDaniel/mason-tool-installer.nvim`、`stevearc/conform.nvim` 已在插件声明中启用，并登记进 Release 受管插件快照，每行包含固定 40 位 commit 与探针文件。
 - [ ] 受管 Neovim 配置文件清单从 9 个扩为 12 个，新增 LSP、格式化、mason 三个配置模块目标。
@@ -12,3 +12,16 @@
 - [ ] `tests/neovim-runtime.sh` 为 4 个新插件提供本地 fixture 桩，routine 测试不联网、不真实安装任何工具。
 - [ ] `tests/neovim.sh`、`tests/installer.sh`、`tests/combined-installation.sh` 中与受管文件数量、安装步骤相关的断言已更新。
 - [ ] 快照构建与恢复流程（`scripts/build-managed-plugins.sh`、`lib/managed-plugins.sh`）对新增行无需特殊分支即可通过。
+
+## Comments
+
+2026-09-23: Implemented on `feat/neovim-lsp-format` in commit 7c40bbf.
+
+- 4 个插件已登记进 `release/managed-plugins.tsv`（固定 40 位 commit 与探针文件均已 fetch 校验）：
+  - `neovim/nvim-lspconfig` `b89138d9af0a96e6048e202a15765fc6b6416bd4` (`lua/lspconfig.lua`)
+  - `williamboman/mason.nvim` `2a6940af80375532e5e9e7c1f2fc6319a1b7a69d` (`lua/mason/init.lua`)
+  - `WhoIsSethDaniel/mason-tool-installer.nvim` `443f1ef8b5e6bf47045cb2217b6f748a223cf7dc` (`lua/mason-tool-installer/init.lua`)
+  - `stevearc/conform.nvim` `3543d000dafbc41cc7761d860cfdb24e82154f75` (`lua/conform/init.lua`)
+- 受管文件 9 → 12：新增 `lua/plugins-config/{lsp,conform,mason}.lua`，同步 `.chezmoi.toml.tmpl`、两个 `run_before_*neovim*` 脚本、README 与 `tests/{neovim,installer,combined-installation}.sh`。
+- `tests/neovim-runtime.sh` 为 4 个插件提供本地 fixture 桩并断言插件声明与受管配置加载；routine 测试不联网。
+- 验证：`tests/neovim-runtime.sh`、`tests/neovim.sh`、`tests/installer.sh`、`tests/combined-installation.sh` 全部通过。
