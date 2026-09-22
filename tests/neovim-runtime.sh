@@ -16,6 +16,15 @@ mkdir -p "$home/.config" "$lazy/lua/lazy" "$lazy/colors" \
     "$lazy/lua/nvim-autopairs" "$lazy/lua/nvim-tree" \
     "$lazy/lua/toggleterm"
 cp -R "$repo_dir/dot_config/nvim" "$config"
+# A previous packer installation must not be sourced alongside lazy plugins.
+legacy=$home/.local/share/nvim/site/pack/packer/start/legacy-tree/plugin
+mkdir -p "$legacy"
+cat > "$legacy/tree.lua" <<'EOF'
+vim.g.fixture_legacy_tree_loaded = 1
+vim.api.nvim_create_user_command('NvimTreeToggle', function()
+  error('legacy packer tree command was loaded')
+end, {})
+EOF
 # The installed Plasticine launcher deliberately supplies its own XDG roots.
 # Mirror the fixtures there so the runtime suite also works through that public
 # launcher, while distribution-provided `nvim` uses the standard paths above.
@@ -83,6 +92,7 @@ EOF
 HOME=$home PLASTICINE_HOME=$home/.plasticine XDG_CONFIG_HOME=$home/.config XDG_DATA_HOME=$home/.local/share \
     XDG_STATE_HOME=$home/.local/state XDG_CACHE_HOME=$home/.cache \
     "$nvim_bin" --headless \
+    '+lua if vim.g.fixture_legacy_tree_loaded then io.stderr:write("legacy packer plugin was loaded alongside lazy plugins\n"); vim.cmd("cquit") end' \
     '+lua local ok, err = pcall(function() local expected = { "fixture_lazy_setup", "fixture_neoscroll", "fixture_surround", "fixture_autopairs", "fixture_hop_spec", "fixture_nvim_tree", "fixture_toggleterm" }; for _, name in ipairs(expected) do assert(vim.g[name] == 1, name .. " was not configured") end; assert(vim.g.colors_name == "tokyonight-fixture"); assert(vim.fn.maparg("<C-n>", "n") ~= ""); assert(vim.fn.exists(":NvimTreeToggle") == 2); assert(type(_FLOAT_TERM) == "function"); assert(type(_HORIZONTAL_TERM) == "function"); assert(type(_VERTICAL_TERM) == "function"); _FLOAT_TERM(); _HORIZONTAL_TERM(); _VERTICAL_TERM(); assert(vim.g.fixture_terminal_toggles == 3) end); if not ok then io.stderr:write(tostring(err) .. "\n"); vim.cmd("cquit") end' \
     '+qa'
 printf '%s\n' 'deterministic real-Neovim runtime tests passed'
