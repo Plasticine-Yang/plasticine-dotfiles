@@ -22,3 +22,12 @@
 - `lua/plugins-config/conform.lua`：`prettier` 映射到 javascript/javascriptreact/typescript/typescriptreact/json/jsonc/markdown，保留 shfmt 的 shell 映射。
 - `tests/neovim-runtime.sh`：以本套件自有的 PATH 分两轮运行，断言无 Node 时清单恰为 `{marksman, shfmt}`，有 Node 时包含全部 Node 依赖包，并校验 server 启用与 formatter 映射完整。
 - `--fnm` 未改动；`tests/fnm.sh`、`tests/fnm-runtime.sh` 保持通过。
+
+2026-09-23 (code review follow-up, commit 29af652): 现行 mason registry 中
+`vscode-langservers-extracted` 已更名为 `json-lsp`（仍提供
+`vscode-json-language-server`），`typescript` 也不再是独立包，而由
+`typescript-language-server` 的 `extra_packages` 自动附带。因此 Node 依赖清单
+修正为 `typescript-language-server`、`bash-language-server`、`json-lsp`、
+`prettier` 四项，与 spec 的“6 个工具 / 跳过 4 项”完全一致。每个条目现在都
+固定了版本号（见 `mason.lua`）。运行时测试相应更新，并新增 node-without-npm
+边界断言。
