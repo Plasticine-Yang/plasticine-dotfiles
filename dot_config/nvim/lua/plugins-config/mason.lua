@@ -3,7 +3,7 @@
 -- The installer drives `MasonToolsInstallSync` headlessly during `--neovim`
 -- after it has corrected PATH for a fnm-managed Node. At editor start this
 -- module only recomputes the same manifest and never installs on its own.
-local node_free = { 'marksman' }
+local node_free = { 'marksman', 'shfmt' }
 local node_required = {}
 
 local ensure_installed = vim.deepcopy(node_free)
