@@ -201,6 +201,28 @@ plasticine_neovim_uses_release_snapshot() {
         [ -f "$neovim_home/.local/share/nvim/lazy/lazy.nvim/.git/plasticine-release-snapshot" ]
 }
 
+plasticine_neovim_node_available() {
+    command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1
+}
+
+plasticine_neovim_supply_tools() {
+    plasticine_neovim_supply_home=$1
+    plasticine_neovim_supply_bin=$2
+    if plasticine_neovim_node_available; then
+        printf '%s\n' 'plasticine-dotfiles: neovim: Node toolchain detected; installing LSP and formatter tools through mason.'
+    else
+        printf '%s\n' 'plasticine-dotfiles: neovim: warning: Node toolchain was not found; skipping Node-dependent LSP and formatter tools (typescript-language-server, vscode-langservers-extracted, prettier) for javascript/typescript and json. Markdown LSP (marksman) stays available. Install fnm and a Node version, then re-run --neovim to complete the tool set.' >&2
+    fi
+    HOME="$plasticine_neovim_supply_home" XDG_CONFIG_HOME="$plasticine_neovim_supply_home/.config" \
+        XDG_DATA_HOME="$plasticine_neovim_supply_home/.local/share" \
+        XDG_STATE_HOME="$plasticine_neovim_supply_home/.local/state" \
+        XDG_CACHE_HOME="$plasticine_neovim_supply_home/.cache" GIT_TERMINAL_PROMPT=0 \
+        "$plasticine_neovim_supply_bin" --headless '+MasonToolsInstallSync' '+qa' || {
+        plasticine_neovim_error 'mason tool installation failed; fix the reported error and retry.'
+        return 1
+    }
+}
+
 plasticine_neovim_sync() {
     neovim_home=$1; neovim_target_command=$neovim_home/.local/bin/nvim
     if [ -L "$neovim_target_command" ] && [ "$(readlink "$neovim_target_command")" = ../opt/neovim/bin/nvim ] && [ -x "$neovim_target_command" ]; then
@@ -215,6 +237,7 @@ plasticine_neovim_sync() {
     else
         printf '%s\n' 'plasticine-dotfiles: neovim: using the verified Release plugin snapshot; no Git update during installation.'
     fi
+    plasticine_neovim_supply_tools "$neovim_home" "$plasticine_neovim_bin" || return 1
     if plasticine_neovim_uses_release_snapshot; then
         HOME="$neovim_home" XDG_CONFIG_HOME="$neovim_home/.config" XDG_DATA_HOME="$neovim_home/.local/share" XDG_STATE_HOME="$neovim_home/.local/state" XDG_CACHE_HOME="$neovim_home/.cache" \
             PLASTICINE_MANAGED_PLUGINS_ARCHIVE=release-snapshot \

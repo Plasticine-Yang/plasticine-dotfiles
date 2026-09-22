@@ -38,6 +38,13 @@ local M = {}
 function M.setup(specs, opts)
   assert(opts.local_spec == false)
   vim.g.fixture_lazy_setup = 1
+  if vim.lsp then
+    local original_enable = vim.lsp.enable
+    vim.lsp.enable = function(enabled)
+      vim.g.fixture_lsp_enabled = enabled
+      if original_enable then return original_enable(enabled) end
+    end
+  end
   local plugin_specs = {}
   for _, spec in ipairs(specs) do
     plugin_specs[#plugin_specs + 1] = spec[1]
@@ -130,6 +137,6 @@ HOME=$home PLASTICINE_HOME=$home/.plasticine XDG_CONFIG_HOME=$home/.config XDG_D
     XDG_STATE_HOME=$home/.local/state XDG_CACHE_HOME=$home/.cache \
     "$nvim_bin" --headless \
     '+lua if vim.g.fixture_legacy_tree_loaded then io.stderr:write("legacy packer plugin was loaded alongside lazy plugins\n"); vim.cmd("cquit") end' \
-    '+lua local ok, err = pcall(function() local expected = { "fixture_lazy_setup", "fixture_neoscroll", "fixture_surround", "fixture_autopairs", "fixture_hop_spec", "fixture_nvim_tree", "fixture_toggleterm", "plasticine_lsp_configured", "plasticine_conform_configured", "plasticine_mason_configured" }; for _, name in ipairs(expected) do assert(vim.g[name] == 1, name .. " was not configured") end; local managed = { "neovim/nvim-lspconfig", "williamboman/mason.nvim", "WhoIsSethDaniel/mason-tool-installer.nvim", "stevearc/conform.nvim" }; for _, name in ipairs(managed) do assert(vim.tbl_contains(vim.g.fixture_plugin_specs, name), name .. " plugin was not declared") end; assert(vim.g.colors_name == "tokyonight-fixture"); assert(vim.fn.maparg("<C-n>", "n") ~= ""); assert(vim.fn.exists(":NvimTreeToggle") == 2); assert(type(_FLOAT_TERM) == "function"); assert(type(_HORIZONTAL_TERM) == "function"); assert(type(_VERTICAL_TERM) == "function"); _FLOAT_TERM(); _HORIZONTAL_TERM(); _VERTICAL_TERM(); assert(vim.g.fixture_terminal_toggles == 3) end); if not ok then io.stderr:write(tostring(err) .. "\n"); vim.cmd("cquit") end' \
+    '+lua local ok, err = pcall(function() local expected = { "fixture_lazy_setup", "fixture_neoscroll", "fixture_surround", "fixture_autopairs", "fixture_hop_spec", "fixture_nvim_tree", "fixture_toggleterm", "plasticine_lsp_configured", "plasticine_conform_configured", "plasticine_mason_configured" }; for _, name in ipairs(expected) do assert(vim.g[name] == 1, name .. " was not configured") end; local managed = { "neovim/nvim-lspconfig", "williamboman/mason.nvim", "WhoIsSethDaniel/mason-tool-installer.nvim", "stevearc/conform.nvim" }; for _, name in ipairs(managed) do assert(vim.tbl_contains(vim.g.fixture_plugin_specs, name), name .. " plugin was not declared") end; assert(vim.tbl_contains(vim.g.plasticine_lsp_servers, "marksman"), "marksman was not registered"); assert(vim.tbl_contains(vim.g.fixture_lsp_enabled, "marksman"), "vim.lsp.enable was not called with marksman"); assert(vim.g.fixture_mason == 1); assert(vim.g.fixture_mason_tools == 1); assert(not vim.g.fixture_mason_run_on_start, "mason-tool-installer installs on start"); local installed = vim.g.fixture_mason_ensure_installed; assert(#installed == 1 and installed[1] == "marksman", "unexpected ensure_installed: " .. vim.inspect(installed)); local mason_bin = vim.fn.stdpath("data") .. "/mason/bin"; assert(vim.env.PATH:sub(1, #mason_bin) == mason_bin, "mason bin was not prepended to PATH"); assert(vim.g.colors_name == "tokyonight-fixture"); assert(vim.fn.maparg("<C-n>", "n") ~= ""); assert(vim.fn.exists(":NvimTreeToggle") == 2); assert(type(_FLOAT_TERM) == "function"); assert(type(_HORIZONTAL_TERM) == "function"); assert(type(_VERTICAL_TERM) == "function"); _FLOAT_TERM(); _HORIZONTAL_TERM(); _VERTICAL_TERM(); assert(vim.g.fixture_terminal_toggles == 3) end); if not ok then io.stderr:write(tostring(err) .. "\n"); vim.cmd("cquit") end' \
     '+qa'
 printf '%s\n' 'deterministic real-Neovim runtime tests passed'

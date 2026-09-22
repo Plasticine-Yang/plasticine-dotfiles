@@ -45,6 +45,10 @@ for fixture_system_command in /usr/bin/* /bin/*; do
     [ -e "$fixture_system_bin/${fixture_system_command##*/}" ] ||
         ln -s "$fixture_system_command" "$fixture_system_bin/${fixture_system_command##*/}"
 done
+# The Node toolchain decision must never depend on the runner: keep node, npm
+# and fnm out of the controlled PATH. Positive/negative cases below add their
+# own fixtures explicitly.
+rm -f "$fixture_system_bin/node" "$fixture_system_bin/npm" "$fixture_system_bin/fnm"
 if [ -x /usr/bin/shasum ]; then
     cat > "$fixture_system_bin/shasum" <<'EOF'
 #!/bin/sh
@@ -210,6 +214,29 @@ if grep -Fq 'Lazy! sync' "$fresh/calls"; then
     exit 1
 fi
 grep -Fq 'NvimTreeToggle' "$fresh/calls"
+# Tool provisioning runs after configuration and before runtime readiness, and
+# a cached editor performs no download to reach it.
+grep -Fq 'MasonToolsInstallSync' "$fresh/calls" || {
+    printf '%s\n' 'the supply step did not run during a Release snapshot apply.' >&2; exit 1; }
+[ "$(grep -c '^curl$' "$fresh/calls" || true)" -eq 0 ] || {
+    printf '%s\n' 'the supply step reached the network.' >&2; exit 1; }
+
+# The Node-free branch still succeeds: one warning on stderr, exit 0, and the
+# mason install drive still runs. A rerun stays idempotent and never downloads.
+for supply_round in 1 2; do
+    : > "$fresh/calls"
+    PATH=$fixture_bin:$fixture_system_bin PLASTICINE_NEOVIM_OS=Linux PLASTICINE_NEOVIM_ARCH=x86_64 \
+        PLASTICINE_NEOVIM_TEST_ASSETS=$fixture_assets PLASTICINE_NEOVIM_TEST_CALLS=$fresh/calls \
+        "$chezmoi_bin" -S "$repo_dir" -D "$fresh" -c "$config" --persistent-state "$test_root/fresh-state" apply --no-tty \
+        >"$test_root/supply-out-$supply_round" 2>"$test_root/supply-err-$supply_round" || {
+        printf '%s\n' 'the Node-free supply branch was reported as a failure.' >&2; exit 1; }
+    [ "$(grep -c 'Node toolchain was not found' "$test_root/supply-err-$supply_round")" -eq 1 ] || {
+        printf '%s\n' 'the Node-free supply branch did not warn exactly once.' >&2; exit 1; }
+    grep -Fq 'MasonToolsInstallSync' "$fresh/calls" || {
+        printf '%s\n' 'the Node-free supply branch did not drive mason.' >&2; exit 1; }
+    [ "$(grep -c '^curl$' "$fresh/calls" || true)" -eq 0 ] || {
+        printf '%s\n' 'the Node-free supply branch reached the network.' >&2; exit 1; }
+done
 
 # Preparation failures preserve an existing direct installation and precede configuration.
 for scenario in digest symlink hardlink malformed extraction candidate-health; do
