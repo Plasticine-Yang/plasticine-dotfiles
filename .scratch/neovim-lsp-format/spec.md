@@ -120,3 +120,16 @@ Neovim 侧使用其 0.11+ 内置的 LSP 能力（基线 0.12.5），因此只引
 - Neovim 基线 `0.12.5` 已提供 `vim.lsp.config` / `vim.lsp.enable` / `vim.lsp.completion`，因此不需要更重的补全或 LSP 框架。
 - 现有的"恢复快照 → 应用配置 → runtime readiness"顺序保持不变，供给步插入在配置应用之后、readiness 检查之前或并行合适位置。
 - 实现完成后需要一次新的 Base Dotfiles Release，才能让发布版安装带上新的插件快照与配置。
+
+## Implementation
+
+Implemented locally on branch `feat/neovim-lsp-format` (no-PR mode). The tracer bullets live in `.scratch/neovim-lsp-format/issues/`:
+
+- `01-managed-plugins-and-file-manifest` — managed plugin snapshot rows and the 9 → 12 file manifest.
+- `02-markdown-lsp-end-to-end` — marksman LSP, builder/mason wiring, the installer supply step and the Node-free degradation.
+- `03-shell-formatting-end-to-end` — conform.nvim with shfmt and manual `<leader>f` formatting.
+- `04-node-resolution-and-degradation` — fnm-aware Node resolution and deterministic degradation.
+- `05-node-dependent-lsp-and-prettier` — ts_ls/bashls/jsonls plus prettier mappings.
+- `06-docs-and-verification` — README capability matrix, Preview copy and full-suite verification.
+
+A new Base Dotfiles Release is still required before a released install can carry the new plugin snapshot and configuration.

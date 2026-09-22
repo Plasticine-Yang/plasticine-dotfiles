@@ -226,7 +226,26 @@ Plasticine 只整体管理以下十二个文件：
 
 变更文件在写入前备份到 `~/.plasticine/backups/neovim/`，原 mode 在 apply 后恢复；内容相同不会重复写入或备份。其他配置文件与 `lazy-lock.json` 不会被 Plasticine 接管。`init.vim`、符号链接/非普通目标、`NVIM_APPNAME` 或非默认 `XDG_CONFIG_HOME` 会被明确拒绝，避免修改一个不会被目标编辑器使用的配置树。
 
-配置保留 legacy 的编辑偏好、Tokyo Night、平滑滚动、surround、自动配对、Hop、nvim-tree 和浮动/水平/垂直终端快捷键，并适配快照中审查过的插件接口。发布版在配置应用前从 Release 快照恢复 lazy.nvim 与全部声明插件，应用后直接验证配置启动、文件树命令和终端函数，不运行 `Lazy! sync`。快照 checkout 保留官方 `origin`，并带有 Plasticine snapshot 标记；后续新版 Plasticine Release 可以安全推进这些快照。已存在且由 lazy.nvim/Owner 管理的 checkout 不会被接管或替换。
+### LSP 与格式化
+
+`--neovim` 在恢复插件与受管配置后，以 headless Neovim 触发一次 mason 工具供给，把下列语言服务器与格式化工具安装到 `~/.local/share/nvim/mason`，并统一经 Neovim 内置 LSP 入口与 `conform.nvim` 使用：
+
+| 语言 | LSP（mason 包） | 格式化（mason 包） | 依赖 Node |
+| --- | --- | --- | --- |
+| javascript / typescript | `typescript-language-server`（及提供 tsserver 的 `typescript`） | `prettier` | 是 |
+| shell | `bash-language-server` | `shfmt` | 否（仅 formatter） |
+| json | `vscode-langservers-extracted` | `prettier` | 是 |
+| markdown | `marksman` | `prettier` | 否（LSP）/ 是（formatter） |
+
+格式化只在显式按下 `<leader>f` 时发生，不做保存时自动格式化；外部 formatter 不可用时回退到 LSP 格式化，不弹出错误。补全使用 Neovim 内置 `vim.lsp.completion`，不引入 nvim-cmp 生态。
+
+当找不到可用的 `node`/`npm`（包括通过 `fnm env` 解析出的 fnm 管理 Node）时，`--neovim` 的供给步只安装不依赖 Node 的 `marksman` 与 `shfmt`，在 stderr 打印一次警告后仍然成功：Markdown LSP 与 shell 格式化保持可用。安装 fnm 与一个 Node 版本后重跑 `plasticine -y --neovim` 即可补齐其余工具，重复执行是幂等的。判定只读取本机状态，不查询上游元数据，也不会安装 Node 版本或 pnpm。
+
+mason 下载的工具不在 Release 快照的独立签名/digest 校验范围内：插件快照固定这些工具对应的版本，只能近似可复现，不提供独立签名校验。
+
+`--fnm` 与本次改动无关，行为保持不变：它只维护 manager，不自动安装 Node 版本或 pnpm；Node 与 pnpm 都不在 `--neovim` 内自动安装。实现完成后需要一次新的 Base Dotfiles Release，发布版安装才会带上新的插件快照与受管配置。
+
+配置保留 legacy 的编辑偏好、Tokyo Night、平滑滚动、surround、自动配对、Hop、nvim-tree 和浮动/水平/垂直终端快捷键，并新增 LSP、格式化与 mason 接线，全部适配快照中审查过的插件接口。发布版在配置应用前从 Release 快照恢复 lazy.nvim 与全部声明插件，应用后直接验证配置启动、文件树命令和终端函数，不运行 `Lazy! sync`。快照 checkout 保留官方 `origin`，并带有 Plasticine snapshot 标记；后续新版 Plasticine Release 可以安全推进这些快照。已存在且由 lazy.nvim/Owner 管理的 checkout 不会被接管或替换。
 
 从本地 checkout 运行开发安装时仍使用 lazy.nvim 的原生 moving-upstream 流程，并显式执行 `Lazy! sync`；Git 终端提示会被禁用，任何插件错误都会使安装返回非零。`lazy-lock.json`、Owner checkout、cache 和 state 始终是 lazy.nvim/Neovim 的原生状态。快照恢复、原生同步或运行时检查失败时，已经生成的配置备份、已应用配置和已完成的原生效果会保留；修复报告的问题后重跑即可，不会伪装成全事务回滚。
 

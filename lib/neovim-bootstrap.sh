@@ -109,6 +109,7 @@ plasticine_neovim_preview() {
             '  effects after editor preparation: manage exactly twelve ~/.config/nvim Lua files, then run native lazy.nvim update/synchronization.'
     fi
     printf '%s\n' \
+        '  LSP/format tools: after managed configuration, mason installs the language servers and formatters; a missing Node toolchain degrades to markdown LSP (marksman) and shell formatting (shfmt) with a one-time warning and still exits zero.' \
         "  verification: reviewed pinned SHA-256, safe archive layout, candidate version and complete runtime; the digest shares GitHub's release trust boundary and is not an independent signature." \
         "  distribution: $neovim_install_dir; command link: $neovim_target_command; package manager/privilege: none."
 }
