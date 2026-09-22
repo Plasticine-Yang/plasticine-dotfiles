@@ -186,7 +186,7 @@ apply_case "$fresh" "$test_root/fresh-state" env >/dev/null
 [ -L "$fresh/.local/bin/nvim" ]
 [ "$(readlink "$fresh/.local/bin/nvim")" = ../opt/neovim/bin/nvim ]
 [ -f "$fresh/.local/opt/neovim/share/nvim/runtime/filetype.lua" ]
-[ "$(find "$fresh/.config/nvim" -type f | wc -l | tr -d ' ')" -eq 9 ]
+[ "$(find "$fresh/.config/nvim" -type f | wc -l | tr -d ' ')" -eq 12 ]
 grep -Fq 'Lazy! sync' "$fresh/calls"
 grep -Fq 'has_errors' "$fresh/calls"
 grep -Fq 'NvimTreeToggle' "$fresh/calls"

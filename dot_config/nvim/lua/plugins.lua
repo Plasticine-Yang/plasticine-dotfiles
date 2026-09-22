@@ -14,6 +14,18 @@ vim.opt.rtp:prepend(lazypath)
 
 require('lazy').setup({
   { 'folke/tokyonight.nvim', lazy = false, priority = 1000 },
+  -- Language tooling is part of the editor baseline: mason provides the
+  -- binaries, nvim-lspconfig describes the servers, and conform dispatches
+  -- external formatters. All three load eagerly so PATH and diagnostics are
+  -- ready before the first buffer.
+  {
+    'williamboman/mason.nvim',
+    lazy = false,
+    dependencies = { 'WhoIsSethDaniel/mason-tool-installer.nvim' },
+    config = function() require('plugins-config.mason') end,
+  },
+  { 'neovim/nvim-lspconfig', lazy = false, config = function() require('plugins-config.lsp') end },
+  { 'stevearc/conform.nvim', lazy = false, config = function() require('plugins-config.conform') end },
   { 'karb94/neoscroll.nvim', config = function() require('plugins-config.neoscroll') end },
   { 'kylechui/nvim-surround', config = function() require('plugins-config.surround') end },
   { 'windwp/nvim-autopairs', config = true },

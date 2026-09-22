@@ -7,6 +7,10 @@ neovim	.local/share/nvim/lazy/hop.nvim	https://github.com/smoka7/hop.nvim.git	6e
 neovim	.local/share/nvim/lazy/nvim-tree.lua	https://github.com/nvim-tree/nvim-tree.lua.git	882c54f2815bf6d02663d482c2cf9dbadf4e9b07	lua/nvim-tree.lua
 neovim	.local/share/nvim/lazy/nvim-web-devicons	https://github.com/nvim-tree/nvim-web-devicons.git	5f032a85be210cd1c6ac98861eb3b187ff3bd5eb	lua/nvim-web-devicons.lua
 neovim	.local/share/nvim/lazy/toggleterm.nvim	https://github.com/akinsho/toggleterm.nvim.git	9a88eae817ef395952e08650b3283726786fb5fb	lua/toggleterm.lua
+neovim	.local/share/nvim/lazy/nvim-lspconfig	https://github.com/neovim/nvim-lspconfig.git	b89138d9af0a96e6048e202a15765fc6b6416bd4	lua/lspconfig.lua
+neovim	.local/share/nvim/lazy/mason.nvim	https://github.com/williamboman/mason.nvim.git	2a6940af80375532e5e9e7c1f2fc6319a1b7a69d	lua/mason/init.lua
+neovim	.local/share/nvim/lazy/mason-tool-installer.nvim	https://github.com/WhoIsSethDaniel/mason-tool-installer.nvim.git	443f1ef8b5e6bf47045cb2217b6f748a223cf7dc	lua/mason-tool-installer/init.lua
+neovim	.local/share/nvim/lazy/conform.nvim	https://github.com/stevearc/conform.nvim.git	3543d000dafbc41cc7761d860cfdb24e82154f75	lua/conform/init.lua
 shell-linux	.antidote	https://github.com/mattmc3/antidote.git	db19ea3aa9ad83dbe6ac465ecce0a0afc5a752a5	antidote.zsh
 shell	.cache/antidote/github.com/zsh-users/zsh-completions	https://github.com/zsh-users/zsh-completions.git	de02bb84ab0af51e328c6ae85ab5555397c31277	zsh-completions.plugin.zsh
 shell	.cache/antidote/github.com/jeffreytse/zsh-vi-mode	https://github.com/jeffreytse/zsh-vi-mode.git	91cafe4a09b6670cb8e761aa413e5f7b9e00816f	zsh-vi-mode.plugin.zsh

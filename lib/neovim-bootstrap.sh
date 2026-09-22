@@ -102,11 +102,11 @@ plasticine_neovim_preview() {
     if plasticine_neovim_uses_release_snapshot; then
         printf '%s\n' \
             '  network during apply: the pinned github.com/neovim/neovim archive only when needed; plugins come from the verified Plasticine Release snapshot without Git updates.' \
-            '  effects after editor preparation: manage exactly nine ~/.config/nvim Lua files, then verify the restored plugin runtime.'
+            '  effects after editor preparation: manage exactly twelve ~/.config/nvim Lua files, then verify the restored plugin runtime.'
     else
         printf '%s\n' \
             '  network during apply: the pinned github.com/neovim/neovim archive only when needed, plus lazy.nvim/plugin Git repositories.' \
-            '  effects after editor preparation: manage exactly nine ~/.config/nvim Lua files, then run native lazy.nvim update/synchronization.'
+            '  effects after editor preparation: manage exactly twelve ~/.config/nvim Lua files, then run native lazy.nvim update/synchronization.'
     fi
     printf '%s\n' \
         "  verification: reviewed pinned SHA-256, safe archive layout, candidate version and complete runtime; the digest shares GitHub's release trust boundary and is not an independent signature." \

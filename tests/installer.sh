@@ -126,7 +126,7 @@ test ! -e "$empty_dir/home/.config"
 neovim_dir=$test_root/neovim
 mkdir -p "$neovim_dir/home"
 run_installer "$neovim_dir" -y --neovim >/dev/null
-test "$(find "$neovim_dir/home/.config/nvim" -type f | wc -l | tr -d ' ')" -eq 9
+test "$(find "$neovim_dir/home/.config/nvim" -type f | wc -l | tr -d ' ')" -eq 12
 grep -Fq 'Lazy! sync' "$neovim_dir/nvim-calls"
 test ! -e "$neovim_dir/home/.zshrc"
 test ! -e "$neovim_dir/home/.zsh_plugins.txt"

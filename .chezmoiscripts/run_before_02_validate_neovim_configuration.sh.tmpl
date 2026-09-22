@@ -17,7 +17,9 @@ if [ -e "$dest_dir/.config/nvim/init.vim" ] || [ -L "$dest_dir/.config/nvim/init
 fi
 for relative in init.lua lua/basic.lua lua/keybindings.lua lua/colorschema.lua lua/plugins.lua \
     lua/plugins-config/neoscroll.lua lua/plugins-config/nvim-tree.lua \
-    lua/plugins-config/surround.lua lua/plugins-config/toggleterm.lua; do
+    lua/plugins-config/surround.lua lua/plugins-config/toggleterm.lua \
+    lua/plugins-config/lsp.lua lua/plugins-config/conform.lua \
+    lua/plugins-config/mason.lua; do
     plasticine_whole_file_validate_file "$dest_dir/.config/nvim/$relative" neovim
 done
 {{- end }}

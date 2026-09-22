@@ -209,7 +209,7 @@ Neovim 编辑器发行版的固定支持基线为 `0.12.5`。缺失或较旧的�
 
 位于其他路径且达到基线的稳定编辑器可以继续使用且不会被修改。其他 owner 的旧版本以及不健康/无法比较/预发布/自定义版本会被拒绝；安装器不会调用其包管理器、降级、切换 channel 或另装遮蔽副本。下载、digest、解包、候选 runtime 或发布失败发生在配置写入前，并保留旧 installation；若完整 distribution 已发布而命令链接或最终健康检查失败，诊断会明确保留状态，Owner 修复冲突后可重跑。
 
-Plasticine 只整体管理以下九个文件：
+Plasticine 只整体管理以下十二个文件：
 
 - `~/.config/nvim/init.lua`
 - `~/.config/nvim/lua/basic.lua`
@@ -220,6 +220,9 @@ Plasticine 只整体管理以下九个文件：
 - `~/.config/nvim/lua/plugins-config/nvim-tree.lua`
 - `~/.config/nvim/lua/plugins-config/surround.lua`
 - `~/.config/nvim/lua/plugins-config/toggleterm.lua`
+- `~/.config/nvim/lua/plugins-config/lsp.lua`
+- `~/.config/nvim/lua/plugins-config/conform.lua`
+- `~/.config/nvim/lua/plugins-config/mason.lua`
 
 变更文件在写入前备份到 `~/.plasticine/backups/neovim/`，原 mode 在 apply 后恢复；内容相同不会重复写入或备份。其他配置文件与 `lazy-lock.json` 不会被 Plasticine 接管。`init.vim`、符号链接/非普通目标、`NVIM_APPNAME` 或非默认 `XDG_CONFIG_HOME` 会被明确拒绝，避免修改一个不会被目标编辑器使用的配置树。
 

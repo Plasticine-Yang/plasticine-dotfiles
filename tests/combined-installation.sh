@@ -209,7 +209,7 @@ grep -Fq 'tools = ["fnm","git-config","github-ssh","herdr","lazygit","login-shel
     "$scenario/config/chezmoi.toml" || fail 'full selection was not canonicalized'
 test -f "$scenario/home/.ssh/id_github"
 test -f "$scenario/home/.gitconfig"
-test "$(find "$scenario/home/.config/nvim" -type f | wc -l | tr -d ' ')" -eq 9
+test "$(find "$scenario/home/.config/nvim" -type f | wc -l | tr -d ' ')" -eq 12
 grep -Fq "alias lg='lazygit'" "$scenario/home/.zshrc"
 grep -Fq 'export COMBINED_OWNER=kept' "$scenario/home/.zshrc"
 cmp -s "$scenario/local-before" "$scenario/home/.gitconfig.local"
