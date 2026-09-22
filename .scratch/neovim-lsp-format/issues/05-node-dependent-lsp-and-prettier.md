@@ -4,7 +4,7 @@
 
 **Blocked by:** 03, 04.
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] 有 Node 时 `ensure_installed` 包含 `typescript-language-server`、`typescript`、`bash-language-server`、`vscode-langservers-extracted`、`prettier`。
 - [ ] LSP 配置启用 `ts_ls`、`bashls`、`jsonls`，并保留 02 中的 `marksman`。
@@ -12,3 +12,13 @@
 - [ ] 集成测试以"Node 可用"的受控场景断言 6 个工具都被请求安装、相应 server 已启用、formatter 映射完整。
 - [ ] 无 Node 场景下这些工具被跳过且不影响 02、03 已交付的 Markdown LSP 与 shell 格式化。
 - [ ] `--fnm` 行为保持不变：不安装 Node 版本、不安装 pnpm，`tests/fnm.sh` 与 `tests/fnm-runtime.sh` 现有覆盖保持通过。
+
+## Comments
+
+2026-09-23: Implemented on `feat/neovim-lsp-format` in commit b3ff226.
+
+- `lua/plugins-config/mason.lua`：有 Node 时 `ensure_installed` 追加 `typescript-language-server`、`typescript`、`bash-language-server`、`vscode-langservers-extracted`、`prettier`（加上 Node-free 的 `marksman`/`shfmt` 共 7 个 mason 包，对应 capability 表里的 6 类工具，其中 `typescript` 随 `typescript-language-server` 提供 tsserver）。
+- `lua/plugins-config/lsp.lua`：servers 扩为 `marksman`、`ts_ls`、`bashls`、`jsonls`，统一经 `vim.lsp.enable` 启用。
+- `lua/plugins-config/conform.lua`：`prettier` 映射到 javascript/javascriptreact/typescript/typescriptreact/json/jsonc/markdown，保留 shfmt 的 shell 映射。
+- `tests/neovim-runtime.sh`：以本套件自有的 PATH 分两轮运行，断言无 Node 时清单恰为 `{marksman, shfmt}`，有 Node 时包含全部 Node 依赖包，并校验 server 启用与 formatter 映射完整。
+- `--fnm` 未改动；`tests/fnm.sh`、`tests/fnm-runtime.sh` 保持通过。
