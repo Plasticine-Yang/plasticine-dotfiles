@@ -123,6 +123,40 @@ test ! -e "$empty_dir/home/scripts"
 test ! -e "$empty_dir/home/.github"
 test ! -e "$empty_dir/home/.config"
 
+# npmrc is an independent preference, and its Preview never shows credentials.
+npmrc_dir=$test_root/npmrc
+mkdir -p "$npmrc_dir/home"
+printf '%s\n' 'registry=https://registry.npmjs.org/' \
+    '//registry.npmjs.org/:_authToken=installer-npmrc-private-marker' \
+    'ignore-scripts=true' 'dangerously-allow-all-scripts=false' > "$npmrc_dir/home/.npmrc"
+run_installer "$npmrc_dir" -y --npmrc > "$npmrc_dir/output"
+grep -Fq 'tools = ["npmrc"]' "$npmrc_dir/config/chezmoi.toml"
+grep -Fxq 'dangerously-allow-all-scripts=true' "$npmrc_dir/home/.npmrc"
+grep -Fxq 'ignore-scripts=true' "$npmrc_dir/home/.npmrc"
+grep -Fq 'npmrc: set dangerously-allow-all-scripts=true' "$npmrc_dir/output"
+if grep -Fq 'installer-npmrc-private-marker' "$npmrc_dir/output"; then
+    printf '%s\n' 'npmrc Preview leaked an Owner credential' >&2; exit 1
+fi
+test ! -e "$npmrc_dir/home/.zshrc"
+test ! -e "$npmrc_dir/home/.gitconfig"
+test ! -e "$npmrc_dir/home/.ssh"
+run_installer "$npmrc_dir" -y --npmrc > "$npmrc_dir/rerun-output"
+grep -Fq 'npmrc: ~/.npmrc already has' "$npmrc_dir/rerun-output"
+for order in npmrc-first git-first; do
+    combination=$test_root/npmrc-$order
+    mkdir -p "$combination/home"
+    case $order in
+        npmrc-first) run_installer "$combination" -y --npmrc --git-config >/dev/null ;;
+        git-first) run_installer "$combination" -y --git-config --npmrc >/dev/null ;;
+    esac
+    grep -Fq 'tools = ["git-config","npmrc"]' "$combination/config/chezmoi.toml"
+    grep -Fxq 'dangerously-allow-all-scripts=true' "$combination/home/.npmrc"
+done
+if run_installer "$npmrc_dir" --npmrc > "$npmrc_dir/invalid-output" 2>&1; then
+    printf '%s\n' 'npmrc without -y was accepted' >&2; exit 1
+fi
+grep -Fq 'Tool options require -y' "$npmrc_dir/invalid-output"
+
 neovim_dir=$test_root/neovim
 mkdir -p "$neovim_dir/home"
 run_installer "$neovim_dir" -y --neovim >/dev/null

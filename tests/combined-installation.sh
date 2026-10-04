@@ -131,7 +131,7 @@ make_key() {
     ssh-keygen -q -t ed25519 -N '' -C combined-fixture -f "$1/key/id_ed25519"
 }
 
-# Interactive selection exposes the same eight Features. Selecting all and
+# Interactive selection exposes the same nine Features. Selecting all and
 # cancelling after Preview records the canonical selection but performs no
 # target lookup or selected mutation.
 if command -v expect >/dev/null 2>&1; then
@@ -175,12 +175,13 @@ catch wait result
 exit [lindex $result 3]
 EOF
     interactive_tools=$(sed -n 's/^[[:space:]]*tools = //p' "$interactive/config/chezmoi.toml")
-    for feature in fnm git-config github-ssh herdr lazygit login-shell neovim shell; do
+    for feature in fnm git-config github-ssh herdr lazygit login-shell neovim npmrc shell; do
         case $interactive_tools in *"\"$feature\""*) ;; *) fail "interactive selection omitted $feature" ;; esac
     done
     if grep -q -- '-query' "$interactive/calls"; then fail 'interactive cancellation queried current targets'; fi
     if grep -Fxq login-shell-apply "$interactive/calls"; then fail 'cancellation changed the login shell'; fi
     test ! -e "$interactive/home/.gitconfig"
+    test ! -e "$interactive/home/.npmrc"
     test ! -e "$interactive/home/.ssh"
     test ! -e "$interactive/home/.config"
 fi
@@ -204,11 +205,12 @@ printf '%s\n' '[user]' 'name = local-owner' > "$scenario/home/.gitconfig.local"
 cp "$scenario/home/.gitconfig.local" "$scenario/local-before"
 run_installer "$scenario" -y --neovim --github-ssh \
     --github-ssh-key "$scenario/key/id_ed25519" --herdr --git-config \
-    --shell --fnm --lazygit --login-shell >/dev/null
-grep -Fq 'tools = ["fnm","git-config","github-ssh","herdr","lazygit","login-shell","neovim","shell"]' \
+    --shell --fnm --lazygit --login-shell --npmrc >/dev/null
+grep -Fq 'tools = ["fnm","git-config","github-ssh","herdr","lazygit","login-shell","neovim","npmrc","shell"]' \
     "$scenario/config/chezmoi.toml" || fail 'full selection was not canonicalized'
 test -f "$scenario/home/.ssh/id_github"
 test -f "$scenario/home/.gitconfig"
+grep -Fxq 'dangerously-allow-all-scripts=true' "$scenario/home/.npmrc"
 test "$(find "$scenario/home/.config/nvim" -type f | wc -l | tr -d ' ')" -eq 12
 grep -Fq "alias lg='lazygit'" "$scenario/home/.zshrc"
 grep -Fq 'export COMBINED_OWNER=kept' "$scenario/home/.zshrc"

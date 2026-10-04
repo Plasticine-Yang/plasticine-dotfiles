@@ -106,6 +106,18 @@ jobs:
       - name: Test the required CI gate
         run: ./scripts/run-test.sh 30 ci-gate ./tests/ci-gate.sh
 
+      - name: Install the npm script-policy test runtime
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.21.0'
+
+      - name: Run npm configuration and script-policy tests
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/npmrc-policy-runtime" --ignore-scripts --no-audit --no-fund npm@12.0.2
+          export PATH="$RUNNER_TEMP/npmrc-policy-runtime/node_modules/.bin:$PATH"
+          PLASTICINE_REQUIRE_NPMRC_RUNTIME=1 CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 npmrc ./tests/npmrc.sh
+
       - name: Run integration tests
         run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 integration ./tests/integration.sh
 

@@ -1,6 +1,6 @@
 # plasticine-dotfiles
 
-使用 [chezmoi](https://www.chezmoi.io/) 在 macOS 和 Linux 上选择并恢复个人开发环境。目前支持 Git 配置、GitHub SSH 配置、fnm、Herdr、Lazygit、Neovim 和 Zsh 环境。
+使用 [chezmoi](https://www.chezmoi.io/) 在 macOS 和 Linux 上选择并恢复个人开发环境。目前支持 Git 配置、GitHub SSH 配置、fnm、Herdr、Lazygit、Neovim、Zsh 环境和 npm 用户配置。
 
 ## 一行安装
 
@@ -16,7 +16,7 @@ chezmoi 维护和 source 获取属于安装器前置工作，会发生在 Featur
 
 选择 `neovim` 或 `shell` 时，发布版还会下载同一 Release 中固定版本的受管插件快照。首次安装从快照恢复公开插件，不执行 GitHub Git clone、fetch 或 pull，因此不要求 GitHub 用户名、Token、SSH key，也不依赖 `git-config` 或 `github-ssh`。这两个身份 Feature 仍然完全独立：没有选择就不会修改 `.gitconfig`、SSH key 或 SSH 配置。Release 资产下载本身使用匿名 HTTPS；若该网络路径不可用，安装会明确失败，不会转为凭据提示。
 
-安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 Git 配置（`git-config`）、GitHub SSH、fnm（`fnm`）、Herdr（`herdr`）、Lazygit（`lazygit`）、Neovim（`neovim`）、Zsh 环境（`shell`）和默认登录 Shell（`login-shell`）；初始选择为空，不选择某个工具表示本次不处理它。
+安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 Git 配置（`git-config`）、GitHub SSH、fnm（`fnm`）、Herdr（`herdr`）、Lazygit（`lazygit`）、Neovim（`neovim`）、Zsh 环境（`shell`）、默认登录 Shell（`login-shell`）和 npm 用户配置（`npmrc`）；初始选择为空，不选择某个工具表示本次不处理它。
 
 ## 本地 `plasticine` 命令
 
@@ -80,7 +80,7 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
   -y --lazygit
 ```
 
-`--git-config`、`--github-ssh`、`--herdr`、`--fnm`、`--lazygit`、`--neovim`、`--shell` 与 `--login-shell` 可以任意组合，工具集合与顺序无关。工具选项必须配合 `-y`；不带 `-y` 使用工具选项会被拒绝并提示改用交互选择。
+`--git-config`、`--github-ssh`、`--herdr`、`--fnm`、`--lazygit`、`--neovim`、`--shell`、`--login-shell` 与 `--npmrc` 可以任意组合，工具集合与顺序无关。工具选项必须配合 `-y`；不带 `-y` 使用工具选项会被拒绝并提示改用交互选择。
 
 `--shell` 只配置 Zsh 环境，不再修改账户的默认登录 Shell。若要把已有 Zsh 设为默认登录 Shell，需在原生终端显式选择 `login-shell`；也可以同时选择两者，先完成环境配置再切换：
 
@@ -170,6 +170,25 @@ PLASTICINE_DOTFILES_REPO_URL="$PWD" ./install.sh
 替换已有普通 `~/.gitconfig` 前，Preview 会展示整个受管文件差异，并在 `~/.plasticine/backups/git-config/` 创建权限为 `0600` 的原文件备份；备份目录为 `0700`，目标原有权限会在应用后恢复。内容相同的重跑不会改写文件或重复备份。目标或备份父路径是符号链接、文件/目录类型不符时，应用会在任何已选工具变化前停止；修复路径后重跑即可。
 
 `--git-config` 与 GitHub SSH 完全独立，不安装或更新 Git、OpenSSH，不添加凭据存储、URL rewrite，也不清理旧 checkout 或任何本地 Git 数据。
+
+## npm 用户配置（`--npmrc`）
+
+单独恢复 npm 安装脚本偏好，或与其他 Feature 组合：
+
+```sh
+plasticine -y --npmrc
+plasticine -y --npmrc --fnm
+```
+
+一行安装器同样支持 `-y --npmrc`；交互菜单可独立选择 `npmrc`，默认不选中。该 Feature 只在 `~/.npmrc` 中维护：
+
+```ini
+dangerously-allow-all-scripts=true
+```
+
+npm 支持此选项时，会自动执行依赖的安装脚本，包含全局安装和默认的项目安装；它绕过 `allowScripts` 的批准与拒绝策略。已有的 `ignore-scripts`、registry、代理、认证 Token 和注释保持不变，`ignore-scripts=true` 或更高优先级配置仍按 npm 原生规则生效。它不安装 Node/npm，也不依赖 `fnm` 或 `shell`。自定义 `--userconfig` / `NPM_CONFIG_USERCONFIG` 指向其他文件时，需要自行管理那个文件。
+
+安装器 Preview 只显示该偏好是否需要修改，不打印 `.npmrc` 正文。chezmoi 通过每次 apply 的脚本更新这一项，因此 `chezmoi diff` 不展示 `.npmrc` 文件差异；dry-run 不写入配置或备份。所有已选工具准备成功后，才合并并原子发布配置。首次创建的文件权限为 `0600`；更新已有文件前在 `~/.plasticine/backups/npmrc/` 保存权限为 `0600` 的完整备份，备份目录为 `0700`，原文件权限保留。满足状态的重跑不改写文件、不新增备份。目标或备份路径为符号链接、类型不符时会停止。
 
 ## Lazygit（`--lazygit`）
 

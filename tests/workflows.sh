@@ -5,7 +5,7 @@ repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
 ci=$repo_dir/.github/workflows/ci.yml
 release=$repo_dir/.github/workflows/release.yml
 
-for suite in integration combined-installation chezmoi git-config installer shell \
+for suite in integration combined-installation chezmoi git-config npmrc installer shell \
     shell-runtime lazygit lazygit-runtime fnm fnm-runtime neovim neovim-runtime \
     herdr release release-payload cli self-update bootstrap-installation \
     diff-config test-runner workflows ci-gate; do

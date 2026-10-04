@@ -246,11 +246,12 @@ Interactive mode:
   install.sh
 
 Non-interactive mode:
-  install.sh -y [--git-config] [--github-ssh --github-ssh-key <path>] [--fnm] [--herdr] [--lazygit] [--neovim] [--shell] [--login-shell]
+  install.sh -y [--git-config] [--github-ssh --github-ssh-key <path>] [--fnm] [--herdr] [--lazygit] [--neovim] [--shell] [--login-shell] [--npmrc]
 
 Options:
   -y, --yes                       Skip selection/confirmation; native credentials may still be required
       --git-config                Configure shared Git preferences and local override inclusion
+      --npmrc                     Allow all npm dependency install scripts in ~/.npmrc
       --github-ssh                Configure GitHub SSH
       --github-ssh-key <path>     Private key to copy to ~/.ssh/id_github
       --github-ssh-test           Test GitHub SSH after applying
@@ -267,6 +268,7 @@ EOF
 
 yes=0
 git_config=0
+npmrc=0
 github_ssh=0
 github_ssh_key=''
 github_ssh_test=0
@@ -282,6 +284,7 @@ while [ "$#" -gt 0 ]; do
     case $1 in
         -y|--yes) yes=1 ;;
         --git-config) git_config=1 ;;
+        --npmrc) npmrc=1 ;;
         --github-ssh) github_ssh=1 ;;
         --github-ssh-key)
             [ "$#" -ge 2 ] || { error '--github-ssh-key requires a path.'; exit 2; }
@@ -334,7 +337,7 @@ if [ "$yes" -eq 0 ]; then
        [ "$github_ssh_test" -eq 1 ] || [ "$replace_github_ssh_key" -eq 1 ] ||
        [ "$shell" -eq 1 ] || [ "$lazygit" -eq 1 ] || [ "$fnm" -eq 1 ] ||
        [ "$neovim" -eq 1 ] || [ "$herdr" -eq 1 ] || [ "$git_config" -eq 1 ] ||
-       [ "$login_shell" -eq 1 ]; then
+       [ "$login_shell" -eq 1 ] || [ "$npmrc" -eq 1 ]; then
         error 'Tool options require -y; run without options for interactive selection.'
         exit 2
     fi
@@ -481,6 +484,9 @@ if [ "$yes" -eq 1 ]; then
     if [ "$herdr" -eq 1 ]; then
         tools="${tools:+$tools }herdr"
     fi
+    if [ "$npmrc" -eq 1 ]; then
+        tools="${tools:+$tools }npmrc"
+    fi
     export PLASTICINE_TOOLS="$tools"
     export PLASTICINE_GITHUB_SSH_TEST=$github_ssh_test
     export PLASTICINE_REPLACE_GITHUB_SSH_KEY=$replace_github_ssh_key
@@ -525,6 +531,7 @@ lazygit_selected=0
 fnm_selected=0
 neovim_selected=0
 herdr_selected=0
+npmrc_selected=0
 zsh_integration_selected=0
 shell_antidote_route=''
 shell_zsh=''
@@ -543,6 +550,9 @@ if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"neovim"/); exit } END { exit !
 fi
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"herdr"/); exit } END { exit !found }' "$config_file"; then
     herdr_selected=1
+fi
+if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"npmrc"/); exit } END { exit !found }' "$config_file"; then
+    npmrc_selected=1
 fi
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"login-shell"/); exit } END { exit !found }' "$config_file"; then
     login_shell_selected=1
@@ -659,6 +669,11 @@ if [ "$login_shell_selected" -eq 1 ]; then
 fi
 
 log 'Previewing changes...'
+if [ "$npmrc_selected" -eq 1 ]; then
+    # shellcheck disable=SC1091
+    . "$source_dir/lib/npmrc-configuration.sh"
+    plasticine_npmrc_preview "$destination_dir" || exit 1
+fi
 "$chezmoi_bin" "$@" --no-pager diff
 
 if [ "$yes" -eq 0 ]; then

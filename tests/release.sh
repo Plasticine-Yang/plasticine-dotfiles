@@ -172,18 +172,22 @@ grep -Fxq 'https://github.com/twpayne/chezmoi/releases/download/v2.72.1/chezmoi_
 upgrade_dir=$test_root/upgrade
 mkdir -p "$upgrade_dir/home"
 run_release_installer() {
+    installer_assets=$1; shift
     HOME=$upgrade_dir/home \
     PLASTICINE_CHEZMOI_BIN=${CHEZMOI_BIN:-$(command -v chezmoi)} \
-    PLASTICINE_RELEASE_ASSET_DIR=$1 \
+    PLASTICINE_RELEASE_ASSET_DIR=$installer_assets \
     PLASTICINE_CHEZMOI_SOURCE_DIR=$upgrade_dir/source \
     PLASTICINE_CHEZMOI_CONFIG_FILE=$upgrade_dir/config/chezmoi.toml \
     PLASTICINE_CHEZMOI_STATE_FILE=$upgrade_dir/config/chezmoistate.boltdb \
     PLASTICINE_CHEZMOI_DEST_DIR=$upgrade_dir/home \
-        "$1/install.sh" -y >/dev/null
+        "$installer_assets/install.sh" -y "$@" >/dev/null
 }
-run_release_installer "$asset_dir"
+run_release_installer "$asset_dir" --npmrc
+grep -Fxq 'dangerously-allow-all-scripts=true' "$upgrade_dir/home/.npmrc"
 [ "$(git -C "$upgrade_dir/source" rev-parse HEAD)" = "$revision" ]
 grep -Fq -- '--git-config' "$asset_dir/install.sh"
+grep -Fq -- '--npmrc' "$asset_dir/install.sh"
+test -f "$upgrade_dir/source/lib/npmrc-configuration.sh"
 grep -Fq -- '--neovim' "$asset_dir/install.sh"
 grep -Fq -- '--fnm' "$asset_dir/install.sh"
 grep -Fq -- '--herdr' "$asset_dir/install.sh"

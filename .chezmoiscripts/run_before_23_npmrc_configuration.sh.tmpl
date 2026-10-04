@@ -1,0 +1,9 @@
+{{- if has "npmrc" .tools -}}
+#!/bin/sh
+set -eu
+source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
+{{ template "whole-file-protection" . }}
+# shellcheck disable=SC1091
+. "$source_dir/lib/npmrc-configuration.sh"
+plasticine_npmrc_apply {{ template "shell-quote" .chezmoi.destDir }}
+{{- end }}
