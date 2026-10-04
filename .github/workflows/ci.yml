@@ -5,6 +5,15 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'README.md'
+      - 'AGENTS.md'
+      - 'CONTEXT.md'
+      - 'CONTEXT-MAP.md'
+      - 'docs/**'
+      - '.scratch/**'
+      - '.agents/skills/**'
+  workflow_dispatch:
   workflow_call:
 
 permissions:
@@ -99,6 +108,9 @@ jobs:
 
       - name: Test the timeout runner
         run: ./scripts/run-test.sh 30 test-runner ./tests/test-runner.sh
+
+      - name: Test the isolated local check runner
+        run: ./scripts/run-test.sh 30 check-runner ./tests/check-runner.sh
 
       - name: Test workflow contracts
         run: ./scripts/run-test.sh 30 workflows ./tests/workflows.sh

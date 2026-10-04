@@ -20,6 +20,8 @@ Do not add unit tests for UI. UI concerns (shell prompt, Neovim configuration, C
 
 Test non-UI logic according to project conventions. Preserve and run applicable existing checks.
 
+Run local checks through `scripts/check.sh`; suite selection and dependencies are documented in `README.md` under 本地验证.
+
 ### Commits
 
 - Write commit descriptions and bodies in Chinese; Conventional Commit types and scopes may remain in English.

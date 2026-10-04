@@ -34,8 +34,9 @@ case $poll_seconds in
         ;;
 esac
 
-runs_endpoint="repos/$repository/actions/workflows/ci.yml/runs?head_sha=$revision&event=push&per_page=100"
+runs_endpoint="repos/$repository/actions/workflows/ci.yml/runs?head_sha=$revision&per_page=100"
 started_at=$(date +%s)
+ci_requested=0
 
 runs_file=$(mktemp "${TMPDIR:-/tmp}/plasticine-ci-runs.XXXXXX")
 jobs_file=''
@@ -50,9 +51,23 @@ while :; do
     # separate API calls races a run that completes in between: the successful
     # query misses it and the completed query then reports a false failure.
     if ! "$gh_bin" api --method GET "$runs_endpoint" --paginate \
-        --jq '.workflow_runs[] | [.id, .status, (.conclusion // "")] | @tsv' > "$runs_file"; then
+        --jq '.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch") | [.id, .status, (.conclusion // "")] | @tsv' > "$runs_file"; then
         printf 'could not query CI runs for %s\n' "$revision" >&2
         exit 1
+    fi
+
+    # Documentation-only pushes intentionally have no CI run. Release may
+    # request one full matrix; existing push/manual runs are always reused.
+    if [ ! -s "$runs_file" ] && [ "$ci_requested" -eq 0 ] && \
+        [ "${PLASTICINE_REQUEST_MISSING_CI:-0}" = 1 ]; then
+        remote_main=$("$gh_bin" api "repos/$repository/git/ref/heads/main" --jq .object.sha)
+        [ "$remote_main" = "$revision" ] || {
+            printf '%s\n' 'main advanced before CI could be requested; dispatch a new release.' >&2
+            exit 1
+        }
+        "$gh_bin" workflow run ci.yml --repo "$repository" --ref main
+        ci_requested=1
+        printf 'Requested full CI for %s\n' "$revision"
     fi
 
     successful_run=$(awk -F '\t' '$2 == "completed" && $3 == "success" { print $1; exit }' "$runs_file")

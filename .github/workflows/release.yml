@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
-      actions: read
+      actions: write
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
@@ -71,6 +71,8 @@ jobs:
           fi
 
       - name: Reuse successful CI for the release revision
+        env:
+          PLASTICINE_REQUEST_MISSING_CI: '1'
         run: ./scripts/require-ci-success.sh "$GITHUB_REPOSITORY" "$RELEASE_SHA"
 
       - name: Install pinned chezmoi

@@ -364,37 +364,28 @@ fi
 测试全部运行在临时目录，不会修改真实的 `~/.ssh`、`~/.zshrc` 或 `~/.plasticine`，也不会真的调用包管理器、`sudo`、`brew` 或 `chsh`：
 
 ```sh
-CHEZMOI_BIN=/path/to/chezmoi ./tests/integration.sh
-CHEZMOI_BIN=/path/to/chezmoi ./tests/combined-installation.sh
-CHEZMOI_BIN=/path/to/chezmoi ./tests/chezmoi.sh
-CHEZMOI_BIN=/path/to/chezmoi ./tests/diff-config.sh
-CHEZMOI_BIN=/path/to/chezmoi ./tests/installer.sh
-CHEZMOI_BIN=/path/to/chezmoi ./tests/bootstrap-installation.sh
-CHEZMOI_BIN=/path/to/chezmoi ./tests/cli.sh
-./tests/self-update.sh
-CHEZMOI_BIN=/path/to/chezmoi ./tests/shell.sh
-CHEZMOI_BIN=/path/to/chezmoi ./tests/lazygit.sh
-CHEZMOI_BIN=/path/to/chezmoi ./tests/lazygit-runtime.sh
-CHEZMOI_BIN=/path/to/chezmoi ./tests/fnm.sh
-./tests/fnm-runtime.sh
-CHEZMOI_BIN=/path/to/chezmoi ./tests/neovim.sh
-./tests/neovim-runtime.sh
+# 按改动选择已有 suite；自更新和 npmrc 也会通过 Bash 验证。
+./scripts/check.sh cli self-update
+./scripts/check.sh npmrc integration
+
+# 查看 suite 列表，或运行全部 routine 检查。
+./scripts/check.sh --help
+CHEZMOI_BIN=/path/to/chezmoi ./scripts/check.sh --all
+
+# 真实上游 Neovim smoke 仍需显式选择。
 PLASTICINE_LIVE_NEOVIM_SMOKE=1 ./tests/neovim-live.sh
-CHEZMOI_BIN=/path/to/chezmoi ./tests/herdr.sh
-./tests/shell-runtime.sh
-CHEZMOI_BIN=/path/to/chezmoi ./tests/release.sh
-./tests/release-payload.sh
-./tests/test-runner.sh
-./tests/ci-gate.sh
-./tests/workflows.sh
 ```
+
+`scripts/check.sh` 在 `.agent-tmp/checks/` 创建并清理一次性 Git 快照，包含已跟踪和未忽略的新文件及未提交改动；原工作区和暂存区保持不变。测试副本采用 `umask 022` 和正常 checkout 权限，隔离 HOME、TMPDIR 与个人环境变量，PATH 只包含所选 suite 必需的运行时和系统目录。缺少 ShellCheck、chezmoi、Zsh、Expect 或 Neovim 等所需依赖时立即报错，不静默跳过相关验证；可用 `CHEZMOI_BIN`、`NVIM_BIN` 指定工具路径。npmrc 检查要求支持脚本策略的 npm，CI 使用 Node `24.21.0` 和 npm `12.0.2`。入口不会自动安装依赖或修改个人 npmrc。
 
 `tests/combined-installation.sh` 通过真实 `install.sh` 与 chezmoi 入口覆盖八个 Feature 的交互/非交互全选、顺序无关性、跨工具 target 更新、配置前准备、配置后原生同步、取消、dry-run、部分失败与安全重试；各 Feature 的网络、包管理器、完整发行版、owner、完整性与竞态细节仍由其专项 suite 覆盖。`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、`shell` / `login-shell` 独立选择、登录 Shell 切换、失败重试与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/fnm.sh` 覆盖 Linux 官方脚本候选发布和 macOS Homebrew currency 路线；`tests/lazygit-runtime.sh` 与 `tests/shell-runtime.sh` 使用真实 Zsh，后者包含受控 fnm 的成功/失败激活、Owner 后续代码继续执行和单次初始化验证。`tests/neovim.sh` 使用受控 Release 与编辑器边界覆盖公开 chezmoi 入口；`tests/neovim-runtime.sh` 在一次性 HOME 中用真实 Neovim 和本地受控插件 fixture 验证启动、快捷键、文件树与终端，routine 测试不依赖 live Release；显式设置 `PLASTICINE_LIVE_NEOVIM_SMOKE=1` 后运行 `tests/neovim-live.sh`，可另行使用当前 upstream 插件执行 smoke；Zsh runtime 套件需要本机存在 `zsh`。CI 通过 `scripts/run-test.sh` 单独运行每个 suite：基础设施契约测试最长 30 秒，常规 suite 最长 180 秒，Shell 综合 suite 最长 300 秒；超时会终止整个测试进程组并直接报告 suite 名称。
 
 ## 发布
 
-本仓库使用独立的 SemVer 版本线，从 `v0.1.0` 开始。日常提交和 Pull Request 会在 Ubuntu 与 macOS 上执行完整测试，并在 Debian 12 的 x86_64/arm64 容器中执行 Shell 和安装器回归，以及真实 APT Zsh、Antidote 和当前插件的安装、启动与重跑检查。Debian 容器使用一次性非 root 用户，登录 shell 预设为目标路径；真实 `chsh` 账户认证仍需在独立 Debian 终端验证，不能由容器测试替代。稳定版本只能从 GitHub Actions 的 `Release` workflow 手动触发，并输入 `vMAJOR.MINOR.PATCH` 格式的版本号。
+本仓库使用独立的 SemVer 版本线，从 `v0.1.0` 开始。代码提交和所有 Pull Request 会在 Ubuntu 与 macOS 上执行完整测试，并在 Debian 12 的 x86_64/arm64 容器中执行 Shell 和安装器回归，以及真实 APT Zsh、Antidote 和当前插件的安装、启动与重跑检查。Debian 容器使用一次性非 root 用户，登录 shell 预设为目标路径；真实 `chsh` 账户认证仍需在独立 Debian 终端验证，不能由容器测试替代。稳定版本只能从 GitHub Actions 的 `Release` workflow 手动触发，并输入 `vMAJOR.MINOR.PATCH` 格式的版本号。
 
-发布流程先等待并复用触发时 `main` commit 的成功 push CI，精确核对 Ubuntu、macOS 和 Debian x86_64/arm64 四个 job；不会在 Release workflow 中重复执行完整测试矩阵。随后通过 `scripts/release-gate.sh` 统一构建并验证 `install.sh`、`plasticine-cli.tar.gz`、`plasticine-source.bundle`、`plasticine-managed-plugins.tar.gz` 和 `SHA256SUMS`，先创建 draft Release，核对 tag、commit 与五个附件后再发布。该门禁可从非 Git 工作目录运行，并支持相对输出目录，避免本地与 GitHub Actions 使用不同的发布路径。发布版安装器固定到该 Release 的完整 commit，并内含 source/plugin payload 与 chezmoi `2.72.1` 的版本/完整性数据；随 source 固定的 Lazygit `0.65.1`、Neovim `0.12.5` 与 Neovim/Zsh 插件快照也只会随新的 Base Dotfiles Release 前进。因此历史 Release 的安装内容不会随上游新版本或 `main` 推进而改变，而顶层 `/releases/latest/download/install.sh` 仍只负责选择最新 Base Dotfiles 稳定版本。
+最终代码推送后即可直接启动 Release，无需先在本地等待 CI 或重复运行 CI 门禁。纯文档、任务记录和 agent skill 的 `main` push 跳过常规 CI；Pull Request 保留完整检查，避免 required checks 因路径过滤而一直 pending。
+
+发布流程先等待并复用触发时 `main` commit 的成功 push 或手动 CI；该提交没有 CI 时自动请求一次完整 CI，并精确核对 Ubuntu、macOS 和 Debian x86_64/arm64 四个 job；不会在 Release workflow 中重复执行完整测试矩阵。随后通过 `scripts/release-gate.sh` 统一构建并验证 `install.sh`、`plasticine-cli.tar.gz`、`plasticine-source.bundle`、`plasticine-managed-plugins.tar.gz` 和 `SHA256SUMS`，先创建 draft Release，核对 tag、commit 与五个附件后再发布。该门禁可从非 Git 工作目录运行，并支持相对输出目录，避免本地与 GitHub Actions 使用不同的发布路径。发布版安装器固定到该 Release 的完整 commit，并内含 source/plugin payload 与 chezmoi `2.72.1` 的版本/完整性数据；随 source 固定的 Lazygit `0.65.1`、Neovim `0.12.5` 与 Neovim/Zsh 插件快照也只会随新的 Base Dotfiles Release 前进。因此历史 Release 的安装内容不会随上游新版本或 `main` 推进而改变，而顶层 `/releases/latest/download/install.sh` 仍只负责选择最新 Base Dotfiles 稳定版本。
 
 发布前应在仓库设置中将 `CI / Test (ubuntu-24.04)`、`CI / Test (macos-14)`、`CI / Debian 12 shell (ubuntu-24.04)` 和 `CI / Debian 12 shell (ubuntu-24.04-arm)` 配置为 `main` 的 required checks，并启用 GitHub immutable releases。CI 和 Release workflow 中使用的第三方 Actions 固定到完整 commit，由 Dependabot 每月提出更新。

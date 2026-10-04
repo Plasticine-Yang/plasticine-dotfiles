@@ -8,7 +8,7 @@ release=$repo_dir/.github/workflows/release.yml
 for suite in integration combined-installation chezmoi git-config npmrc installer shell \
     shell-runtime lazygit lazygit-runtime fnm fnm-runtime neovim neovim-runtime \
     herdr release release-payload cli self-update bootstrap-installation \
-    diff-config test-runner workflows ci-gate; do
+    diff-config test-runner check-runner workflows ci-gate; do
     grep -Eq "scripts/run-test\.sh [0-9]+ $suite (\./)?tests/$suite\.sh" "$ci" || {
         printf 'CI does not run %s through the timeout runner\n' "$suite" >&2
         exit 1
@@ -26,7 +26,13 @@ if grep -Fq 'uses: ./.github/workflows/ci.yml' "$release"; then
     printf '%s\n' 'Release still reruns the complete CI workflow' >&2
     exit 1
 fi
-grep -Fq 'actions: read' "$release"
+grep -Fq 'actions: write' "$release"
+grep -Fq 'PLASTICINE_REQUEST_MISSING_CI:' "$release"
+# Only push CI skips documentation; required PR checks still run normally.
+perl -0777ne 'exit(/pull_request:\s*\n  push:\s*\n    branches:.*?paths-ignore:.*?workflow_dispatch:/s ? 0 : 1)' "$ci"
+for path in README.md AGENTS.md CONTEXT.md CONTEXT-MAP.md 'docs/**' '.scratch/**' '.agents/skills/**'; do
+    grep -Fq "      - '$path'" "$ci"
+done
 # shellcheck disable=SC2016
 grep -Fq './scripts/require-ci-success.sh "$GITHUB_REPOSITORY" "$RELEASE_SHA"' "$release"
 # shellcheck disable=SC2016
