@@ -14,8 +14,10 @@ assert_status() {
     "$@" >"$test_root/stdout" 2>"$test_root/stderr"
     actual=$?
     set -e
-    [ "$actual" -eq "$expected" ] ||
+    if [ "$actual" -ne "$expected" ]; then
+        cat "$test_root/stderr" >&2
         fail "expected exit $expected, got $actual from $*"
+    fi
 }
 
 make_installer() {
@@ -71,9 +73,13 @@ cat >"$fixture_bin/curl" <<'EOF'
 set -eu
 output=
 url=
+write_out=
+no_location=0
 while [ "$#" -gt 0 ]; do
     case $1 in
         -o) output=$2; shift ;;
+        -w|--write-out) write_out=$2; shift ;;
+        --no-location) no_location=1 ;;
         http*) url=$1 ;;
     esac
     shift
@@ -84,7 +90,12 @@ case ${PLASTICINE_TEST_CURL_FAIL:-}:$url in
 esac
 case $url in
     https://api.github.com/repos/Plasticine-Yang/plasticine-dotfiles/releases/latest)
-        printf '%s\n' "${PLASTICINE_TEST_LATEST_JSON:-{\"tag_name\":\"v2.0.0\"}}" >"$output"
+        printf '%s\n' 'curl: (22) The requested URL returned error: 403' >&2
+        exit 22
+        ;;
+    https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest)
+        [ "$write_out" = '%{redirect_url}' ] && [ "$output" = /dev/null ] && [ "$no_location" = 1 ] || exit 98
+        printf '%s' "${PLASTICINE_TEST_LATEST_REDIRECT-https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/tag/v2.0.0}"
         ;;
     https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/download/v2.0.0/SHA256SUMS)
         cp "$PLASTICINE_TEST_RELEASES/v2.0.0/SHA256SUMS" "$output"
@@ -136,7 +147,7 @@ cmp -s "$test_root/side-effects-before" "$test_root/side-effects-after" ||
     fail 'self-update mutated source, config, or tools sentinels'
 
 cat >"$test_root/expected-curl-calls" <<'EOF'
-https://api.github.com/repos/Plasticine-Yang/plasticine-dotfiles/releases/latest
+https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest
 https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/download/v2.0.0/SHA256SUMS
 https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/download/v2.0.0/plasticine-cli.tar.gz
 EOF
@@ -175,10 +186,29 @@ for failed_request in discovery checksums archive; do
 done
 unset PLASTICINE_TEST_CURL_FAIL
 
-export PLASTICINE_TEST_LATEST_JSON='{"tag_name":"nightly"}'
+# The installed CLI must update even when anonymous API discovery always 403s.
+# Only a stable tag redirect from this exact repository can select downloads.
+for redirect in '' \
+    'https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/tag/nightly' \
+    'https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/tag/v2.0.0-beta.1' \
+    'https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/tag/v02.0.0' \
+    'https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/tag/v2.0.0?query=1' \
+    'https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/tag/v2.0.0/extra' \
+    'https://github.com/other/repository/releases/tag/v2.0.0' \
+    'http://github.com/Plasticine-Yang/plasticine-dotfiles/releases/tag/v2.0.0' \
+    'https://example.com/Plasticine-Yang/plasticine-dotfiles/releases/tag/v2.0.0'; do
+    export PLASTICINE_TEST_LATEST_REDIRECT="$redirect"
+    : > "$test_root/curl-calls"
+    assert_status 1 "$cli" self-update
+    grep -Fqx 'plasticine: self-update: latest stable Release redirect is invalid.' "$test_root/stderr" || fail 'invalid redirect was not diagnosed'
+    test "$(wc -l < "$test_root/curl-calls" | tr -d ' ')" = 1 || fail 'invalid redirect downloaded assets'
+    assert_v1_working 'invalid discovery redirect'
+done
+export PLASTICINE_TEST_LATEST_REDIRECT='https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/tag/v2.0.0
+v9.0.0'
 assert_status 1 "$cli" self-update
-assert_v1_working 'invalid discovery metadata'
-unset PLASTICINE_TEST_LATEST_JSON
+assert_v1_working 'multiline discovery redirect'
+unset PLASTICINE_TEST_LATEST_REDIRECT
 
 bad_checksum_releases=$test_root/bad-checksum-releases
 mkdir -p "$bad_checksum_releases/v2.0.0"

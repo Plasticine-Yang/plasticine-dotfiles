@@ -28,7 +28,8 @@ releases_dir=$data_root/releases
 current_link=$data_root/current
 install_prefix=$(dirname -- "$(dirname -- "$data_root")")
 launcher=$install_prefix/bin/plasticine
-api_url=https://api.github.com/repos/Plasticine-Yang/plasticine-dotfiles/releases/latest
+latest_url=https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest
+release_tag_base=https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/tag
 release_download_base=https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/download
 archive_name=plasticine-cli.tar.gz
 checksums_name=SHA256SUMS
@@ -49,16 +50,25 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-release_json=$work_dir/latest.json
-if ! curl --proto '=https' --proto-redir '=https' -fsSL \
-    -o "$release_json" "$api_url"; then
+# GitHub's public latest page redirects to the stable Release tag. Inspect
+# that redirect directly so shared-IP REST API quotas cannot block updates.
+if ! latest_redirect=$(curl --proto '=https' --proto-redir '=https' \
+    --no-location -fsS -o /dev/null -w '%{redirect_url}' "$latest_url"); then
     error 'latest stable Release discovery failed.'
     exit 1
 fi
-latest_version=$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$release_json")
+case $latest_redirect in
+    "$release_tag_base"/*) latest_version=${latest_redirect#"$release_tag_base"/} ;;
+    *) error 'latest stable Release redirect is invalid.'; exit 1 ;;
+esac
+# Reject control characters, extra URLs, queries and path components before
+# the line-based SemVer check. Discovery can never change the asset origin.
+case $latest_version in
+    *[!0-9v.]*|'') error 'latest stable Release redirect is invalid.'; exit 1 ;;
+esac
 if ! printf '%s\n' "$latest_version" |
     LC_ALL=C grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
-    error 'latest stable Release metadata is invalid.'
+    error 'latest stable Release redirect is invalid.'
     exit 1
 fi
 

@@ -39,6 +39,16 @@ plasticine self-update
 
 `self-update` 只下载、验证并切换到最新稳定 Plasticine Release；它不选择或维护工具，不运行 `chezmoi init` / `apply`，也不切换 chezmoi source。它与 `chezmoi update` 不同：后者是 chezmoi 的原生命令，会更新 source 后应用配置，并不更新本地 `plasticine` 版本包。
 
+从 `v0.4.1` 起，自更新通过 GitHub 网页 `/releases/latest` 的跳转查询最新版本，只接受本仓库的稳定 `vMAJOR.MINOR.PATCH` tag，再下载该版本的附件并验证 SHA-256。这避免了共享出口 IP 的匿名 REST API 配额耗尽导致的 403。
+
+若 `v0.4.0` 或更早版本的 `self-update` 已因 403 无法升级，可以重跑发布版安装器更新本地入口：
+
+```sh
+sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)" -- -y
+```
+
+空 Feature 选择会更新本地版本包和发布版 source，但不处理工具配置。完成这一次升级后，后续可继续使用 `plasticine self-update`。
+
 默认入口目录是 `~/.local/bin`。若该目录已在 `PATH` 中，安装结束会提示直接运行 `plasticine`；否则会显示可立即执行的绝对路径和准确的 `export PATH=...` 指引，但不会擅自改写 shell 启动文件。
 
 ## 自动化调用
