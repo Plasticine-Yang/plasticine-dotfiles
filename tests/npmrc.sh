@@ -125,7 +125,7 @@ printf '%s\n' owner > "$prepare_fail/home/.npmrc"
 cp "$prepare_fail/home/.npmrc" "$prepare_fail/before"
 printf '%s\n' '#!/bin/sh' 'exit 1' > "$prepare_fail/bin/lazygit"
 chmod +x "$prepare_fail/bin/lazygit"
-if PATH=$prepare_fail/bin:/usr/bin:/bin apply "$prepare_fail" >/dev/null 2> "$prepare_fail/error"; then fail 'unhealthy selected tool accepted'; fi
+if (PATH=$prepare_fail/bin:/usr/bin:/bin apply "$prepare_fail") >/dev/null 2> "$prepare_fail/error"; then fail 'unhealthy selected tool accepted'; fi
 cmp -s "$prepare_fail/before" "$prepare_fail/home/.npmrc" || fail 'tool failure changed npmrc'
 test ! -e "$prepare_fail/home/.plasticine" || fail 'tool failure created backups'
 
@@ -135,8 +135,13 @@ npm_bin=$(command -v npm || true)
 runtime=$test_root/runtime
 mkdir -p "$runtime/home" "$runtime/package"
 write_config '"npmrc"' "$runtime/config.toml"
-if [ -n "$npm_bin" ] &&
-    [ "$(env -i HOME="$runtime/home" PATH="$PATH" "$npm_bin" --userconfig "$runtime/home/.npmrc" --globalconfig /dev/null config get dangerously-allow-all-scripts 2>/dev/null)" = false ]; then
+probe=false
+if [ -n "$npm_bin" ] && env -i HOME="$runtime/home" PATH="$PATH" "$npm_bin" \
+    --userconfig "$runtime/home/.npmrc" --globalconfig /dev/null \
+    config get dangerously-allow-all-scripts > "$runtime/probe.out" 2> "$runtime/probe.err"; then
+    if [ "$(cat "$runtime/probe.out")" = false ]; then probe=true; fi
+fi
+if [ "$probe" = true ]; then
     printf '%s\n' '{"name":"plasticine-npmrc-fixture","version":"1.0.0","scripts":{"postinstall":"node postinstall.js"}}' > "$runtime/package/package.json"
     printf '%s\n' 'require("node:fs").writeFileSync(process.env.PLASTICINE_NPMRC_TEST_MARKER, "ran");' > "$runtime/package/postinstall.js"
     tar -czf "$runtime/fixture.tgz" -C "$runtime" package
@@ -158,6 +163,8 @@ if [ -n "$npm_bin" ] &&
     test ! -e "$runtime/marker" || fail 'explicit ignore-scripts was overridden'
     printf '%s\n' 'npmrc runtime: real npm blocked, allowed and explicitly ignored postinstall as expected'
 elif [ "${PLASTICINE_REQUIRE_NPMRC_RUNTIME:-0}" = 1 ]; then
+    printf 'npmrc runtime: npm executable = %s\n' "$npm_bin" >&2
+    if [ -f "$runtime/probe.out" ]; then cat "$runtime/probe.out" "$runtime/probe.err" >&2; fi
     fail 'script-policy npm runtime required but unavailable'
 else
     printf '%s\n' 'npmrc runtime: skipped (script-policy npm unavailable)' >&2
