@@ -8,6 +8,8 @@ test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-rust-test.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 fail() { printf 'rust test: %s\n' "$1" >&2; exit 1; }
 unset CARGO_HOME RUSTUP_HOME RUSTUP_TOOLCHAIN
+# Bash 3.2 in POSIX mode retains assignments before function calls. Run calls
+# with scenario-specific environment variables in subshells to isolate them.
 fixture_bin=$test_root/bin
 mkdir -p "$fixture_bin"
 
@@ -99,7 +101,7 @@ grep -Fxq 'default stable' "$scenario/calls" || fail 'fresh install did not defa
 grep -Fxq owner "$scenario/home/.zshrc" || fail 'standalone Rust changed .zshrc'
 cmp "$scenario/project-before" "$scenario/home/project/rust-toolchain.toml"
 : > "$scenario/calls"
-PLASTICINE_TEST_RUST_LATEST=1.91.0 apply_case > "$scenario/out"
+( PLASTICINE_TEST_RUST_LATEST=1.91.0 apply_case > "$scenario/out" )
 grep -Fxq 'self update' "$scenario/calls" || fail 'rerun did not maintain rustup'
 if grep -Fxq download "$scenario/calls"; then fail 'rerun executed bootstrap'; fi
 grep -Fq 'rustc 1.91.0' "$scenario/out" || fail 'rerun did not maintain stable'
@@ -129,10 +131,10 @@ apply_case >/dev/null
 new_case custom-homes
 cargo_native=$scenario/custom\ cargo
 rustup_native=$scenario/custom\ rustup
-CARGO_HOME=$cargo_native RUSTUP_HOME=$rustup_native apply_case >/dev/null
+( CARGO_HOME=$cargo_native RUSTUP_HOME=$rustup_native apply_case >/dev/null )
 [ -x "$cargo_native/bin/rustup" ] && [ -x "$rustup_native/toolchains/stable/bin/rustc" ] || fail 'custom native homes were ignored'
 [ ! -e "$scenario/home/.cargo" ] && [ ! -e "$scenario/home/.rustup" ] || fail 'custom homes were relocated'
-CARGO_HOME=$cargo_native RUSTUP_HOME=$rustup_native apply_case >/dev/null
+( CARGO_HOME=$cargo_native RUSTUP_HOME=$rustup_native apply_case >/dev/null )
 
 new_case dry-run
 apply_case --dry-run >/dev/null
@@ -146,14 +148,14 @@ for platform in Linux:x86_64 Linux:arm64 Darwin:x86_64 Darwin:arm64; do
     # Native homes enter PATH; ':' is its separator, not a portable directory
     # character for a toolchain fixture.
     new_case "${platform%:*}-${platform#*:}"
-    PLASTICINE_RUST_OS=${platform%:*} PLASTICINE_RUST_ARCH=${platform#*:} apply_case >/dev/null
+    ( PLASTICINE_RUST_OS=${platform%:*} PLASTICINE_RUST_ARCH=${platform#*:} apply_case >/dev/null )
     test -x "$scenario/home/.cargo/bin/rustup" || fail "$platform did not install native rustup in the selected home"
 done
 
 for failure in download installer; do
     new_case "$failure"
     printf '%s\n' '[data]' 'tools = ["rust", "git-config"]' > "$scenario/config/chezmoi.toml"
-    PLASTICINE_TEST_RUST_FAIL=$failure expect_failure "$failure"
+    ( PLASTICINE_TEST_RUST_FAIL=$failure expect_failure "$failure" )
     test ! -e "$scenario/home/.cargo/bin/rustup"
     test ! -e "$scenario/home/.gitconfig" || fail 'config was applied after Rust preparation failed'
     apply_case >/dev/null
@@ -163,7 +165,7 @@ for failure in self-update toolchain-install verify-rustc verify-cargo verify-ru
     new_case "$failure"
     seed_native nightly-fixture
     printf '%s\n' '[data]' 'tools = ["rust", "git-config"]' > "$scenario/config/chezmoi.toml"
-    PLASTICINE_TEST_RUST_FAIL=$failure expect_failure "$failure"
+    ( PLASTICINE_TEST_RUST_FAIL=$failure expect_failure "$failure" )
     test -x "$scenario/home/.cargo/bin/rustup"
     test ! -e "$scenario/home/.gitconfig" || fail 'config was applied after native failure'
     [ "$(cat "$scenario/home/.rustup/.test-default")" = nightly-fixture ] || fail 'failed native maintenance changed default'
@@ -205,7 +207,7 @@ expect_failure 'orphan rustup settings'
 test ! -s "$scenario/calls" || fail 'orphan settings were passed to a fresh installer'
 grep -Fxq 'default_toolchain = "nightly"' "$scenario/home/.rustup/settings.toml"
 new_case relative-home
-CARGO_HOME=relative expect_failure 'relative Cargo home'
+( CARGO_HOME=relative expect_failure 'relative Cargo home' )
 test ! -s "$scenario/calls"
 
 new_case invalid-default

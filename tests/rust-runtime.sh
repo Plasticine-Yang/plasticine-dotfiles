@@ -43,6 +43,8 @@ seed_cargo() {
 }
 
 unset CARGO_HOME RUSTUP_HOME
+# Isolate assignments before probe calls: Bash 3.2 POSIX mode otherwise keeps
+# those variables in later scenarios.
 new_case absent
 probe
 grep -Fxq cargo=missing "$home/output"
@@ -60,7 +62,7 @@ new_case custom
 custom_home=$home/custom\ cargo
 seed_cargo "$custom_home"
 seed_cargo "$home/.cargo"
-CARGO_HOME=$custom_home RUSTUP_HOME=$home/custom-rustup probe
+( CARGO_HOME=$custom_home RUSTUP_HOME=$home/custom-rustup probe )
 grep -Fxq "cargo=$custom_home/bin/cargo" "$home/output"
 grep -Fxq "cargo-home=$custom_home" "$home/output"
 grep -Fxq "rust-home=$home/custom-rustup" "$home/output"
@@ -69,13 +71,13 @@ if grep -Fxq "path=$home/.cargo/bin" "$home/output"; then fail 'custom Cargo hom
 
 new_case custom-absent
 seed_cargo "$home/.cargo"
-CARGO_HOME=$home/missing probe
+( CARGO_HOME=$home/missing probe )
 grep -Fxq cargo=missing "$home/output" || fail 'absent custom home fell back to default'
 test ! -e "$home/missing" || fail 'shell created custom Cargo home'
 
 new_case relative
 mkdir -p "$home/relative/bin"
-CARGO_HOME=relative probe
+( CARGO_HOME=relative probe )
 grep -Fxq cargo=missing "$home/output"
 if grep -Fxq path=relative/bin "$home/output"; then fail 'relative Cargo bin entered PATH'; fi
 
