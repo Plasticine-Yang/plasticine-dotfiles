@@ -66,6 +66,7 @@ CURL
 chmod 755 "$fixture_bin/curl"
 
 new_case() {
+    printf 'Rust scenario: %s\n' "$1" >&2
     scenario=$test_root/$1
     mkdir -p "$scenario/home" "$scenario/config"
     printf '%s\n' '[data]' 'tools = ["rust"]' > "$scenario/config/chezmoi.toml"
@@ -142,9 +143,11 @@ apply_case >/dev/null
 test ! -s "$scenario/calls" || fail 'unselected Rust was probed'
 
 for platform in Linux:x86_64 Linux:arm64 Darwin:x86_64 Darwin:arm64; do
-    new_case "$platform"
+    # Native homes enter PATH; ':' is its separator, not a portable directory
+    # character for a toolchain fixture.
+    new_case "${platform%:*}-${platform#*:}"
     PLASTICINE_RUST_OS=${platform%:*} PLASTICINE_RUST_ARCH=${platform#*:} apply_case >/dev/null
-    test -x "$scenario/home/.cargo/bin/rustup"
+    test -x "$scenario/home/.cargo/bin/rustup" || fail "$platform did not install native rustup in the selected home"
 done
 
 for failure in download installer; do
