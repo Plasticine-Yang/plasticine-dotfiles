@@ -5,6 +5,16 @@ if (( ${path[(Ie)$HOME/.local/bin]} == 0 )); then
 fi
 export PATH
 
+# Native Cargo tools become available without sourcing installer-generated
+# shell files or running rustup. Respect the Owner's native Cargo home.
+_plasticine_cargo_bin=${CARGO_HOME:-$HOME/.cargo}/bin
+if [[ $_plasticine_cargo_bin == /* && -d $_plasticine_cargo_bin ]] &&
+    (( ${path[(Ie)$_plasticine_cargo_bin]} == 0 )); then
+    path=("$_plasticine_cargo_bin" "${path[@]}")
+    export PATH
+fi
+unset _plasticine_cargo_bin
+
 _plasticine_shell_warn() {
     if [[ -o interactive ]]; then
         print -ru2 -- "plasticine: $1 unavailable; continuing shell startup"

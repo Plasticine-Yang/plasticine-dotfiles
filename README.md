@@ -1,6 +1,6 @@
 # plasticine-dotfiles
 
-使用 [chezmoi](https://www.chezmoi.io/) 在 macOS 和 Linux 上选择并恢复个人开发环境。目前支持 Git 配置、GitHub SSH 配置、fnm、Herdr、Lazygit、Neovim、Zsh 环境和 npm 用户配置。
+使用 [chezmoi](https://www.chezmoi.io/) 在 macOS 和 Linux 上选择并恢复个人开发环境。目前支持 Git 配置、GitHub SSH 配置、fnm、Rust、Herdr、Lazygit、Neovim、Zsh 环境和 npm 用户配置。
 
 ## 一行安装
 
@@ -16,7 +16,7 @@ chezmoi 维护和 source 获取属于安装器前置工作，会发生在 Featur
 
 选择 `neovim` 或 `shell` 时，发布版还会下载同一 Release 中固定版本的受管插件快照。首次安装从快照恢复公开插件，不执行 GitHub Git clone、fetch 或 pull，因此不要求 GitHub 用户名、Token、SSH key，也不依赖 `git-config` 或 `github-ssh`。这两个身份 Feature 仍然完全独立：没有选择就不会修改 `.gitconfig`、SSH key 或 SSH 配置。Release 资产下载本身使用匿名 HTTPS；若该网络路径不可用，安装会明确失败，不会转为凭据提示。
 
-安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 Git 配置（`git-config`）、GitHub SSH、fnm（`fnm`）、Herdr（`herdr`）、Lazygit（`lazygit`）、Neovim（`neovim`）、Zsh 环境（`shell`）、默认登录 Shell（`login-shell`）和 npm 用户配置（`npmrc`）；初始选择为空，不选择某个工具表示本次不处理它。
+安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 Git 配置（`git-config`）、GitHub SSH、fnm（`fnm`）、Rust（`rust`）、Herdr（`herdr`）、Lazygit（`lazygit`）、Neovim（`neovim`）、Zsh 环境（`shell`）、默认登录 Shell（`login-shell`）和 npm 用户配置（`npmrc`）；初始选择为空，不选择某个工具表示本次不处理它。
 
 ## 本地 `plasticine` 命令
 
@@ -90,7 +90,7 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
   -y --lazygit
 ```
 
-`--git-config`、`--github-ssh`、`--herdr`、`--fnm`、`--lazygit`、`--neovim`、`--shell`、`--login-shell` 与 `--npmrc` 可以任意组合，工具集合与顺序无关。工具选项必须配合 `-y`；不带 `-y` 使用工具选项会被拒绝并提示改用交互选择。
+`--git-config`、`--github-ssh`、`--herdr`、`--fnm`、`--rust`、`--lazygit`、`--neovim`、`--shell`、`--login-shell` 与 `--npmrc` 可以任意组合，工具集合与顺序无关。工具选项必须配合 `-y`；不带 `-y` 使用工具选项会被拒绝并提示改用交互选择。
 
 `--shell` 只配置 Zsh 环境，不再修改账户的默认登录 Shell。若要把已有 Zsh 设为默认登录 Shell，需在原生终端显式选择 `login-shell`；也可以同时选择两者，先完成环境配置再切换：
 
@@ -230,6 +230,23 @@ Linux 完整下载 `https://fnm.vercel.app/install` 后才执行，传入 `--ski
 
 只选择 `--fnm` 不读取或编辑 `.zshrc`，也不添加 shell integration。请自行确保 `~/.local/bin` 在 `PATH`，并按需配置原生 `fnm env --shell zsh` 激活；同时选择 `--shell` 时会复用已有的唯一守卫式激活，失败输出不会被 `eval`，且不会启用 `--use-on-cd`。安装只维护 manager：Node 版本、默认 Node、项目版本声明、`FNM_DIR` 和 fnm 原生 runtime/state 都不会被检查、迁移或修改。
 
+## Rust（`--rust`）
+
+单独恢复或维护 Rust 环境，或同时接入共享 Zsh PATH：
+
+```sh
+plasticine -y --rust
+plasticine -y --rust --shell
+```
+
+一行安装器同样支持 `-y --rust`，交互菜单可独立选择 `rust`，默认不选中；它不隐式选择 shell、fnm 或 Neovim。macOS/Linux 的 x86_64/arm64 使用 [官方 rustup 路线](https://rust-lang.github.io/rustup/installation/index.html)：缺失时完整下载 `https://sh.rustup.rs`，确认 apply 后运行 `-y --no-modify-path --default-toolchain none --profile minimal` 安装 manager，再准备 stable。已有健康的原生安装运行 `rustup self update`。随后使用 `rustup toolchain install stable --profile minimal --component rustfmt --component clippy --no-self-update` 安装或更新 stable，并明确通过 stable 验证 rustc、Cargo、rustfmt 和 clippy-driver；不固定 Rust 版本、不额外下载 rust-docs，也不删除已有组件。实际项目的链接仍需系统提供 C linker，例如 Linux 的 C 工具链或 macOS 的 Command Line Tools。
+
+首次安装且没有默认工具链时设为 stable。已有默认选择（版本号、nightly、自定义工具链或显式 none）保留；原生命令安装首个 stable 时若自动设置默认，会恢复已有的 none。维护命令使用明确的 stable，不受调用位置的 `rust-toolchain.toml` 或 `RUSTUP_TOOLCHAIN` 覆盖影响，不更新其他工具链、不增删交叉编译 target，不修改项目声明、目录 override 或 Cargo 配置。
+
+原生目录默认是 `~/.cargo` 和 `~/.rustup`，尊重绝对路径的 `CARGO_HOME` / `RUSTUP_HOME`；不会把工具链或 Cargo 缓存搬到 Plasticine 目录。外部包管理器拥有的 rustup、没有原生 rustup 的独立 rustc/Cargo、损坏或预发布 manager、符号链接形式的原生 home/bin 或 rustup 会停止并给出修复指引，不覆盖或另装遮蔽副本。Preview 只检查本地状态并显示路线；取消、dry-run 和未选中时不查询上游、不维护 Rust。安装器、self update、stable 或最终健康检查失败返回非零，已完成的原生效果保留以便修复后重跑，所有工具准备成功前不应用选中配置。官方安装器和原生下载属于上游信任边界，Plasticine 不增加独立签名验证。
+
+单独选择 `--rust` 不修改 `.zshrc` 或其他 shell 启动文件；确保 `${CARGO_HOME:-$HOME/.cargo}/bin` 在 PATH。共享 `shell` 配置在此目录存在时接入 PATH，保留已有 PATH 条目的顺序且不重复添加，不 source Cargo 的 env 文件、不执行 rustup，也不强制设置 CARGO_HOME/RUSTUP_HOME。
+
 ## Neovim（`--neovim`）
 
 Neovim 编辑器发行版的固定支持基线为 `0.12.5`。缺失或较旧的受管 direct install 才下载 macOS/Linux、`x86_64`/`arm64` 对应的精确官方版本化 `tar.gz`，把完整发行版发布到 `~/.local/opt/neovim`，并以 `~/.local/bin/nvim` 链接提供命令。健康的同版本或更新 stable 版本直接复用，不查询 Release API、不下载编辑器归档，也不会降级。该路线不会调用 Homebrew、APT、Cargo、AppImage、`sudo` 或第三方安装器；缺少 `curl`、`tar` 或 SHA-256 工具会给出指引并停止。只选择 Neovim 不会编辑 shell 启动文件，因此 Owner 仍需确保 `~/.local/bin` 在 `PATH`。
@@ -335,6 +352,7 @@ fi
 - 已存在但不健康的 Zsh、Antidote、Git、Homebrew 或 Powerlevel10k 会被原样保留并以可操作的错误结束，不会更换安装归属，也没有自动回退路径。metadata 查询、快照恢复、开发模式原生更新、bundle 生成或最终运行时检查失败同样返回失败；已完成的配置和 native state 会保留，修复报告的问题后重跑即可继续。
 - Antidote 自己拥有它的 checkout、生成的 bundle、插件克隆、缓存、快照、补全 dump 和编译文件；`~/.zsh_plugins.local.txt` 也属于 Owner。Plasticine 既不管理、也不备份或删除这些运行时状态。
 - `fnm` 只做守卫式激活：已经安装时执行 `fnm env --shell zsh`；命令失败时不会执行它的输出，只会以交互式警告提示，也不会安装、升级或迁移 fnm 及其状态。未安装 fnm 时保持静默。macOS 上若 fnm 只存在于 Homebrew 前缀中，仅在这种情况下把该前缀的可执行目录加入 `PATH`，不移动任何文件。Zellij 别名仍属于未来迁移。
+- Rust/Cargo 运行时只在 `${CARGO_HOME:-$HOME/.cargo}/bin` 存在时接入 PATH，不执行 rustup、安装工具链或修改原生配置；独立的 `rust` Feature 负责环境维护。
 
 ### 包管理器与凭据影响
 
@@ -367,6 +385,7 @@ fi
 # 按改动选择已有 suite；自更新和 npmrc 也会通过 Bash 验证。
 ./scripts/check.sh cli self-update
 ./scripts/check.sh npmrc integration
+./scripts/check.sh rust rust-runtime combined-installation
 
 # 查看 suite 列表，或运行全部 routine 检查。
 ./scripts/check.sh --help
@@ -378,7 +397,7 @@ PLASTICINE_LIVE_NEOVIM_SMOKE=1 ./tests/neovim-live.sh
 
 `scripts/check.sh` 在 `.agent-tmp/checks/` 创建并清理一次性 Git 快照，包含已跟踪和未忽略的新文件及未提交改动；原工作区和暂存区保持不变。测试副本采用 `umask 022` 和正常 checkout 权限，隔离 HOME、TMPDIR 与个人环境变量，PATH 只包含所选 suite 必需的运行时和系统目录。缺少 ShellCheck、chezmoi、Zsh、Expect 或 Neovim 等所需依赖时立即报错，不静默跳过相关验证；可用 `CHEZMOI_BIN`、`NVIM_BIN` 指定工具路径。npmrc 检查要求支持脚本策略的 npm，CI 使用 Node `24.21.0` 和 npm `12.0.2`。入口不会自动安装依赖或修改个人 npmrc。
 
-`tests/combined-installation.sh` 通过真实 `install.sh` 与 chezmoi 入口覆盖八个 Feature 的交互/非交互全选、顺序无关性、跨工具 target 更新、配置前准备、配置后原生同步、取消、dry-run、部分失败与安全重试；各 Feature 的网络、包管理器、完整发行版、owner、完整性与竞态细节仍由其专项 suite 覆盖。`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、`shell` / `login-shell` 独立选择、登录 Shell 切换、失败重试与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/fnm.sh` 覆盖 Linux 官方脚本候选发布和 macOS Homebrew currency 路线；`tests/lazygit-runtime.sh` 与 `tests/shell-runtime.sh` 使用真实 Zsh，后者包含受控 fnm 的成功/失败激活、Owner 后续代码继续执行和单次初始化验证。`tests/neovim.sh` 使用受控 Release 与编辑器边界覆盖公开 chezmoi 入口；`tests/neovim-runtime.sh` 在一次性 HOME 中用真实 Neovim 和本地受控插件 fixture 验证启动、快捷键、文件树与终端，routine 测试不依赖 live Release；显式设置 `PLASTICINE_LIVE_NEOVIM_SMOKE=1` 后运行 `tests/neovim-live.sh`，可另行使用当前 upstream 插件执行 smoke；Zsh runtime 套件需要本机存在 `zsh`。CI 通过 `scripts/run-test.sh` 单独运行每个 suite：基础设施契约测试最长 30 秒，常规 suite 最长 180 秒，Shell 综合 suite 最长 300 秒；超时会终止整个测试进程组并直接报告 suite 名称。
+`tests/combined-installation.sh` 通过真实 `install.sh` 与 chezmoi 入口覆盖十个 Feature 的交互/非交互全选、顺序无关性、跨工具 target 更新、配置前准备、配置后原生同步、取消、dry-run、部分失败与安全重试；各 Feature 的网络、包管理器、完整发行版、owner、完整性与竞态细节仍由其专项 suite 覆盖。`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、`shell` / `login-shell` 独立选择、登录 Shell 切换、失败重试与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/fnm.sh` 覆盖 Linux 官方脚本候选发布和 macOS Homebrew currency 路线；`tests/rust.sh` 通过真实 chezmoi 入口及受控 rustup 安装器验证安装、维护、默认版本保留、自定义 homes、失败与重试，`tests/rust-runtime.sh` 用真实 Zsh 验证 Cargo PATH；`tests/lazygit-runtime.sh` 与 `tests/shell-runtime.sh` 使用真实 Zsh，后者包含受控 fnm 的成功/失败激活、Owner 后续代码继续执行和单次初始化验证。`tests/neovim.sh` 使用受控 Release 与编辑器边界覆盖公开 chezmoi 入口；`tests/neovim-runtime.sh` 在一次性 HOME 中用真实 Neovim 和本地受控插件 fixture 验证启动、快捷键、文件树与终端，routine 测试不依赖 live Release；显式设置 `PLASTICINE_LIVE_NEOVIM_SMOKE=1` 后运行 `tests/neovim-live.sh`，可另行使用当前 upstream 插件执行 smoke；Zsh runtime 套件需要本机存在 `zsh`。CI 通过 `scripts/run-test.sh` 单独运行每个 suite：基础设施契约测试最长 30 秒，常规 suite 最长 180 秒，Shell 综合 suite 最长 300 秒；超时会终止整个测试进程组并直接报告 suite 名称。
 
 ## 发布
 

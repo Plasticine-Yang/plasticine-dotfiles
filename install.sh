@@ -246,7 +246,7 @@ Interactive mode:
   install.sh
 
 Non-interactive mode:
-  install.sh -y [--git-config] [--github-ssh --github-ssh-key <path>] [--fnm] [--herdr] [--lazygit] [--neovim] [--shell] [--login-shell] [--npmrc]
+  install.sh -y [--git-config] [--github-ssh --github-ssh-key <path>] [--fnm] [--rust] [--herdr] [--lazygit] [--neovim] [--shell] [--login-shell] [--npmrc]
 
 Options:
   -y, --yes                       Skip selection/confirmation; native credentials may still be required
@@ -259,6 +259,7 @@ Options:
       --herdr                     Install or update Herdr from its stable channel
       --lazygit                   Prepare Lazygit if missing and configure its alias
       --fnm                       Install or update fnm through the permitted platform route
+      --rust                      Install/update rustup and stable with Cargo, rustfmt and Clippy
       --neovim                    Install/update Neovim, configure it, and prepare plugins
       --shell                     Configure Zsh and install missing reviewed tools; leave login shell unchanged
       --login-shell               Set existing Zsh as the account login shell (may require a password)
@@ -277,6 +278,7 @@ shell=0
 login_shell=0
 lazygit=0
 fnm=0
+rust=0
 neovim=0
 herdr=0
 
@@ -299,6 +301,7 @@ while [ "$#" -gt 0 ]; do
         --herdr) herdr=1 ;;
         --lazygit) lazygit=1 ;;
         --fnm) fnm=1 ;;
+        --rust) rust=1 ;;
         --neovim) neovim=1 ;;
         -h|--help) usage; exit 0 ;;
         *) error "Unknown option: $1"; usage >&2; exit 2 ;;
@@ -335,7 +338,7 @@ done
 if [ "$yes" -eq 0 ]; then
     if [ "$github_ssh" -eq 1 ] || [ -n "$github_ssh_key" ] ||
        [ "$github_ssh_test" -eq 1 ] || [ "$replace_github_ssh_key" -eq 1 ] ||
-       [ "$shell" -eq 1 ] || [ "$lazygit" -eq 1 ] || [ "$fnm" -eq 1 ] ||
+       [ "$shell" -eq 1 ] || [ "$lazygit" -eq 1 ] || [ "$fnm" -eq 1 ] || [ "$rust" -eq 1 ] ||
        [ "$neovim" -eq 1 ] || [ "$herdr" -eq 1 ] || [ "$git_config" -eq 1 ] ||
        [ "$login_shell" -eq 1 ] || [ "$npmrc" -eq 1 ]; then
         error 'Tool options require -y; run without options for interactive selection.'
@@ -478,6 +481,9 @@ if [ "$yes" -eq 1 ]; then
     if [ "$fnm" -eq 1 ]; then
         tools="${tools:+$tools }fnm"
     fi
+    if [ "$rust" -eq 1 ]; then
+        tools="${tools:+$tools }rust"
+    fi
     if [ "$neovim" -eq 1 ]; then
         tools="${tools:+$tools }neovim"
     fi
@@ -529,6 +535,7 @@ shell_selected=0
 login_shell_selected=0
 lazygit_selected=0
 fnm_selected=0
+rust_selected=0
 neovim_selected=0
 herdr_selected=0
 npmrc_selected=0
@@ -544,6 +551,9 @@ if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"lazygit"/); exit } END { exit 
 fi
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"fnm"/); exit } END { exit !found }' "$config_file"; then
     fnm_selected=1
+fi
+if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"rust"/); exit } END { exit !found }' "$config_file"; then
+    rust_selected=1
 fi
 if awk '/^[[:space:]]*tools = / { found = ($0 ~ /"neovim"/); exit } END { exit !found }' "$config_file"; then
     neovim_selected=1
@@ -612,6 +622,18 @@ if [ "$fnm_selected" -eq 1 ]; then
         error 'fnm: Homebrew bootstrap needs a native terminal; install Homebrew interactively, then retry. --yes cannot supply credentials.'
         exit 1
     fi
+fi
+
+if [ "$rust_selected" -eq 1 ]; then
+    [ -f "$source_dir/lib/rust-bootstrap.sh" ] || {
+        error 'The source repository does not contain lib/rust-bootstrap.sh.'
+        exit 1
+    }
+    # shellcheck disable=SC1091
+    . "$source_dir/lib/rust-bootstrap.sh"
+    plasticine_rust_plan "$destination_dir" || exit 1
+    log 'Previewing Rust maintenance...'
+    plasticine_rust_preview
 fi
 
 if [ "$herdr_selected" -eq 1 ]; then

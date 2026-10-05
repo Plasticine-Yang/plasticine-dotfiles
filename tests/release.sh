@@ -190,8 +190,9 @@ grep -Fq -- '--npmrc' "$asset_dir/install.sh"
 test -f "$upgrade_dir/source/lib/npmrc-configuration.sh"
 grep -Fq -- '--neovim' "$asset_dir/install.sh"
 grep -Fq -- '--fnm' "$asset_dir/install.sh"
+grep -Fq -- '--rust' "$asset_dir/install.sh"
 grep -Fq -- '--herdr' "$asset_dir/install.sh"
-for module in lazygit fnm herdr neovim shell; do
+for module in lazygit fnm rust herdr neovim shell; do
     test -f "$upgrade_dir/source/lib/$module-bootstrap.sh"
 done
 grep -Fq 'lazygit_version=0.65.1' "$upgrade_dir/source/lib/lazygit-bootstrap.sh"

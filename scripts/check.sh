@@ -3,7 +3,7 @@ set -eu
 umask 022
 
 repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd -P)
-all_suites='test-runner workflows ci-gate check-runner integration combined-installation chezmoi git-config npmrc installer cli self-update bootstrap-installation diff-config shell shell-runtime lazygit lazygit-runtime fnm fnm-runtime neovim neovim-runtime herdr release release-payload'
+all_suites='test-runner workflows ci-gate check-runner integration combined-installation chezmoi git-config npmrc installer cli self-update bootstrap-installation diff-config shell shell-runtime lazygit lazygit-runtime fnm fnm-runtime rust rust-runtime neovim neovim-runtime herdr release release-payload'
 case ${1:---all} in
     --help|-h)
         printf '%s\n' 'usage: scripts/check.sh [--all | suite ...]' "$all_suites"
@@ -23,7 +23,7 @@ for suite do
     esac
     case $suite in
         test-runner|workflows|ci-gate|check-runner|cli|self-update|release-payload) ;;
-        shell-runtime|fnm-runtime) required_tools="$required_tools zsh" ;;
+        shell-runtime|fnm-runtime|rust-runtime) required_tools="$required_tools zsh" ;;
         neovim-runtime) required_tools="$required_tools nvim" ;;
         *) required_tools="$required_tools chezmoi zsh" ;;
     esac

@@ -175,6 +175,12 @@ jobs:
       - name: Run fnm runtime tests
         run: ./scripts/run-test.sh 180 fnm-runtime ./tests/fnm-runtime.sh
 
+      - name: Run Rust tests
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 rust ./tests/rust.sh
+
+      - name: Run Rust runtime tests
+        run: ./scripts/run-test.sh 180 rust-runtime ./tests/rust-runtime.sh
+
       - name: Run Neovim tests
         run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 neovim ./tests/neovim.sh
 

@@ -524,7 +524,7 @@ githubSSHTest = false
 EOF
 cat > "$lint_dir/all-chezmoi.toml" <<EOF
 [data]
-tools = ["git-config","github-ssh","lazygit","login-shell","npmrc","shell"]
+tools = ["git-config","github-ssh","lazygit","login-shell","npmrc","rust","shell"]
 githubSSHKeyPath = "$combined_key"
 githubSSHKeyFingerprint = "$combined_fingerprint"
 githubSSHReplaceFingerprint = ""
@@ -588,6 +588,7 @@ if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "$repo_dir/install.sh"
     shellcheck "$repo_dir/lib/shell-bootstrap.sh"
     shellcheck "$repo_dir/lib/npmrc-configuration.sh"
+    shellcheck "$repo_dir/lib/rust-bootstrap.sh"
     shellcheck "$repo_dir/lib/login-shell-bootstrap.sh"
     shellcheck "$repo_dir/lib/lazygit-bootstrap.sh"
     shellcheck "$repo_dir/lib/neovim-bootstrap.sh"

@@ -6,7 +6,7 @@ ci=$repo_dir/.github/workflows/ci.yml
 release=$repo_dir/.github/workflows/release.yml
 
 for suite in integration combined-installation chezmoi git-config npmrc installer shell \
-    shell-runtime lazygit lazygit-runtime fnm fnm-runtime neovim neovim-runtime \
+    shell-runtime lazygit lazygit-runtime fnm fnm-runtime rust rust-runtime neovim neovim-runtime \
     herdr release release-payload cli self-update bootstrap-installation \
     diff-config test-runner check-runner workflows ci-gate; do
     grep -Eq "scripts/run-test\.sh [0-9]+ $suite (\./)?tests/$suite\.sh" "$ci" || {

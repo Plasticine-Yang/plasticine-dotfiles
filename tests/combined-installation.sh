@@ -19,7 +19,7 @@ find "$repo_dir" -mindepth 1 -maxdepth 1 ! -name .git ! -name dist -exec cp -R {
 # The individual Feature suites exercise their real network/package adapters.
 # This fixture replaces only those adapters so this suite can observe the real
 # install.sh -> chezmoi ordering and recovery contract deterministically.
-for feature in fnm herdr lazygit neovim shell; do
+for feature in fnm rust herdr lazygit neovim shell; do
     # These single-quoted fragments are copied verbatim into generated fixture
     # modules; expansion belongs to the generated script at runtime.
     # shellcheck disable=SC2016
@@ -108,7 +108,7 @@ git clone -q --bare "$work_repo" "$origin_repo"
 
 targets=$test_root/targets
 mkdir -p "$targets"
-for feature in fnm herdr lazygit neovim shell; do printf '%s\n' 1 > "$targets/$feature"; done
+for feature in fnm rust herdr lazygit neovim shell; do printf '%s\n' 1 > "$targets/$feature"; done
 
 run_installer() {
     scenario=$1
@@ -131,7 +131,7 @@ make_key() {
     ssh-keygen -q -t ed25519 -N '' -C combined-fixture -f "$1/key/id_ed25519"
 }
 
-# Interactive selection exposes the same nine Features. Selecting all and
+# Interactive selection exposes the same ten Features. Selecting all and
 # cancelling after Preview records the canonical selection but performs no
 # target lookup or selected mutation.
 if command -v expect >/dev/null 2>&1; then
@@ -175,7 +175,7 @@ catch wait result
 exit [lindex $result 3]
 EOF
     interactive_tools=$(sed -n 's/^[[:space:]]*tools = //p' "$interactive/config/chezmoi.toml")
-    for feature in fnm git-config github-ssh herdr lazygit login-shell neovim npmrc shell; do
+    for feature in fnm git-config github-ssh herdr lazygit login-shell neovim npmrc rust shell; do
         case $interactive_tools in *"\"$feature\""*) ;; *) fail "interactive selection omitted $feature" ;; esac
     done
     if grep -q -- '-query' "$interactive/calls"; then fail 'interactive cancellation queried current targets'; fi
@@ -205,8 +205,8 @@ printf '%s\n' '[user]' 'name = local-owner' > "$scenario/home/.gitconfig.local"
 cp "$scenario/home/.gitconfig.local" "$scenario/local-before"
 run_installer "$scenario" -y --neovim --github-ssh \
     --github-ssh-key "$scenario/key/id_ed25519" --herdr --git-config \
-    --shell --fnm --lazygit --login-shell --npmrc >/dev/null
-grep -Fq 'tools = ["fnm","git-config","github-ssh","herdr","lazygit","login-shell","neovim","npmrc","shell"]' \
+    --shell --rust --fnm --lazygit --login-shell --npmrc >/dev/null
+grep -Fq 'tools = ["fnm","git-config","github-ssh","herdr","lazygit","login-shell","neovim","npmrc","rust","shell"]' \
     "$scenario/config/chezmoi.toml" || fail 'full selection was not canonicalized'
 test -f "$scenario/home/.ssh/id_github"
 test -f "$scenario/home/.gitconfig"
@@ -215,16 +215,16 @@ test "$(find "$scenario/home/.config/nvim" -type f | wc -l | tr -d ' ')" -eq 12
 grep -Fq "alias lg='lazygit'" "$scenario/home/.zshrc"
 grep -Fq 'export COMBINED_OWNER=kept' "$scenario/home/.zshrc"
 cmp -s "$scenario/local-before" "$scenario/home/.gitconfig.local"
-assert_order fnm-query herdr-query lazygit-query shell-query neovim-query \
+assert_order fnm-query rust-query herdr-query lazygit-query shell-query neovim-query \
     neovim-sync shell-sync login-shell-apply
 
 # A later target generation advances all selected versioned tools, while a
 # configuration-only rerun never probes them and does not touch sentinels.
 : > "$scenario/calls"
-for feature in fnm herdr lazygit neovim shell; do printf '%s\n' 2 > "$targets/$feature"; done
-run_installer "$scenario" -y --shell --lazygit --fnm --neovim --herdr >/dev/null
+for feature in fnm rust herdr lazygit neovim shell; do printf '%s\n' 2 > "$targets/$feature"; done
+run_installer "$scenario" -y --shell --lazygit --fnm --rust --neovim --herdr >/dev/null
 if grep -Fq login-shell "$scenario/calls"; then fail 'shell implicitly selected login-shell'; fi
-for feature in fnm herdr lazygit neovim shell; do
+for feature in fnm rust herdr lazygit neovim shell; do
     grep -Fxq "$feature-mutate-2" "$scenario/calls" || fail "$feature did not advance"
 done
 printf '%s\n' untouched > "$scenario/home/.fixture/unselected"
@@ -239,14 +239,15 @@ scenario=$test_root/prepare-retry
 mkdir -p "$scenario/home"
 printf '%s\n' 3 > "$targets/fnm"
 scenario_fail=herdr-query
-if run_installer "$scenario" -y --git-config --fnm --herdr >"$scenario/out" 2>"$scenario/err"; then
+if run_installer "$scenario" -y --git-config --fnm --rust --herdr >"$scenario/out" 2>"$scenario/err"; then
     fail 'late target lookup failure was reported as success'
 fi
 test "$(cat "$scenario/home/.fixture/fnm")" = 3
 test ! -e "$scenario/home/.gitconfig" || fail 'configuration applied after preparation failure'
 scenario_fail=
 : > "$scenario/calls"
-run_installer "$scenario" -y --git-config --fnm --herdr >/dev/null
+run_installer "$scenario" -y --git-config --fnm --rust --herdr >/dev/null
+grep -Fxq rust-current-2 "$scenario/calls" || fail 'retry repeated completed Rust work'
 grep -Fxq fnm-current-3 "$scenario/calls" || fail 'retry reinstalled current fnm'
 test -f "$scenario/home/.gitconfig"
 
@@ -271,7 +272,7 @@ grep -Fxq neovim-sync "$scenario/calls"
 # selection likewise performs prerequisite/source maintenance only.
 scenario=$test_root/dry
 mkdir -p "$scenario/home" "$scenario/config"
-PLASTICINE_NONINTERACTIVE=1 PLASTICINE_TOOLS='fnm herdr lazygit login-shell neovim shell' \
+PLASTICINE_NONINTERACTIVE=1 PLASTICINE_TOOLS='fnm rust herdr lazygit login-shell neovim shell' \
 PLASTICINE_COMBINED_CALLS=$scenario/calls PLASTICINE_COMBINED_TARGETS=$targets \
 PLASTICINE_CHEZMOI_DEST_DIR=$scenario/home \
     "$chezmoi_bin" -S "$work_repo" -D "$scenario/home" --persistent-state "$scenario/config/state" \
