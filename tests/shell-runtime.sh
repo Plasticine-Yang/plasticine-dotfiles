@@ -18,6 +18,11 @@ test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-shell-runtime.XXXXXX")
 # Physical paths keep zsh path expansion ($file:a) comparable with the fixtures.
 test_root=$(cd "$test_root" && pwd -P)
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
+# shellcheck source=tests/lib/system-path.sh
+# shellcheck disable=SC1091
+. "$repo_dir/tests/lib/system-path.sh"
+runtime_system_path=$test_root/system-bin
+plasticine_test_system_path "$runtime_system_path"
 
 # The canonical composer and marker block, evaluated exactly as the rendered
 # chezmoi source modifier and the shell `.chezmoiscripts` use them, so the runtime
@@ -117,7 +122,7 @@ case \$* in
 esac
 EOF
 chmod +x "$runtime_bin/brew"
-runtime_path=$runtime_bin:/usr/bin:/bin
+runtime_path=$runtime_bin:$runtime_system_path
 
 # A fixture fnm that prints shell code and then fails, or succeeds on demand.
 fnm_bin=$test_root/fnm-bin
@@ -314,7 +319,7 @@ probe() {
             # startup by shell-environment-runtime.sh.
             set -- -c '. "$ZDOTDIR/.zshrc"; source "$PLASTICINE_RUNTIME_PROBE"'
         fi
-        "$zsh_bin" "$@"
+        "$zsh_bin" -d "$@"
     ) >"$out" 2>"$err" || probe_status=$?
     # The status is reported through $probe_status so scenarios can assert it.
     return 0

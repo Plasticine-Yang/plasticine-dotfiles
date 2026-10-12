@@ -1,7 +1,7 @@
 # 02: 发布 v0.5.1 并验证本机升级
 
 Status: ready-for-agent
-Blocked by: 01
+Blocked by: 01, 03
 
 用户已授权发布并升级本机。远端最新稳定版本为 v0.5.0；将本次基础环境
 修复合入最新 main，保留 Rust / CARGO_HOME 支持及隔离测试入口。

@@ -6,6 +6,11 @@ zsh_bin=$(command -v zsh 2>/dev/null || true)
 [ -n "$zsh_bin" ] || { printf '%s\n' 'zsh is required for fnm runtime tests.' >&2; exit 1; }
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-fnm-runtime.XXXXXX")
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
+# shellcheck source=tests/lib/system-path.sh
+# shellcheck disable=SC1091
+. "$repo_dir/tests/lib/system-path.sh"
+fnm_system_path=$test_root/system-bin
+plasticine_test_system_path "$fnm_system_path"
 fail() { printf 'fnm runtime: %s\n' "$1" >&2; exit 1; }
 
 run_case() {
@@ -14,6 +19,12 @@ run_case() {
     mkdir -p "$home/.plasticine/zsh" "$home/.local/bin" "$home/.antidote" \
         "$home/.cache/antidote/github.com/romkatv/powerlevel10k"
     cp "$repo_dir/dot_plasticine/zsh/shared.zsh" "$home/.plasticine/zsh/shared.zsh"
+    cp "$repo_dir/dot_plasticine/zsh/environment.zsh" "$home/.plasticine/zsh/environment.zsh"
+    cat > "$home/.local/bin/brew" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$HOME/no-host-tools"
+EOF
+    chmod +x "$home/.local/bin/brew"
     printf '%s\n' ':' > "$home/.p10k.zsh"
     printf '%s\n' ':' > "$home/.cache/antidote/github.com/romkatv/powerlevel10k/powerlevel10k.zsh-theme"
     cat > "$home/.antidote/antidote.zsh" <<'EOF'
@@ -33,7 +44,7 @@ EOF
     : > "$home/calls"
     # The real Zsh, rather than this POSIX shell, expands fixture variables.
     # shellcheck disable=SC2016
-    HOME=$home PATH=/usr/bin:/bin FNM_RUNTIME_MODE=$mode FNM_RUNTIME_CALLS=$home/calls \
+    HOME=$home PATH="$home/.local/bin:$fnm_system_path" FNM_RUNTIME_MODE=$mode FNM_RUNTIME_CALLS=$home/calls \
         "$zsh_bin" -d -i -c 'print -r -- "active=${FNM_RUNTIME_ACTIVATED:-0} bad=${FNM_BAD_OUTPUT_WAS_EVALUATED:-0} owner=${OWNER_CODE_CONTINUED:-0}"' \
         > "$home/output" 2> "$home/stderr"
     [ "$(wc -l < "$home/calls" | tr -d ' ')" -eq 1 ] || fail "$mode initialized fnm more than once"

@@ -589,6 +589,7 @@ done
 for test_script in "$repo_dir"/tests/*.sh; do
     /bin/sh -n "$test_script"
 done
+/bin/sh -n "$repo_dir/tests/lib/system-path.sh"
 if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "$repo_dir/private_dot_ssh/modify_private_config"
     shellcheck "$repo_dir/install.sh"
@@ -600,6 +601,7 @@ if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "$repo_dir/lib/neovim-bootstrap.sh"
     shellcheck "$repo_dir"/scripts/*.sh
     shellcheck "$repo_dir"/tests/*.sh
+    shellcheck "$repo_dir/tests/lib/system-path.sh"
 fi
 if command -v zsh >/dev/null 2>&1; then
     zsh -n "$repo_dir/dot_plasticine/zsh/environment.zsh"

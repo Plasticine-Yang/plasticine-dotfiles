@@ -9,6 +9,11 @@ chezmoi_bin=${CHEZMOI_BIN:-chezmoi}
 test_root=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-environment-runtime.XXXXXX")
 test_root=$(cd "$test_root" && pwd -P)
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
+# shellcheck source=tests/lib/system-path.sh
+# shellcheck disable=SC1091
+. "$repo_dir/tests/lib/system-path.sh"
+environment_system_path=$test_root/system-bin
+plasticine_test_system_path "$environment_system_path"
 fail() { printf 'shell environment runtime: %s\n' "$1" >&2; exit 1; }
 home=$test_root/home
 bin=$test_root/bin
@@ -67,7 +72,7 @@ run_shell() {
     : > "$home/go-calls"
     # These expressions are expanded by the tested Zsh, not this test runner.
     # shellcheck disable=SC2016
-    /usr/bin/env -i HOME="$home" ZDOTDIR="$home" PATH="$selected_path:$bin:/usr/bin:/bin" \
+    /usr/bin/env -i HOME="$home" ZDOTDIR="$home" PATH="$selected_path:$bin:$environment_system_path" \
         FNM_MULTISHELL_PATH="$inherited_fnm" TERM=dumb "$zsh_bin" -d "$mode" \
         'node --version; print -r -- "local=${path[(Ie)$HOME/.local/bin]} go=${path[(Ie)$HOME/go/bin]} cargo=${path[(Ie)$HOME/.cargo/bin]}"; print -r -- "fnm-session=${FNM_MULTISHELL_PATH:-unset}"' \
         > "$test_root/out" 2> "$test_root/err" || fail "$mode could not run Node"
@@ -75,7 +80,7 @@ run_shell() {
 }
 
 for mode in -c -lc -ic -lic; do
-    run_shell "$mode" /usr/bin
+    run_shell "$mode" "$environment_system_path"
     grep -Fxq default-node "$test_root/out" || fail "$mode did not expose default Node"
     grep -Eq 'local=[1-9][0-9]* go=[1-9][0-9]* cargo=[1-9][0-9]*' "$test_root/out" ||
         fail "$mode did not expose the base tool paths"
@@ -109,7 +114,7 @@ odd_node=$home/'selected [node]'
 mkdir -p "$odd_node"
 cp "$home/nodes/selected/bin/node" "$odd_node/node"
 # shellcheck disable=SC2016
-/usr/bin/env -i HOME="$home" ZDOTDIR="$home" PATH="$odd_node:$bin:/usr/bin:/bin" \
+/usr/bin/env -i HOME="$home" ZDOTDIR="$home" PATH="$odd_node:$bin:$environment_system_path" \
     "$zsh_bin" -d -c 'source "$HOME/.plasticine/zsh/environment.zsh"; source "$HOME/.plasticine/zsh/environment.zsh"; node --version; print -l -- $path' > "$test_root/out"
 grep -Fxq selected-node "$test_root/out" || fail 'repeated loading replaced the selected Node'
 [ "$(grep -Fxc "$odd_node" "$test_root/out")" -eq 1 ] || fail 'selected Node path was duplicated'
@@ -119,7 +124,7 @@ grep -Fxq selected-node "$test_root/out" || fail 'repeated loading replaced the 
 rm "$home/.local/share/fnm/aliases/default"
 : > "$home/fnm-calls"
 # shellcheck disable=SC2016
-/usr/bin/env -i HOME="$home" ZDOTDIR="$home" PATH="$bin:/usr/bin:/bin" \
+/usr/bin/env -i HOME="$home" ZDOTDIR="$home" PATH="$bin:$environment_system_path" \
     "$zsh_bin" -d -c '(( ! $+commands[node] ))' > "$test_root/out" 2> "$test_root/err" || fail 'missing default unexpectedly supplied Node'
 [ ! -s "$test_root/out" ] && [ ! -s "$test_root/err" ] || fail 'missing default produced output'
 [ ! -s "$home/fnm-calls" ] || fail 'missing default invoked fnm'
@@ -131,27 +136,27 @@ ln -s "$home/nodes/selected" "$home/custom fnm/aliases/default"
 printf 'export FNM_DIR="%s"\n' "$home/custom fnm" > "$home/.zshenv"
 "$chezmoi_bin" -S "$repo_dir" -D "$home" -c "$test_root/chezmoi.toml" \
     --persistent-state "$test_root/state.boltdb" apply --include=files
-run_shell -c /usr/bin
+run_shell -c "$environment_system_path"
 grep -Fxq selected-node "$test_root/out" || fail 'Owner FNM_DIR in .zshenv was ignored'
 : > "$home/.zshenv"
 "$chezmoi_bin" -S "$repo_dir" -D "$home" -c "$test_root/chezmoi.toml" \
     --persistent-state "$test_root/state.boltdb" apply --include=files
 # shellcheck disable=SC2016
-/usr/bin/env -i HOME="$home" ZDOTDIR="$home" PATH="$bin:/usr/bin:/bin" \
+/usr/bin/env -i HOME="$home" ZDOTDIR="$home" PATH="$bin:$environment_system_path" \
     FNM_DIR="$home/custom fnm" GOPATH="$home/go one:$home/go two" \
     "$zsh_bin" -d -c 'node --version; print -l -- $path' > "$test_root/out"
 grep -Fxq selected-node "$test_root/out" || fail 'custom FNM_DIR was ignored'
 grep -Fxq "$home/go one/bin" "$test_root/out" || fail 'first GOPATH root was ignored'
 grep -Fxq "$home/go two/bin" "$test_root/out" || fail 'second GOPATH root was ignored'
 # shellcheck disable=SC2016
-/usr/bin/env -i HOME="$home" ZDOTDIR="$home" PATH="$bin:/usr/bin:/bin" \
+/usr/bin/env -i HOME="$home" ZDOTDIR="$home" PATH="$bin:$environment_system_path" \
     GOBIN="$home/go executables" "$zsh_bin" -d -c 'print -l -- $path' > "$test_root/out"
 grep -Fxq "$home/go executables" "$test_root/out" || fail 'GOBIN was ignored'
 if grep -Fxq "$home/go/bin" "$test_root/out"; then fail 'GOBIN did not take precedence over GOPATH'; fi
 
 mkdir -p "$home/custom cargo/bin"
 # shellcheck disable=SC2016
-/usr/bin/env -i HOME="$home" ZDOTDIR="$home" PATH="$bin:/usr/bin:/bin" \
+/usr/bin/env -i HOME="$home" ZDOTDIR="$home" PATH="$bin:$environment_system_path" \
     CARGO_HOME="$home/custom cargo" "$zsh_bin" -d -c 'print -l -- $path' > "$test_root/out"
 grep -Fxq "$home/custom cargo/bin" "$test_root/out" || fail 'non-interactive custom CARGO_HOME was ignored'
 if grep -Fxq "$home/.cargo/bin" "$test_root/out"; then fail 'custom CARGO_HOME exposed the default Cargo directory'; fi
