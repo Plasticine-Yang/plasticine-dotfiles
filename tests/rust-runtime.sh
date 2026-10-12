@@ -9,8 +9,14 @@ fail() { printf 'rust runtime: %s\n' "$1" >&2; exit 1; }
 
 new_case() {
     home=$test_root/$1
-    mkdir -p "$home/.plasticine/zsh" "$home/.antidote"
+    mkdir -p "$home/.plasticine/zsh" "$home/.antidote" "$home/bin"
     cp "$repo_dir/dot_plasticine/zsh/shared.zsh" "$home/.plasticine/zsh/shared.zsh"
+    cp "$repo_dir/dot_plasticine/zsh/environment.zsh" "$home/.plasticine/zsh/environment.zsh"
+    cat > "$home/bin/brew" <<'BREW'
+#!/bin/sh
+printf '%s\n' "$HOME/no-host-tools"
+BREW
+    chmod +x "$home/bin/brew"
     printf '%s\n' ':' > "$home/.p10k.zsh"
     cat > "$home/.antidote/antidote.zsh" <<'ANTIDOTE'
 antidote() { return 0; }
@@ -24,7 +30,7 @@ ZSHRC
 probe() {
     # Zsh owns expansion in the runtime probe.
     # shellcheck disable=SC2016
-    HOME=$home PATH=/usr/bin:/bin "$zsh_bin" -d -i -c '
+    HOME=$home PATH="$home/bin:/usr/bin:/bin" "$zsh_bin" -d -i -c '
         print -r -- "owner=$OWNER_CODE_CONTINUED"
         print -r -- "cargo=${commands[cargo]:-missing}"
         print -r -- "rust-home=${RUSTUP_HOME:-unset}"
@@ -85,7 +91,7 @@ if grep -Fxq path=relative/bin "$home/output"; then fail 'relative Cargo bin ent
 new_case existing-path
 seed_cargo "$home/.cargo"
 # shellcheck disable=SC2016
-HOME=$home PATH=/usr/bin:"$home/.cargo/bin":/bin "$zsh_bin" -d -i -c \
-    'print -r -- "${(j.:.)path}"' > "$home/output" 2> "$home/stderr"
-grep -Fxq "$home/.local/bin:/usr/bin:$home/.cargo/bin:/bin" "$home/output" || fail 'existing Cargo PATH order changed'
+HOME=$home PATH="$home/bin:/usr/bin:$home/.cargo/bin:/bin" "$zsh_bin" -d -i -c \
+    '(( ${path[(Ie)/usr/bin]} < ${path[(Ie)$HOME/.cargo/bin]} && ${path[(Ie)$HOME/.cargo/bin]} < ${path[(Ie)/bin]} ))' \
+    > "$home/output" 2> "$home/stderr" || fail 'existing Cargo PATH order changed'
 printf '%s\n' 'Rust real-Zsh runtime tests passed'

@@ -158,10 +158,13 @@ jobs:
         run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 diff-config ./tests/diff-config.sh
 
       - name: Run shell tests
-        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 300 shell ./tests/shell.sh
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 420 shell ./tests/shell.sh
 
       - name: Run shell runtime tests
         run: ./scripts/run-test.sh 180 shell-runtime ./tests/shell-runtime.sh
+
+      - name: Run shell environment runtime tests
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 shell-environment-runtime ./tests/shell-environment-runtime.sh
 
       - name: Run Lazygit tests
         run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 lazygit ./tests/lazygit.sh
@@ -262,8 +265,9 @@ jobs:
           export PATH=$HOME/.local/bin:$PATH
           export CHEZMOI_BIN=$HOME/.local/bin/chezmoi
           cd "$HOME/source"
-          ./scripts/run-test.sh 300 shell ./tests/shell.sh
+          ./scripts/run-test.sh 420 shell ./tests/shell.sh
           ./scripts/run-test.sh 180 shell-runtime ./tests/shell-runtime.sh
+          ./scripts/run-test.sh 180 shell-environment-runtime ./tests/shell-environment-runtime.sh
           ./scripts/run-test.sh 180 integration ./tests/integration.sh
           ./scripts/run-test.sh 180 lazygit ./tests/lazygit.sh
           ./scripts/run-test.sh 180 combined-installation ./tests/combined-installation.sh

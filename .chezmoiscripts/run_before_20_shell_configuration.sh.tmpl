@@ -8,6 +8,7 @@ source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
 plugins=$dest_dir/.zsh_plugins.txt
 p10k=$dest_dir/.p10k.zsh
 shared=$dest_dir/.plasticine/zsh/shared.zsh
+environment=$dest_dir/.plasticine/zsh/environment.zsh
 plasticine_dir=$dest_dir/.plasticine
 backup_dir=$plasticine_dir/backups/shell
 pending_modes=$backup_dir/pending-modes
@@ -27,12 +28,13 @@ trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
 plasticine_whole_file_backup_if_changed "$plugins" "$source_dir/dot_zsh_plugins.txt" "$backup_dir" "${plugins##*/}"
 plasticine_whole_file_backup_if_changed "$p10k" "$source_dir/dot_p10k.zsh" "$backup_dir" "${p10k##*/}"
 plasticine_whole_file_backup_if_changed "$shared" "$source_dir/dot_plasticine/zsh/shared.zsh" "$backup_dir" "${shared##*/}"
+plasticine_whole_file_backup_if_changed "$environment" "$source_dir/dot_plasticine/zsh/environment.zsh" "$backup_dir" "${environment##*/}"
 
 # chezmoi owns the file modes derived from the source tree. Record any Owner
 # mode and normalize before apply; the matching run_after script restores it.
 umask 077
 : > "$work_dir/modes"
-for shell_target in "$plugins" "$p10k" "$shared"; do
+for shell_target in "$plugins" "$p10k" "$shared" "$environment"; do
     if [ -f "$shell_target" ]; then
         plasticine_whole_file_record_mode "$shell_target" "$dest_dir" 644 "$work_dir/modes" shell || {
             shell_error "无法保护文件权限：~/${shell_target#"$dest_dir"/}"

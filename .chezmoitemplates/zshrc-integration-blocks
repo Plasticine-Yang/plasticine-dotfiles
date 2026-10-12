@@ -1,10 +1,19 @@
 # shellcheck shell=sh
 # Shared implementation for selected Integration Blocks in Owner-controlled
-# .zshrc. This rendered catalog is the single ordering source for scanning,
+# startup files. This rendered catalog is the ordering source for scanning,
 # replacement and insertion.
 plasticine_integration_catalog='{{ range $integration := splitList "\n" (trim (includeTemplate "zsh-integration-catalog" .)) }}{{ if has $integration $.tools }}{{ $integration }} {{ end }}{{ end }}'
 plasticine_integration_emit() {
     case $1 in
+        environment)
+            cat <<'PLASTICINE_ENVIRONMENT_BLOCK'
+# >>> Plasticine environment >>>
+if [ -r "$HOME/.plasticine/zsh/environment.zsh" ]; then
+    . "$HOME/.plasticine/zsh/environment.zsh" >/dev/null 2>&1 || :
+fi
+# <<< Plasticine environment <<<
+PLASTICINE_ENVIRONMENT_BLOCK
+            ;;
         shell)
             cat <<'PLASTICINE_SHELL_BLOCK'
 # >>> Plasticine shell >>>
@@ -110,7 +119,7 @@ plasticine_integration_compose() {
     plasticine_compose_offsets=$plasticine_compose_dir/offsets
     if ! plasticine_integration_scan "$plasticine_compose_input" "$plasticine_compose_offsets"; then
         rm -rf "$plasticine_compose_dir"
-        printf '%s\n' '.zshrc 中选中的 Plasticine Integration Block 损坏、嵌套或重复，未进行修改；请先手动修复。' >&2
+        printf '%s 中选中的 Plasticine Integration Block 损坏、嵌套或重复，未进行修改；请先手动修复。\n' "${plasticine_integration_file:-.zshrc}" >&2
         return 1
     fi
     cat "$plasticine_compose_input" > "$plasticine_compose_dir/current"
@@ -129,7 +138,16 @@ plasticine_integration_compose() {
         fi
     done
     if [ -s "$plasticine_compose_dir/prefix" ]; then
-        cat "$plasticine_compose_dir/prefix" "$plasticine_compose_dir/current" > "$plasticine_compose_dir/next"
+        if [ "${plasticine_integration_position:-prepend}" = append ]; then
+            # Keep Owner exports (such as FNM_DIR) ahead of the environment
+            # block. A separator also preserves an input without a final LF.
+            if [ -s "$plasticine_compose_dir/current" ]; then
+                printf '\n' >> "$plasticine_compose_dir/current"
+            fi
+            cat "$plasticine_compose_dir/current" "$plasticine_compose_dir/prefix" > "$plasticine_compose_dir/next"
+        else
+            cat "$plasticine_compose_dir/prefix" "$plasticine_compose_dir/current" > "$plasticine_compose_dir/next"
+        fi
         mv "$plasticine_compose_dir/next" "$plasticine_compose_dir/current"
     fi
     cat "$plasticine_compose_dir/current" > "$plasticine_compose_output"
@@ -140,17 +158,21 @@ plasticine_integration_prepare() {
     plasticine_prepare_zshrc=$1
     plasticine_prepare_dest=$2
     plasticine_prepare_candidate=$3
+    plasticine_prepare_name=${plasticine_prepare_zshrc##*/}
     plasticine_prepare_backup_dir=$plasticine_prepare_dest/.plasticine/backups/integration-blocks
     plasticine_prepare_pending=$plasticine_prepare_backup_dir/pending-mode
+    if [ "$plasticine_prepare_name" != .zshrc ]; then
+        plasticine_prepare_pending=$plasticine_prepare_pending-${plasticine_prepare_name#.}
+    fi
     plasticine_whole_file_restore_modes "$plasticine_prepare_pending" \
-        "$plasticine_prepare_dest" integrations .zshrc
+        "$plasticine_prepare_dest" integrations "$plasticine_prepare_name"
     plasticine_prepare_changed=1
     if [ -f "$plasticine_prepare_zshrc" ] && cmp -s "$plasticine_prepare_candidate" "$plasticine_prepare_zshrc"; then
         plasticine_prepare_changed=0
     fi
     if [ "$plasticine_prepare_changed" -eq 1 ] && [ -f "$plasticine_prepare_zshrc" ]; then
         plasticine_whole_file_backup_if_changed "$plasticine_prepare_zshrc" \
-            "$plasticine_prepare_candidate" "$plasticine_prepare_backup_dir" .zshrc || return 1
+            "$plasticine_prepare_candidate" "$plasticine_prepare_backup_dir" "$plasticine_prepare_name" || return 1
     fi
     if [ -f "$plasticine_prepare_zshrc" ]; then
         plasticine_prepare_modes=${plasticine_prepare_candidate%/*}/modes

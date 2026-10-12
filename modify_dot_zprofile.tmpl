@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+{{ template "zsh-environment-integration-blocks" . }}
+plasticine_integration_file=.zprofile
+work_dir=$(mktemp -d "${TMPDIR:-/tmp}/plasticine-zprofile.XXXXXX")
+trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
+cat > "$work_dir/input"
+plasticine_integration_compose "$work_dir/input" "$work_dir/output"
+cat "$work_dir/output"

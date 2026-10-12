@@ -5,7 +5,7 @@
 {{- $allowedTools := list "git-config" "github-ssh" "herdr" "lazygit" "neovim" "shell" "fnm" "rust" "login-shell" "npmrc" -}}
 {{- $neovimTargets := list "init.lua" "lua/basic.lua" "lua/keybindings.lua" "lua/colorschema.lua" "lua/plugins.lua" "lua/plugins-config/neoscroll.lua" "lua/plugins-config/nvim-tree.lua" "lua/plugins-config/surround.lua" "lua/plugins-config/toggleterm.lua" "lua/plugins-config/lsp.lua" "lua/plugins-config/conform.lua" "lua/plugins-config/mason.lua" -}}
 {{- $zshIntegrations := splitList "\n" (trim (includeTemplate "zsh-integration-catalog" .)) -}}
-{{- $shellTargets := list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh" -}}
+{{- $shellTargets := list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh" ".plasticine/zsh/environment.zsh" -}}
 {{- $destDir := .chezmoi.destDir -}}
 {{- $tools := list -}}
 {{- if $nonInteractive -}}
@@ -56,6 +56,12 @@
 {{- end -}}
 {{- end -}}
 {{- if has "shell" $tools -}}
+{{- range $target := list ".zshenv" ".zprofile" -}}
+{{- $info := lstat (joinPath $destDir $target) -}}
+{{- if and $info (ne $info.type "file") -}}
+{{- fail (printf "shell: ~/%s 必须是普通文件，不能是符号链接、目录或其他非普通文件。" $target) -}}
+{{- end -}}
+{{- end -}}
 {{- range $parent := list ".plasticine" ".plasticine/zsh" -}}
 {{- $info := lstat (joinPath $destDir $parent) -}}
 {{- if and $info (ne $info.type "dir") -}}

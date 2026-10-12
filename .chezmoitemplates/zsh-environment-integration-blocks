@@ -1,0 +1,3 @@
+{{ template "zshrc-integration-blocks" . }}
+# The shell Feature alone owns this namespace in .zshenv and .zprofile.
+plasticine_integration_catalog='environment'

@@ -3,7 +3,7 @@ set -eu
 umask 022
 
 repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd -P)
-all_suites='test-runner workflows ci-gate check-runner integration combined-installation chezmoi git-config npmrc installer cli self-update bootstrap-installation diff-config shell shell-runtime lazygit lazygit-runtime fnm fnm-runtime rust rust-runtime neovim neovim-runtime herdr release release-payload'
+all_suites='test-runner workflows ci-gate check-runner integration combined-installation chezmoi git-config npmrc installer cli self-update bootstrap-installation diff-config shell shell-runtime shell-environment-runtime lazygit lazygit-runtime fnm fnm-runtime rust rust-runtime neovim neovim-runtime herdr release release-payload'
 case ${1:---all} in
     --help|-h)
         printf '%s\n' 'usage: scripts/check.sh [--all | suite ...]' "$all_suites"
@@ -115,7 +115,7 @@ env -i HOME="$task_root/home" TMPDIR="$task_root/tmp" \
             shellcheck "tests/$suite.sh"
             case $suite in
                 test-runner|workflows|ci-gate|check-runner|cli) limit=30 ;;
-                shell) limit=300 ;;
+                shell) limit=420 ;;
                 *) limit=180 ;;
             esac
             ./scripts/run-test.sh "$limit" "$suite" "./tests/$suite.sh"

@@ -566,6 +566,12 @@ done
     execute-template < "$repo_dir/modify_dot_zshrc.tmpl" > "$lint_dir/modify_dot_zshrc"
 grep -q '[^[:space:]]' "$lint_dir/modify_dot_zshrc"
 /bin/sh -n "$lint_dir/modify_dot_zshrc"
+for startup in zshenv zprofile; do
+    "$chezmoi_bin" -S "$repo_dir" -D "$lint_dir/home" -c "$lint_dir/shell-chezmoi.toml" \
+        execute-template < "$repo_dir/modify_dot_$startup.tmpl" > "$lint_dir/modify_dot_$startup"
+    /bin/sh -n "$lint_dir/modify_dot_$startup"
+    if command -v shellcheck >/dev/null 2>&1; then shellcheck "$lint_dir/modify_dot_$startup"; fi
+done
 if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "$lint_dir/modify_dot_zshrc"
 fi
@@ -596,6 +602,7 @@ if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "$repo_dir"/tests/*.sh
 fi
 if command -v zsh >/dev/null 2>&1; then
+    zsh -n "$repo_dir/dot_plasticine/zsh/environment.zsh"
     zsh -n "$repo_dir/dot_plasticine/zsh/shared.zsh"
     zsh -n "$repo_dir/dot_p10k.zsh"
 fi

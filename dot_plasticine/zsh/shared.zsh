@@ -1,19 +1,15 @@
-# Shared defaults; later Owner code in ~/.zshrc can override them.
+# Interactive defaults; later Owner code in ~/.zshrc can override them.
 # Runtime only: Antidote owns its native cache, bundles, and plugin checkouts.
-if (( ${path[(Ie)$HOME/.local/bin]} == 0 )); then
-    path=("$HOME/.local/bin" "${path[@]}")
+# Also support an Owner explicitly sourcing this fragment without .zshenv.
+if [[ ${_plasticine_environment_loaded:-0} != 1 ]]; then
+    if [[ -r $HOME/.plasticine/zsh/environment.zsh ]]; then
+        source "$HOME/.plasticine/zsh/environment.zsh"
+    elif (( ${path[(Ie)$HOME/.local/bin]} == 0 )); then
+        path+=("$HOME/.local/bin")
+    fi
 fi
 export PATH
-
-# Native Cargo tools become available without sourcing installer-generated
-# shell files or running rustup. Respect the Owner's native Cargo home.
-_plasticine_cargo_bin=${CARGO_HOME:-$HOME/.cargo}/bin
-if [[ $_plasticine_cargo_bin == /* && -d $_plasticine_cargo_bin ]] &&
-    (( ${path[(Ie)$_plasticine_cargo_bin]} == 0 )); then
-    path=("$_plasticine_cargo_bin" "${path[@]}")
-    export PATH
-fi
-unset _plasticine_cargo_bin
+[[ -o interactive ]] || return 0
 
 _plasticine_shell_warn() {
     if [[ -o interactive ]]; then
@@ -77,7 +73,7 @@ fi
 
 # zsh-completions contributes fpath; initialize completion using Zsh's native
 # dump location. Ignore insecure completion directories rather than prompting.
-if [[ -o interactive ]]; then
+if (( ! $+functions[compdef] )); then
     autoload -Uz compinit
     if ! compinit -i 2>/dev/null; then
         _plasticine_shell_warn completions
@@ -104,14 +100,37 @@ if ! command -v fnm >/dev/null 2>&1 && [[ -x $_plasticine_brew ]]; then
         fi
     fi
 fi
-if command -v fnm >/dev/null 2>&1; then
+# An external Node already selected by the Owner takes precedence. For an
+# inherited fnm session, create a new independent session and restore its version
+# through native `fnm use`; child shells must not share the parent's mutable link.
+_plasticine_fnm_node=${commands[node]:-}
+_plasticine_fnm_inherited_path=${FNM_MULTISHELL_PATH:-}
+_plasticine_fnm_version=''
+if [[ -n $_plasticine_fnm_inherited_path &&
+      $_plasticine_fnm_node == $_plasticine_fnm_inherited_path/bin/node ]]; then
+    _plasticine_fnm_version=$("$_plasticine_fnm_node" --version 2>/dev/null)
+fi
+if command -v fnm >/dev/null 2>&1 &&
+   { [[ -z $_plasticine_fnm_node ]] ||
+     [[ $_plasticine_fnm_node == ${_plasticine_fnm_default_bin:-}/node ]] ||
+     [[ -n $_plasticine_fnm_version ]]; }; then
+    _plasticine_fnm_inherited_path_env=$PATH
     if _plasticine_fnm_env=$(fnm env --shell zsh 2>/dev/null); then
         if ! eval "$_plasticine_fnm_env" 2>/dev/null; then
+            PATH=$_plasticine_fnm_inherited_path_env
+            export PATH FNM_MULTISHELL_PATH=$_plasticine_fnm_inherited_path
             _plasticine_shell_warn 'fnm activation'
+        elif [[ -n $_plasticine_fnm_version ]] &&
+             ! fnm use --silent-if-unchanged "$_plasticine_fnm_version" >/dev/null 2>&1; then
+            PATH=$_plasticine_fnm_inherited_path_env
+            export PATH FNM_MULTISHELL_PATH=$_plasticine_fnm_inherited_path
+            _plasticine_shell_warn 'fnm inherited version'
         fi
     else
         _plasticine_shell_warn 'fnm activation'
     fi
 fi
-unset _plasticine_antidote _plasticine_brew _plasticine_prefix _plasticine_fnm_env
+unset _plasticine_antidote _plasticine_brew _plasticine_prefix _plasticine_fnm_env \
+    _plasticine_fnm_node _plasticine_fnm_inherited_path _plasticine_fnm_version \
+    _plasticine_fnm_inherited_path_env _plasticine_startup_node_bin _plasticine_fnm_default_bin
 unfunction _plasticine_shell_warn

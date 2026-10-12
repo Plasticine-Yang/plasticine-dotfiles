@@ -20,6 +20,17 @@ trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
 if [ -f "$zshrc" ]; then cat "$zshrc" > "$work_dir/current"; else : > "$work_dir/current"; fi
 plasticine_integration_compose "$work_dir/current" "$work_dir/candidate"
 {{- if has "shell" .tools }}
+plasticine_integration_catalog='environment'
+for startup_name in .zshenv .zprofile; do
+    startup=$dest_dir/$startup_name
+    plasticine_integration_file=$startup_name
+    plasticine_integration_position=prepend
+    [ "$startup_name" != .zshenv ] || plasticine_integration_position=append
+    plasticine_whole_file_validate_file "$startup" integrations
+    if [ -f "$startup" ]; then cat "$startup" > "$work_dir/current"; else : > "$work_dir/current"; fi
+    plasticine_integration_compose "$work_dir/current" "$work_dir/candidate"
+done
+plasticine_whole_file_validate_file "$dest_dir/.plasticine/zsh/environment.zsh" shell
 for shell_target in{{ range $target := (index . "plasticineShellTargets" | default (list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh")) }} "$dest_dir/{{ $target }}"{{ end }}; do
     plasticine_whole_file_validate_file "$shell_target" shell
 done

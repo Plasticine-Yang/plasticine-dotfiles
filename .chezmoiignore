@@ -31,6 +31,8 @@ plasticine-demo/**
 .zshrc
 {{ end }}
 {{ if not (has "shell" .tools) }}
+.zshenv
+.zprofile
 {{ range $target := (index . "plasticineShellTargets" | default (list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh")) }}
 {{ $target }}
 {{ end }}

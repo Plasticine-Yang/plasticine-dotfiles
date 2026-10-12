@@ -272,6 +272,7 @@ new_home() {
     err=$scenario_dir/stderr
     mkdir -p "$home/.plasticine/zsh"
     cp "$repo_dir/dot_plasticine/zsh/shared.zsh" "$home/.plasticine/zsh/shared.zsh"
+    cp "$repo_dir/dot_plasticine/zsh/environment.zsh" "$home/.plasticine/zsh/environment.zsh"
     cp "$repo_dir/dot_zsh_plugins.txt" "$home/.zsh_plugins.txt"
     cp "$repo_dir/dot_p10k.zsh" "$home/.p10k.zsh"
     plasticine_integration_compose "$owner_trailer" "$home/.zshrc"
@@ -309,6 +310,8 @@ probe() {
         if [ "$probe_mode" = interactive ]; then
             set -- -i -c 'source "$PLASTICINE_RUNTIME_PROBE"'
         else
+            # Explicit sourcing is covered separately from actual non-interactive
+            # startup by shell-environment-runtime.sh.
             set -- -c '. "$ZDOTDIR/.zshrc"; source "$PLASTICINE_RUNTIME_PROBE"'
         fi
         "$zsh_bin" "$@"
@@ -356,11 +359,25 @@ printf '%s\n' 'owner/plugin' > "$home/.zsh_plugins.local.txt"
 probe sourced
 expect_status "$probe_status" 'a healthy non-interactive shell exited non-zero'
 reject_warnings "$err" 'the healthy non-interactive stack warned'
-expect_line "$log" "antidote-load $home/.zsh_plugins.txt" 'the managed declaration was not loaded without a terminal'
-expect_line "$log" "antidote-load $home/.zsh_plugins.local.txt" 'the Owner declaration was not loaded without a terminal'
+reject_line "$log" "antidote-load $home/.zsh_plugins.txt" 'non-interactive sourcing loaded managed plugins'
+reject_line "$log" "antidote-load $home/.zsh_plugins.local.txt" 'non-interactive sourcing loaded Owner plugins'
 expect_line "$log" 'probe-interactive=off' 'the probe did not run in a non-interactive shell'
 expect_line "$log" 'probe-comp=0' 'completions were initialized outside an interactive shell'
 expect_line "$log" 'probe-owner-function=1' 'the managed block did not return control to later Owner content'
+
+# A framework/Owner may initialize completions before our block. Use the real
+# compinit once, then poison any second call to catch duplicate initialization.
+new_home completions-already-initialized
+write_antidote "$home"
+cat > "$home/.zshenv" <<'EOF'
+autoload -Uz compinit
+compinit -i
+compinit() { print -r -- duplicate-compinit >> "$PLASTICINE_RUNTIME_LOG"; return 99 }
+EOF
+probe interactive
+expect_status "$probe_status" 'an existing completion setup broke startup'
+reject_line "$log" duplicate-compinit 'compinit was run twice'
+reject_warnings "$err" 'an existing completion setup warned'
 reject_line "$log" 'foreign-antidote-route' 'Antidote was loaded from the wrong native route'
 
 # ------------------------------------------- optional layers degrade safely ---
@@ -618,7 +635,8 @@ if ! diff -u "$scenario_dir/directories-before" "$scenario_dir/directories-after
     cat "$scenario_dir/directories-diff" >&2
     fail 'the fragment created a directory outside the managed fragment'
 fi
-test "$(find "$home/.plasticine" -type f | LC_ALL=C sort)" = "$home/.plasticine/zsh/shared.zsh" ||
+test "$(find "$home/.plasticine" -type f | LC_ALL=C sort)" = \
+    "$(printf '%s\n' "$home/.plasticine/zsh/environment.zsh" "$home/.plasticine/zsh/shared.zsh" | LC_ALL=C sort)" ||
     fail 'the fragment wrote Plasticine-owned state outside the managed fragment'
 
 printf '%s\n' 'shell runtime tests passed'

@@ -5,4 +5,9 @@ dest_dir={{ template "shell-quote" .chezmoi.destDir }}
 pending=$dest_dir/.plasticine/backups/integration-blocks/pending-mode
 {{ template "whole-file-protection" . }}
 plasticine_whole_file_restore_modes "$pending" "$dest_dir" integrations .zshrc
+{{- if has "shell" .tools }}
+for startup_name in .zshenv .zprofile; do
+    plasticine_whole_file_restore_modes "$pending-${startup_name#.}" "$dest_dir" integrations "$startup_name"
+done
+{{- end }}
 {{- end }}

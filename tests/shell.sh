@@ -300,7 +300,11 @@ cmp -s "$block_file" "$shell_dir/home/.zshrc" || fail 'shell-only did not apply 
 cmp -s "$repo_dir/dot_zsh_plugins.txt" "$shell_dir/home/.zsh_plugins.txt" || fail 'shell-only did not apply plugins.'
 cmp -s "$repo_dir/dot_p10k.zsh" "$shell_dir/home/.p10k.zsh" || fail 'shell-only did not apply p10k.'
 cmp -s "$repo_dir/dot_plasticine/zsh/shared.zsh" "$shell_dir/home/.plasticine/zsh/shared.zsh" || fail 'shell-only did not apply shared.zsh.'
-for target in .zshrc .zsh_plugins.txt .p10k.zsh .plasticine/zsh/shared.zsh; do
+cmp -s "$repo_dir/dot_plasticine/zsh/environment.zsh" "$shell_dir/home/.plasticine/zsh/environment.zsh" || fail 'shell-only did not apply environment.zsh.'
+for target in .zshenv .zprofile; do
+    grep -Fxq '# >>> Plasticine environment >>>' "$shell_dir/home/$target" || fail "shell-only did not apply $target."
+done
+for target in .zshrc .zshenv .zprofile .zsh_plugins.txt .p10k.zsh .plasticine/zsh/shared.zsh .plasticine/zsh/environment.zsh; do
     test "$(file_mode "$shell_dir/home/$target")" = 644 ||
         fail "shell-only $target mode is $(file_mode "$shell_dir/home/$target")"
 done
@@ -494,9 +498,23 @@ for malformed in \
     test ! -e "$malformed_dir/home/.plasticine/backups"
 done
 
+for startup_name in .zshenv .zprofile; do
+    malformed_dir=$test_root/malformed-${startup_name#.}
+    mkdir -p "$malformed_dir/home"
+    write_antidote "$malformed_dir/home"
+    printf '# >>> Plasticine environment >>>\n# >>> Plasticine environment >>>\n' > "$malformed_dir/home/$startup_name"
+    cp "$malformed_dir/home/$startup_name" "$malformed_dir/before"
+    if run_linux_installer "$malformed_dir" -y --shell > "$malformed_dir/out" 2> "$malformed_dir/err"; then
+        fail "Malformed environment markers in $startup_name were not rejected."
+    fi
+    cmp -s "$malformed_dir/before" "$malformed_dir/home/$startup_name" || fail "Malformed $startup_name was changed."
+    test ! -e "$malformed_dir/home/.zshrc" || fail 'Malformed environment markers still applied .zshrc.'
+    test ! -e "$malformed_dir/home/.plasticine/backups" || fail 'Malformed environment markers still created backups.'
+done
+
 # Non-regular targets and symlinked parents are rejected before effects.
 unsafe_index=0
-for target in .zshrc .zsh_plugins.txt .p10k.zsh .plasticine/zsh/shared.zsh; do
+for target in .zshrc .zshenv .zprofile .zsh_plugins.txt .p10k.zsh .plasticine/zsh/shared.zsh .plasticine/zsh/environment.zsh; do
     for kind in symlink dangling directory fifo; do
         unsafe_index=$((unsafe_index + 1))
         unsafe_dir=$test_root/unsafe-$unsafe_index
@@ -510,8 +528,23 @@ for target in .zshrc .zsh_plugins.txt .p10k.zsh .plasticine/zsh/shared.zsh; do
             directory) mkdir "$unsafe_target" ;;
             fifo) mkfifo "$unsafe_target" ;;
         esac
-        if run_linux_installer "$unsafe_dir" -y --shell \
-            >"$unsafe_dir/stdout" 2>"$unsafe_dir/stderr"; then
+        unsafe_status=0
+        case $target in
+            .zshenv|.zprofile|.plasticine/zsh/environment.zsh)
+                # Exercise the same public init validation without cloning an
+                # origin for each invalid inode. Full installer tests above
+                # cover malformed environment blocks before tool preparation.
+                PLASTICINE_NONINTERACTIVE=1 PLASTICINE_TOOLS=shell \
+                    "$chezmoi_bin" -S "$work_repo" -D "$unsafe_dir/home" \
+                    -C "$unsafe_dir/chezmoi.toml" --persistent-state "$unsafe_dir/state.boltdb" \
+                    init >"$unsafe_dir/stdout" 2>"$unsafe_dir/stderr" || unsafe_status=$?
+                ;;
+            *)
+                run_linux_installer "$unsafe_dir" -y --shell \
+                    >"$unsafe_dir/stdout" 2>"$unsafe_dir/stderr" || unsafe_status=$?
+                ;;
+        esac
+        if [ "$unsafe_status" -eq 0 ]; then
             fail "Non-regular target ($target, $kind) was not rejected."
         fi
         case $kind in
@@ -556,6 +589,10 @@ mkdir -p "$rerun_dir/home"
 write_antidote "$rerun_dir/home"
 printf 'owner zshrc\012' > "$rerun_dir/home/.zshrc"
 chmod 640 "$rerun_dir/home/.zshrc"
+printf 'export OWNER_ENV=kept\012' > "$rerun_dir/home/.zshenv"
+chmod 600 "$rerun_dir/home/.zshenv"
+printf '# owner profile\012' > "$rerun_dir/home/.zprofile"
+chmod 640 "$rerun_dir/home/.zprofile"
 printf 'owner plugins\012' > "$rerun_dir/home/.zsh_plugins.txt"
 chmod 600 "$rerun_dir/home/.zsh_plugins.txt"
 if ! run_linux_installer "$rerun_dir" -y --shell >"$rerun_dir/first.out" 2>"$rerun_dir/first.err"; then
@@ -567,8 +604,12 @@ test "$(file_mode "$rerun_dir/home/.zshrc")" = 640 ||
     fail "rerun zshrc mode is $(file_mode "$rerun_dir/home/.zshrc")"
 test "$(file_mode "$rerun_dir/home/.zsh_plugins.txt")" = 600 ||
     fail "rerun plugins mode is $(file_mode "$rerun_dir/home/.zsh_plugins.txt")"
+grep -Fxq 'export OWNER_ENV=kept' "$rerun_dir/home/.zshenv" || fail 'Owner environment was lost.'
+grep -Fxq '# owner profile' "$rerun_dir/home/.zprofile" || fail 'Owner profile was lost.'
+test "$(file_mode "$rerun_dir/home/.zshenv")" = 600 || fail 'Owner zshenv mode was lost.'
+test "$(file_mode "$rerun_dir/home/.zprofile")" = 640 || fail 'Owner zprofile mode was lost.'
 backup_count=$(find "$rerun_dir/home/.plasticine/backups" -type f | wc -l | tr -d ' ')
-if [ "$backup_count" -ne 2 ]; then
+if [ "$backup_count" -ne 4 ]; then
     find "$rerun_dir/home/.plasticine/backups" -type f >&2
     fail "rerun backup count is $backup_count"
 fi
@@ -586,7 +627,7 @@ test "$(file_mode "$rerun_dir/home/.zshrc")" = 640 ||
 test "$(file_mode "$rerun_dir/home/.zsh_plugins.txt")" = 600 ||
     fail "rerun plugins mode after retry is $(file_mode "$rerun_dir/home/.zsh_plugins.txt")"
 backup_count=$(find "$rerun_dir/home/.plasticine/backups" -type f | wc -l | tr -d ' ')
-test "$backup_count" -eq 2 || fail "rerun backup count after retry is $backup_count"
+test "$backup_count" -eq 4 || fail "rerun backup count after retry is $backup_count"
 
 # A retry after interruption restores recorded Owner modes before configuration
 # work, then preserves them through the completed apply.
