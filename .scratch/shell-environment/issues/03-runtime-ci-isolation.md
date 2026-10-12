@@ -1,6 +1,6 @@
 # 03: 隔离运行时测试中的系统配置和预装工具
 
-Status: ready-for-agent
+Status: done
 Blocked by: 01
 
 首轮 Ubuntu CI 在 shell-runtime 的重复 compinit 检查失败：系统启动配置
@@ -21,3 +21,8 @@ shell-environment-runtime（9 秒）和 integration（66 秒）。测试公共�
 只暴露所需系统命令，Node/fnm/brew 由场景提供；无产品行为变更。
 首轮 [CI](https://github.com/Plasticine-Yang/plasticine-dotfiles/actions/runs/38241082351)
 的 Ubuntu 补全测试失败；首轮发布门禁阻止了正式 Release，等待修正提交验证。
+
+修正提交 `c53ce53ac352d277b2e95fcd3fc08a094e7da0d2` 已通过
+[CI](https://github.com/Plasticine-Yang/plasticine-dotfiles/actions/runs/38243259599)
+的全部四个 job：Ubuntu、macOS、Debian x86_64 与 Debian arm64。
+与四组本地验证结果共同满足验收要求；发布门禁复用了该提交的成功 CI。
