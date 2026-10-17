@@ -18,6 +18,23 @@ log() {
     printf 'plasticine-dotfiles: %s\n' "$1"
 }
 
+# chezmoi refuses to apply without printing anything of its own when a managed
+# path changed outside chezmoi. Report the differing paths and the recovery
+# options so the failure is actionable instead of looking like a silent success.
+report_apply_conflicts() {
+    apply_conflicts_chezmoi=$1
+    shift
+    error 'apply did not complete; managed paths that still differ are listed below.'
+    "$apply_conflicts_chezmoi" "$@" status 2>/dev/null | while IFS= read -r apply_conflict_line; do
+        case $apply_conflict_line in
+            '' | R\ *) ;;
+            *) printf 'plasticine-dotfiles:   %s\n' "$apply_conflict_line" >&2 ;;
+        esac
+    done
+    error 'paths modified outside chezmoi make the conflict-protected apply refuse; restore them, or overwrite them with a forced apply, then retry.'
+    error "inspect with: chezmoi $* status"
+}
+
 install_cli_sha256() {
     if command -v sha256sum >/dev/null 2>&1; then
         sha256sum "$1" | awk 'NF == 2 {print tolower($1)}'
@@ -714,9 +731,14 @@ if [ "$shell_selected" -eq 1 ] && [ "$shell_antidote_route" = brew-bootstrap ] &
 fi
 
 log 'Applying changes...'
+apply_status=0
 if [ "$yes" -eq 1 ]; then
-    "$chezmoi_bin" "$@" --no-tty --error-on-conflict apply
+    "$chezmoi_bin" "$@" --no-tty --error-on-conflict apply || apply_status=$?
 else
-    "$chezmoi_bin" "$@" --error-on-conflict apply
+    "$chezmoi_bin" "$@" --error-on-conflict apply || apply_status=$?
+fi
+if [ "$apply_status" -ne 0 ]; then
+    report_apply_conflicts "$chezmoi_bin" "$@"
+    exit 1
 fi
 log 'Done.'

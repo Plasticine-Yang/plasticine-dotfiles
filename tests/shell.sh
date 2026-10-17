@@ -629,6 +629,29 @@ test "$(file_mode "$rerun_dir/home/.zsh_plugins.txt")" = 600 ||
 backup_count=$(find "$rerun_dir/home/.plasticine/backups" -type f | wc -l | tr -d ' ')
 test "$backup_count" -eq 4 || fail "rerun backup count after retry is $backup_count"
 
+# A managed file modified outside chezmoi must not be silently overwritten: the
+# conflict-refusing apply stops and the installer names the conflicting path.
+apply_conflict_dir=$test_root/apply-conflict
+mkdir -p "$apply_conflict_dir/home"
+write_antidote "$apply_conflict_dir/home"
+if ! run_linux_installer "$apply_conflict_dir" -y --shell \
+    >"$apply_conflict_dir/first.out" 2>"$apply_conflict_dir/first.err"; then
+    cat "$apply_conflict_dir/first.out" >&2
+    cat "$apply_conflict_dir/first.err" >&2
+    fail 'apply-conflict setup apply failed'
+fi
+printf '# modified outside chezmoi\012' >> "$apply_conflict_dir/home/.plasticine/zsh/shared.zsh"
+if run_linux_installer "$apply_conflict_dir" -y --shell \
+    >"$apply_conflict_dir/out" 2>"$apply_conflict_dir/err"; then
+    fail 'a managed file modified outside chezmoi was accepted'
+fi
+grep -Fq '.plasticine/zsh/shared.zsh' "$apply_conflict_dir/err" || {
+    cat "$apply_conflict_dir/err" >&2
+    fail 'the conflicting managed path was not reported'
+}
+grep -Fq 'modified outside chezmoi' "$apply_conflict_dir/home/.plasticine/zsh/shared.zsh" ||
+    fail 'a conflicting managed file was overwritten'
+
 # A retry after interruption restores recorded Owner modes before configuration
 # work, then preserves them through the completed apply.
 interrupted_dir=$test_root/interrupted-mode

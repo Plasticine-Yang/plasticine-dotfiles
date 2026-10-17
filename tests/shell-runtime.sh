@@ -255,7 +255,6 @@ cat > "$probe_script" <<'EOF'
     print -r -- "probe-comp=${+_comps[plasticine-runtime]}"
     print -r -- "probe-fpath=${fpath[(Ie)$PLASTICINE_RUNTIME_COMPLETIONS]}"
     print -r -- "probe-completion=${+functions[_plasticine-runtime]}"
-    print -r -- "probe-brew-prefix-bin=${path[(Ie)$HOME/brew-prefix/bin]}"
     print -r -- "probe-owner-function=${+functions[plasticine_runtime_owner_active]}"
     print -r -- "probe-p10k-instant=${POWERLEVEL9K_INSTANT_PROMPT:-unset}"
     print -r -- "probe-p10k-config=${POWERLEVEL9K_CONFIG_FILE:-unset}"
@@ -572,28 +571,6 @@ expect_status "$probe_status" 'a shell with a healthy fnm exited non-zero'
 reject_warnings "$err" 'a healthy fnm activation warned'
 expect_line "$log" 'probe-fnm-ok=1' 'a successful fnm activation was not evaluated'
 expect_line "$log" 'probe-owner-function=1' 'a healthy fnm activation aborted later Owner content'
-
-# On macOS the fragment exposes an already installed Homebrew executable
-# directory only when fnm is missing from PATH, then activates it.
-if [ "$runtime_os" = Darwin ]; then
-    new_home fnm-homebrew-prefix
-    write_antidote "$home"
-    mkdir -p "$home/brew-prefix/bin"
-    cp "$fnm_bin/fnm" "$home/brew-prefix/bin/fnm"
-    : > "$fnm_calls"
-    probe interactive PLASTICINE_RUNTIME_FNM_CALLS="$fnm_calls" PLASTICINE_RUNTIME_FNM_MODE=ok
-    expect_status "$probe_status" 'a shell with a prefix-only fnm exited non-zero'
-    reject_warnings "$err" 'a prefix-only fnm activation warned'
-    expect_line "$log" 'probe-fnm-ok=1' 'a prefix-only fnm activation was not evaluated'
-    case $(sed -n 's/^probe-brew-prefix-bin=//p' "$log") in
-        0 | '') fail 'the Homebrew executable directory of an installed fnm was not exposed' ;;
-    esac
-    expect_line "$fnm_calls" 'fnm env --shell zsh' 'the prefix-only fnm was never activated'
-    test ! -e "$home/.local/share/fnm" || fail 'activating fnm relocated its state'
-    test "$(find "$home/brew-prefix" -type f | LC_ALL=C sort)" = \
-        "$(printf '%s\n' "$home/brew-prefix/bin/fnm" "$(native_antidote_path "$home")" | LC_ALL=C sort)" ||
-        fail 'activating fnm rewrote the Homebrew prefix'
-fi
 
 # ---------------------------------------------- managed fragment failure -----
 

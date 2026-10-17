@@ -88,48 +88,18 @@ else
     _plasticine_shell_warn 'Powerlevel10k preferences'
 fi
 
-# Always present, independent of Feature Selection. Do not evaluate partial
-# output from a failing fnm command and do not enable directory-change switching.
-# A fresh Homebrew bootstrap cannot export PATH into its parent. Expose its
-# native executable directory only when needed, without moving fnm or its state.
-if ! command -v fnm >/dev/null 2>&1 && [[ -x $_plasticine_brew ]]; then
-    if _plasticine_prefix=$(HOMEBREW_NO_ANALYTICS=1 "$_plasticine_brew" --prefix 2>/dev/null); then
-        if [[ $_plasticine_prefix == /* && -x $_plasticine_prefix/bin/fnm ]]; then
-            path=("$_plasticine_prefix/bin" "${path[@]}")
-            export PATH
-        fi
-    fi
-fi
-# An installed fnm owns the interactive Node choice so that native `fnm use` has
-# a session to retarget; an external Node on PATH must not suppress activation.
-# Later Owner code in ~/.zshrc can still override the resulting PATH. For an
-# inherited fnm session, create a new independent session and restore its version
-# through native `fnm use`; child shells must not share the parent's mutable link.
-_plasticine_fnm_node=${commands[node]:-}
-_plasticine_fnm_inherited_path=${FNM_MULTISHELL_PATH:-}
-_plasticine_fnm_version=''
-if [[ -n $_plasticine_fnm_inherited_path &&
-      $_plasticine_fnm_node == $_plasticine_fnm_inherited_path/bin/node ]]; then
-    _plasticine_fnm_version=$("$_plasticine_fnm_node" --version 2>/dev/null)
-fi
+# Always present, independent of Feature Selection. Interactive activation uses
+# fnm's documented form: every shell gets its own session linked to the default
+# version. fnm is an optional Feature, so stay silent when it is absent, never
+# evaluate output from a failing command, and keep directory-change switching off.
 if command -v fnm >/dev/null 2>&1; then
-    _plasticine_fnm_inherited_path_env=$PATH
     if _plasticine_fnm_env=$(fnm env --shell zsh 2>/dev/null); then
-        if ! eval "$_plasticine_fnm_env" 2>/dev/null; then
-            PATH=$_plasticine_fnm_inherited_path_env
-            export PATH FNM_MULTISHELL_PATH=$_plasticine_fnm_inherited_path
-            _plasticine_shell_warn 'fnm activation'
-        elif [[ -n $_plasticine_fnm_version ]] &&
-             ! fnm use --silent-if-unchanged "$_plasticine_fnm_version" >/dev/null 2>&1; then
-            PATH=$_plasticine_fnm_inherited_path_env
-            export PATH FNM_MULTISHELL_PATH=$_plasticine_fnm_inherited_path
-            _plasticine_shell_warn 'fnm inherited version'
-        fi
+        eval "$_plasticine_fnm_env"
     else
         _plasticine_shell_warn 'fnm activation'
     fi
+    unset _plasticine_fnm_env
 fi
-unset _plasticine_antidote _plasticine_brew _plasticine_prefix _plasticine_fnm_env \
-    _plasticine_fnm_node _plasticine_fnm_inherited_path _plasticine_fnm_version \
-    _plasticine_fnm_inherited_path_env _plasticine_startup_node_bin _plasticine_fnm_default_bin
+unset _plasticine_antidote _plasticine_brew _plasticine_prefix \
+    _plasticine_startup_node_bin _plasticine_fnm_default_bin
 unfunction _plasticine_shell_warn

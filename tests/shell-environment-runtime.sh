@@ -115,13 +115,19 @@ done
 ln -s "$home/nodes/selected" "$home/parent-session"
 for mode in -c -lc -ic -lic; do
     run_shell "$mode" "$home/parent-session/bin" "$home/parent-session"
-    grep -Fxq selected-node "$test_root/out" || fail "$mode lost the inherited fnm version"
     case $mode in
         -ic|-lic)
+            # Upstream `fnm env` gives every shell its own session linked to the
+            # default version; a child no longer restores the parent's selection.
+            grep -Fxq default-node "$test_root/out" || fail "$mode did not create an independent fnm session"
             grep -Fxq "fnm-session=$home/multishell/current" "$test_root/out" || fail 'child shared the parent fnm session'
-            grep -Fxq 'use --silent-if-unchanged selected-node' "$home/fnm-calls" || fail 'child did not restore its inherited version'
+            grep -Fxq 'env --shell zsh' "$home/fnm-calls" || fail 'child did not create its own fnm session'
+            [ "$(wc -l < "$home/fnm-calls" | tr -d ' ')" -eq 1 ] || fail 'child ran fnm commands beyond activation'
             ;;
-        *) [ ! -s "$home/fnm-calls" ] || fail 'non-interactive shell created a fnm session' ;;
+        *)
+            grep -Fxq selected-node "$test_root/out" || fail "$mode lost the inherited Node"
+            [ ! -s "$home/fnm-calls" ] || fail 'non-interactive shell created a fnm session'
+            ;;
     esac
     [ "$("$home/parent-session/bin/node" --version)" = selected-node ] || fail 'child changed the parent version'
 done
