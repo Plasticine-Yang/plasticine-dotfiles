@@ -90,9 +90,26 @@ for mode in -c -lc -ic -lic; do
             [ ! -s "$test_root/err" ] || fail "$mode printed startup diagnostics"
             ;;
     esac
+done
+
+# An installed fnm owns the interactive Node choice so that `fnm use` has a
+# session to retarget; a non-interactive shell keeps the external Node.
+for mode in -c -lc -ic -lic; do
     run_shell "$mode" "$home/nodes/selected/bin"
-    grep -Fxq selected-node "$test_root/out" || fail "$mode replaced the selected Node"
-    [ ! -s "$home/fnm-calls" ] || fail "$mode replaced an external Node with fnm"
+    case $mode in
+        -c|-lc)
+            grep -Fxq selected-node "$test_root/out" || fail "$mode replaced the selected Node"
+            [ ! -s "$home/fnm-calls" ] || fail "$mode replaced an external Node with fnm"
+            ;;
+        -ic|-lic)
+            grep -Fxq default-node "$test_root/out" ||
+                fail "$mode let an external Node suppress fnm activation"
+            grep -Fxq "fnm-session=$home/multishell/current" "$test_root/out" ||
+                fail "$mode did not create an fnm session over an external Node"
+            grep -Fxq 'env --shell zsh' "$home/fnm-calls" ||
+                fail "$mode activated fnm with unexpected arguments"
+            ;;
+    esac
 done
 
 ln -s "$home/nodes/selected" "$home/parent-session"

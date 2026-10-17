@@ -100,7 +100,9 @@ if ! command -v fnm >/dev/null 2>&1 && [[ -x $_plasticine_brew ]]; then
         fi
     fi
 fi
-# An external Node already selected by the Owner takes precedence. For an
+# An installed fnm owns the interactive Node choice so that native `fnm use` has
+# a session to retarget; an external Node on PATH must not suppress activation.
+# Later Owner code in ~/.zshrc can still override the resulting PATH. For an
 # inherited fnm session, create a new independent session and restore its version
 # through native `fnm use`; child shells must not share the parent's mutable link.
 _plasticine_fnm_node=${commands[node]:-}
@@ -110,10 +112,7 @@ if [[ -n $_plasticine_fnm_inherited_path &&
       $_plasticine_fnm_node == $_plasticine_fnm_inherited_path/bin/node ]]; then
     _plasticine_fnm_version=$("$_plasticine_fnm_node" --version 2>/dev/null)
 fi
-if command -v fnm >/dev/null 2>&1 &&
-   { [[ -z $_plasticine_fnm_node ]] ||
-     [[ $_plasticine_fnm_node == ${_plasticine_fnm_default_bin:-}/node ]] ||
-     [[ -n $_plasticine_fnm_version ]]; }; then
+if command -v fnm >/dev/null 2>&1; then
     _plasticine_fnm_inherited_path_env=$PATH
     if _plasticine_fnm_env=$(fnm env --shell zsh 2>/dev/null); then
         if ! eval "$_plasticine_fnm_env" 2>/dev/null; then

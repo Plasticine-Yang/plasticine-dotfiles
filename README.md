@@ -102,7 +102,7 @@ sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/relea
   -y --shell --login-shell
 ```
 
-单独保持 fnm 当前，或同时选择 shell 以复用现有守卫式激活：
+单独保持 fnm 当前，或同时选择 shell 以复用现有交互式激活：
 
 ```sh
 sh -c "$(curl -fsSL https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.sh)" -- \
@@ -228,7 +228,7 @@ Linux 完整下载 `https://fnm.vercel.app/install` 后才执行，传入 `--ski
 
 已是当前目标时不会替换命令。稳定版本比当前目标更新、预发布/自定义/无法解析的版本、不健康命令会拒绝降级或接管；允许路线之外的旧 owner 必须通过原 owner 更新，不会在 `~/.local/bin` 另装遮蔽副本。Preview 只报告本地观测、路线、后续网络和权限影响；目标查询和工具变更只在确认后的 apply 发生，取消与 dry-run 不执行它们。
 
-只选择 `--fnm` 不读取或编辑 `.zshrc`，也不添加 shell integration。请自行确保 `~/.local/bin` 在 `PATH`，并按需配置原生 `fnm env --shell zsh` 激活；同时选择 `--shell` 时会复用已有的唯一守卫式激活，失败输出不会被 `eval`，且不会启用 `--use-on-cd`。安装只维护 manager：Node 版本、默认 Node、项目版本声明、`FNM_DIR` 和 fnm 原生 runtime/state 都不会被检查、迁移或修改。
+只选择 `--fnm` 不读取或编辑 `.zshrc`，也不添加 shell integration。请自行确保 `~/.local/bin` 在 `PATH`，并按需配置原生 `fnm env --shell zsh` 激活；同时选择 `--shell` 时会复用已有的唯一激活：交互式 shell 只要 `fnm` 可用就建立会话，失败输出不会被 `eval`，且不会启用 `--use-on-cd`。安装只维护 manager：Node 版本、默认 Node、项目版本声明、`FNM_DIR` 和 fnm 原生 runtime/state 都不会被检查、迁移或修改。
 
 ## Rust（`--rust`）
 
@@ -346,7 +346,7 @@ fi
 
 已有 Node 优先；找不到 Node 时才使用本机已有 fnm 默认版本。根目录尊重显式 `FNM_DIR`，否则按 fnm 的 XDG 和历史目录顺序查找，不迁移状态、不安装版本、不更改默认版本。这个兜底让 Codex、脚本和编辑器的非交互 Zsh 能找到 Node；它不会根据 `.node-version` 自动切换项目版本。项目任务仍应在入口明确选择版本。直接启动进程而不经过 Zsh 的程序，仍需由其启动环境提供 PATH。
 
-`shared.zsh` 只在交互 shell 中加载插件、主题、补全和 fnm 激活。补全已经初始化时跳过 `compinit`；请勿在后续 Owner 代码中再次执行它。外部已选 Node 不会被 fnm 覆盖；继承 fnm 版本的交互子 shell 会建立独立会话，并通过 `fnm use --silent-if-unchanged` 恢复父版本，避免子 shell 切换版本影响父 shell。
+`shared.zsh` 只在交互 shell 中加载插件、主题、补全和 fnm 激活。补全已经初始化时跳过 `compinit`；请勿在后续 Owner 代码中再次执行它。交互式 shell 中已安装的 `fnm` 优先：只要 `fnm` 在 `PATH` 上就执行 `fnm env --shell zsh` 建立会话，因此 `fnm use` 能重定向当前版本，系统或基础镜像里的 Node 不会再遮蔽它；需要保留特定外部 Node 时，在 `~/.zshrc` 区块之后覆盖 `PATH`。继承 fnm 版本的交互子 shell 会建立独立会话，并通过 `fnm use --silent-if-unchanged` 恢复父版本，避免子 shell 切换版本影响父 shell；非交互 shell 不建立会话，仍按基础环境的“已有 Node 优先”解析。
 
 升级已有个人配置时，移除旧的无条件默认 Node PATH 行，以及重复的 `compinit` 和 `$(go env GOPATH)` 表达式。个人工具的 PATH 放在 `.zshenv` 中；alias、按键与交互 hook 放在 `.zshrc` 中。安装器保留区块外内容，不自动删除这些 Owner 配置。
 
@@ -365,7 +365,7 @@ fi
 - 发布版从同一固定快照恢复 Powerlevel10k 与受管插件，随后仅用 Antidote 重新生成 bundle，不运行 `update --bundles`。从本地 checkout 运行开发安装时仍使用原生 moving-upstream 路线：Linux Antidote 执行 `git pull --ff-only`，插件执行 `antidote update --bundles`。这些 Git 操作禁用终端凭据提示，并在失败时返回非零。同步使用受管声明文件但不 source Owner 的 `~/.zshrc`。
 - 已存在但不健康的 Zsh、Antidote、Git、Homebrew 或 Powerlevel10k 会被原样保留并以可操作的错误结束，不会更换安装归属，也没有自动回退路径。metadata 查询、快照恢复、开发模式原生更新、bundle 生成或最终运行时检查失败同样返回失败；已完成的配置和 native state 会保留，修复报告的问题后重跑即可继续。
 - Antidote 自己拥有它的 checkout、生成的 bundle、插件克隆、缓存、快照、补全 dump 和编译文件；`~/.zsh_plugins.local.txt` 也属于 Owner。Plasticine 既不管理、也不备份或删除这些运行时状态。
-- `fnm` 在适用的交互环境中做守卫式激活：执行 `fnm env --shell zsh`，需要继承父 fnm 版本时再执行原生 `fnm use`；失败输出不会被执行，也不会安装、升级或迁移 fnm。未安装时保持静默；激活失败只给交互式警告。Zellij 别名仍属于未来迁移。
+- `fnm` 在交互环境中激活：只要 `fnm` 可用就执行 `fnm env --shell zsh` 建立会话，需要继承父 fnm 版本时再执行原生 `fnm use`；失败输出不会被执行，也不会安装、升级或迁移 fnm。未安装时保持静默；激活失败只给交互式警告。Zellij 别名仍属于未来迁移。
 - Rust/Cargo 运行时只在 `${CARGO_HOME:-$HOME/.cargo}/bin` 存在时接入 PATH，不执行 rustup、安装工具链或修改原生配置；独立的 `rust` Feature 负责环境维护。
 
 ### 包管理器与凭据影响
@@ -412,7 +412,7 @@ PLASTICINE_LIVE_NEOVIM_SMOKE=1 ./tests/neovim-live.sh
 
 `scripts/check.sh` 在 `.agent-tmp/checks/` 创建并清理一次性 Git 快照，包含已跟踪和未忽略的新文件及未提交改动；原工作区和暂存区保持不变。测试副本采用 `umask 022` 和正常 checkout 权限，隔离 HOME、TMPDIR 与个人环境变量，PATH 只包含所选 suite 必需的运行时和系统目录。缺少 ShellCheck、chezmoi、Zsh、Expect 或 Neovim 等所需依赖时立即报错，不静默跳过相关验证；可用 `CHEZMOI_BIN`、`NVIM_BIN` 指定工具路径。npmrc 检查要求支持脚本策略的 npm，CI 使用 Node `24.21.0` 和 npm `12.0.2`。入口不会自动安装依赖或修改个人 npmrc。
 
-`tests/combined-installation.sh` 通过真实 `install.sh` 与 chezmoi 入口覆盖十个 Feature 的交互/非交互全选、顺序无关性、跨工具 target 更新、配置前准备、配置后原生同步、取消、dry-run、部分失败与安全重试；各 Feature 的网络、包管理器、完整发行版、owner、完整性与竞态细节仍由其专项 suite 覆盖。`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、`shell` / `login-shell` 独立选择、登录 Shell 切换、失败重试与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/fnm.sh` 覆盖 Linux 官方脚本候选发布和 macOS Homebrew currency 路线；`tests/rust.sh` 通过真实 chezmoi 入口及受控 rustup 安装器验证安装、维护、默认版本保留、自定义 homes、失败与重试，`tests/rust-runtime.sh` 用真实 Zsh 验证 Cargo PATH；`tests/lazygit-runtime.sh` 与 `tests/shell-runtime.sh` 使用真实 Zsh，后者包含受控 fnm 的成功/失败激活、Owner 后续代码继续执行和单次初始化验证。`tests/neovim.sh` 使用受控 Release 与编辑器边界覆盖公开 chezmoi 入口；`tests/neovim-runtime.sh` 在一次性 HOME 中用真实 Neovim 和本地受控插件 fixture 验证启动、快捷键、文件树与终端，routine 测试不依赖 live Release；显式设置 `PLASTICINE_LIVE_NEOVIM_SMOKE=1` 后运行 `tests/neovim-live.sh`，可另行使用当前 upstream 插件执行 smoke；Zsh runtime 套件需要本机存在 `zsh`。CI 通过 `scripts/run-test.sh` 单独运行每个 suite：基础设施契约测试最长 30 秒，常规 suite 最长 180 秒，Shell 综合 suite 最长 420 秒；超时会终止整个测试进程组并直接报告 suite 名称。
+`tests/combined-installation.sh` 通过真实 `install.sh` 与 chezmoi 入口覆盖十个 Feature 的交互/非交互全选、顺序无关性、跨工具 target 更新、配置前准备、配置后原生同步、取消、dry-run、部分失败与安全重试；各 Feature 的网络、包管理器、完整发行版、owner、完整性与竞态细节仍由其专项 suite 覆盖。`tests/shell.sh` 覆盖安装器侧的 Zsh 选择、工具准备、`shell` / `login-shell` 独立选择、登录 Shell 切换、失败重试与运行时状态隔离；`tests/lazygit.sh` 用受控 release、网络、平台和文件系统 fixture 覆盖 Lazygit 路线且不会访问真实网络；`tests/fnm.sh` 覆盖 Linux 官方脚本候选发布和 macOS Homebrew currency 路线；`tests/rust.sh` 通过真实 chezmoi 入口及受控 rustup 安装器验证安装、维护、默认版本保留、自定义 homes、失败与重试，`tests/rust-runtime.sh` 用真实 Zsh 验证 Cargo PATH；`tests/lazygit-runtime.sh` 与 `tests/shell-runtime.sh` 使用真实 Zsh，后者包含受控 fnm 的成功/失败激活、Owner 后续代码继续执行和单次初始化验证。`tests/shell-environment-runtime.sh` 与 `tests/fnm-runtime.sh` 另外固定交互式 fnm 优先于外部 Node、非交互 shell 保留外部 Node 且不建立会话，以及 fnm 父子会话隔离。`tests/neovim.sh` 使用受控 Release 与编辑器边界覆盖公开 chezmoi 入口；`tests/neovim-runtime.sh` 在一次性 HOME 中用真实 Neovim 和本地受控插件 fixture 验证启动、快捷键、文件树与终端，routine 测试不依赖 live Release；显式设置 `PLASTICINE_LIVE_NEOVIM_SMOKE=1` 后运行 `tests/neovim-live.sh`，可另行使用当前 upstream 插件执行 smoke；Zsh runtime 套件需要本机存在 `zsh`。CI 通过 `scripts/run-test.sh` 单独运行每个 suite：基础设施契约测试最长 30 秒，常规 suite 最长 180 秒，Shell 综合 suite 最长 420 秒；超时会终止整个测试进程组并直接报告 suite 名称。
 
 ## 发布
 

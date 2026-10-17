@@ -15,11 +15,22 @@ fail() { printf 'fnm runtime: %s\n' "$1" >&2; exit 1; }
 
 run_case() {
     mode=$1
+    node_bin=${2:-}
     home=$test_root/$mode
     mkdir -p "$home/.plasticine/zsh" "$home/.local/bin" "$home/.antidote" \
         "$home/.cache/antidote/github.com/romkatv/powerlevel10k"
     cp "$repo_dir/dot_plasticine/zsh/shared.zsh" "$home/.plasticine/zsh/shared.zsh"
     cp "$repo_dir/dot_plasticine/zsh/environment.zsh" "$home/.plasticine/zsh/environment.zsh"
+    case_path=$home/.local/bin
+    if [ -n "$node_bin" ]; then
+        mkdir -p "$node_bin"
+        cat > "$node_bin/node" <<'EOF'
+#!/bin/sh
+printf '%s\n' 'external-node'
+EOF
+        chmod +x "$node_bin/node"
+        case_path=$case_path:$node_bin
+    fi
     cat > "$home/.local/bin/brew" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$HOME/no-host-tools"
@@ -44,7 +55,7 @@ EOF
     : > "$home/calls"
     # The real Zsh, rather than this POSIX shell, expands fixture variables.
     # shellcheck disable=SC2016
-    HOME=$home PATH="$home/.local/bin:$fnm_system_path" FNM_RUNTIME_MODE=$mode FNM_RUNTIME_CALLS=$home/calls \
+    HOME=$home PATH="$case_path:$fnm_system_path" FNM_RUNTIME_MODE=$mode FNM_RUNTIME_CALLS=$home/calls \
         "$zsh_bin" -d -i -c 'print -r -- "active=${FNM_RUNTIME_ACTIVATED:-0} bad=${FNM_BAD_OUTPUT_WAS_EVALUATED:-0} owner=${OWNER_CODE_CONTINUED:-0}"' \
         > "$home/output" 2> "$home/stderr"
     [ "$(wc -l < "$home/calls" | tr -d ' ')" -eq 1 ] || fail "$mode initialized fnm more than once"
@@ -57,4 +68,9 @@ grep -q 'active=1 bad=0 owner=1' "$test_root/ok/output" || fail 'successful outp
 run_case fail
 grep -q 'active=0 bad=0 owner=1' "$test_root/fail/output" || fail 'failed output was evaluated'
 grep -q 'fnm activation unavailable; continuing shell startup' "$test_root/fail/stderr" || fail 'failed activation was not diagnosed'
+# An external Node on PATH must not suppress activation: native `fnm use` needs
+# the session that `fnm env` creates.
+run_case external "$test_root/external-node/bin"
+grep -q 'active=1 bad=0 owner=1' "$test_root/external/output" ||
+    fail 'an external Node suppressed fnm activation'
 printf '%s\n' 'fnm real-zsh runtime tests passed'
