@@ -12,6 +12,10 @@ Use the five default triage roles plus the terminal `done` state. Before classif
 
 This repo uses the single-context domain-doc layout. Before exploring code, read `docs/agents/domain.md` for the glossary and ADR paths.
 
+### Adding a tool Feature
+
+Before implementing a new independently selectable tool, read `docs/agents/adding-a-feature.md` for the canonical touchpoint list and order.
+
 ## Project workflow
 
 ### Testing
@@ -21,6 +25,10 @@ Do not add unit tests for UI. UI concerns (shell prompt, Neovim configuration, C
 Test non-UI logic according to project conventions. Preserve and run applicable existing checks.
 
 Run local checks through `scripts/check.sh`; suite selection and dependencies are documented in `README.md` under 本地验证.
+
+### GitHub and CI
+
+Use `gh` for workflow runs, failure logs, and releases: `gh run view <run-id> --log-failed`, `gh run watch <run-id>`, `gh release view`. If `gh` is not on PATH, check the package manager prefix before concluding it is unavailable. Reserve browser automation for UI-only actions.
 
 ### Commits
 
