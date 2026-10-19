@@ -166,13 +166,25 @@ set env(PLASTICINE_CHEZMOI_STATE_FILE) $scenario/state/chezmoistate.boltdb
 set env(PLASTICINE_CHEZMOI_DEST_DIR) $scenario/home
 spawn $env(PLASTICINE_TEST_INSTALLER)
 expect "选择要处理的工具"
+# A CR sent while the multi-choice UI is still initializing is dropped and the
+# menu stays open, so wait for the rendered help line before submitting.
+expect "enter submit"
 send "\r"
 expect "Apply these changes?"
-# Let the multi-choice prompt release the terminal before answering the plain
-# read; otherwise the confirmation byte can be consumed by the teardown.
-after 300
-send "n\r"
-expect "Cancelled; no changes were applied."
+send "n\n"
+# The multi-choice prompt owns terminal input until it closes. Resend the
+# confirmation line if it was consumed; a swallowed byte is timing-dependent.
+set timeout 5
+set confirm_retries 0
+expect {
+    "Cancelled; no changes were applied." {}
+    eof { exit 95 }
+    timeout {
+        if {[incr confirm_retries] > 3} { exit 96 }
+        send "n\n"
+        exp_continue
+    }
+}
 expect eof
 catch wait result
 exit [lindex $result 3]

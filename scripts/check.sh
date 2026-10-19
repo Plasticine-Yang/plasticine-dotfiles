@@ -41,6 +41,10 @@ mkdir -p "$task_parent"
 task_root=$(mktemp -d "$task_parent/run.XXXXXX")
 trap 'rm -rf "$task_root"' EXIT HUP INT TERM
 mkdir -p "$task_root/bin" "$task_root/home" "$task_root/tmp"
+# macOS CI runners put TMPDIR under /var/folders, which resolves through the
+# /private/var symlink. Tests that canonicalize destinations must see the same
+# shape locally, so the isolated run receives TMPDIR through a symlink too.
+ln -s "$task_root/tmp" "$task_root/tmp-link"
 missing=0
 for tool in $required_tools; do
     [ ! -e "$task_root/bin/$tool" ] || continue
@@ -98,8 +102,9 @@ perl -0 -MFile::Copy=copy -MFile::Path=make_path -MFile::Basename=dirname -e '
 ' "$repo_dir" "$snapshot" < "$task_root/files"
 
 # Re-enter once with a clean environment; fixtures still own their own HOME.
+# TMPDIR goes through tmp-link so local and macOS CI path shapes match.
 # shellcheck disable=SC2016
-env -i HOME="$task_root/home" TMPDIR="$task_root/tmp" \
+env -i HOME="$task_root/home" TMPDIR="$task_root/tmp-link" \
     PATH="$task_root/bin:/usr/bin:/bin:/usr/sbin:/sbin" LC_ALL=C \
     /bin/sh -eu -c '
         cd "$1"

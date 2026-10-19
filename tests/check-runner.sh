@@ -25,6 +25,8 @@ mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
 case $(umask) in 022|0022) ;; *) exit 91 ;; esac
 [ -z "${PLASTICINE_TEST_POISON:-}" ]
 [ ! -e "$HOME/owner-secret" ]
+# The runner mirrors macOS CI's symlinked TMPDIR; tests may canonicalize it.
+[ -L "$TMPDIR" ] || exit 94
 if command -v plasticine-test-personal-command >/dev/null 2>&1; then exit 92; fi
 printf '%s\n' 'isolated dirty snapshot verified'
 EOF
