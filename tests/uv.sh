@@ -77,24 +77,27 @@ new_case() {
     printf 'uv scenario: %s\n' "$1" >&2
     scenario=$test_root/$1
     mkdir -p "$scenario/home" "$scenario/config"
+    # The module canonicalizes its destination, so expectations must use the
+    # physical path even when TMPDIR (for example on macOS runners) is a link.
+    scenario_home=$(cd -- "$scenario/home" && pwd -P)
     printf '%s\n' '[data]' 'tools = ["uv"]' > "$scenario/config/chezmoi.toml"
     : > "$scenario/calls"
 }
 apply_case() {
     (
         PATH=$fixture_bin:/usr/bin:/bin
-        HOME=$scenario/home
-        PLASTICINE_CHEZMOI_DEST_DIR=$scenario/home
+        HOME=$scenario_home
+        PLASTICINE_CHEZMOI_DEST_DIR=$scenario_home
         PLASTICINE_TEST_UV_CALLS=$scenario/calls
         PLASTICINE_TEST_UV_TEMPLATE=$test_root/uv
         PLASTICINE_TEST_UV_VERSION=${PLASTICINE_TEST_UV_VERSION:-0.13.1}
         PLASTICINE_TEST_UV_LATEST=${PLASTICINE_TEST_UV_LATEST:-}
-        PLASTICINE_TEST_UV_HOME=$scenario/home
-        PLASTICINE_TEST_UV_BIN_DIR=$scenario/home/.local/bin
+        PLASTICINE_TEST_UV_HOME=$scenario_home
+        PLASTICINE_TEST_UV_BIN_DIR=$scenario_home/.local/bin
         export PATH HOME PLASTICINE_CHEZMOI_DEST_DIR PLASTICINE_TEST_UV_CALLS \
             PLASTICINE_TEST_UV_TEMPLATE PLASTICINE_TEST_UV_VERSION \
             PLASTICINE_TEST_UV_LATEST PLASTICINE_TEST_UV_HOME PLASTICINE_TEST_UV_BIN_DIR
-        exec "$chezmoi_bin" -S "$repo_dir" -D "$scenario/home" -c "$scenario/config/chezmoi.toml" \
+        exec "$chezmoi_bin" -S "$repo_dir" -D "$scenario_home" -c "$scenario/config/chezmoi.toml" \
             --persistent-state "$scenario/state" apply --no-tty "$@"
     )
 }
@@ -109,7 +112,7 @@ seed_managed() {
     printf '%s\n' "${1:-0.13.1}" > "$scenario/home/.local/bin/uv.version"
     printf '%s\n' "${1:-0.13.1}" > "$scenario/home/.local/bin/uvx.version"
     printf '{"install_prefix":"%s","modify_path":false}\n' \
-        "$scenario/home/.local/bin" > "$scenario/home/.config/uv/uv-receipt.json"
+        "$scenario_home/.local/bin" > "$scenario/home/.config/uv/uv-receipt.json"
 }
 assert_sha256_route() {
     # The upstream installer only verifies archives when sha256sum exists.
@@ -140,7 +143,7 @@ grep -Fxq installer "$scenario/calls" || fail 'official installer was not execut
 [ -x "$scenario/home/.local/bin/uv" ] && [ -x "$scenario/home/.local/bin/uvx" ] ||
     fail 'uv/uvx were not installed'
 [ "$(cat "$scenario/home/.local/bin/uv.version")" = 0.13.1 ] || fail 'installed uv version is wrong'
-grep -Fq "\"install_prefix\":\"$scenario/home/.local/bin\"" \
+grep -Fq "\"install_prefix\":\"$scenario_home/.local/bin\"" \
     "$scenario/home/.config/uv/uv-receipt.json" || fail 'updater receipt has the wrong prefix'
 assert_sha256_route
 grep -Fxq owner "$scenario/home/.zshrc" || fail 'standalone uv changed .zshrc'
@@ -168,7 +171,7 @@ for repair in uvx receipt prefix; do
     apply_case >/dev/null
     grep -Fxq installer "$scenario/calls" || fail "repair-$repair did not use the installer"
     [ -x "$scenario/home/.local/bin/uvx" ] || fail "repair-$repair did not restore uvx"
-    grep -Fq "\"install_prefix\":\"$scenario/home/.local/bin\"" \
+    grep -Fq "\"install_prefix\":\"$scenario_home/.local/bin\"" \
         "$scenario/home/.config/uv/uv-receipt.json" || fail "repair-$repair kept a foreign receipt"
 done
 
