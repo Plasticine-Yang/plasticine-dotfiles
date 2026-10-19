@@ -1,4 +1,4 @@
-{{- if or (has "rust" .tools) (has "fnm" .tools) (has "herdr" .tools) (has "lazygit" .tools) (has "neovim" .tools) (has "shell" .tools) -}}
+{{- if or (has "rust" .tools) (has "uv" .tools) (has "fnm" .tools) (has "herdr" .tools) (has "lazygit" .tools) (has "neovim" .tools) (has "shell" .tools) -}}
 #!/bin/sh
 set -eu
 
@@ -34,6 +34,15 @@ plasticine_fnm_prepare || {
 plasticine_rust_plan "$dest_dir" || exit 1
 plasticine_rust_prepare || {
     plasticine_rust_error 'native route failed; tool preparation completed only in part; no selected configuration applied.'
+    exit 1
+}
+{{- end }}
+{{- if has "uv" .tools }}
+# shellcheck disable=SC1091
+. "$source_dir/lib/uv-bootstrap.sh"
+plasticine_uv_plan "$dest_dir" || exit 1
+plasticine_uv_prepare || {
+    plasticine_uv_error 'official installer/self-update route failed; tool preparation completed only in part; no selected configuration applied.'
     exit 1
 }
 {{- end }}

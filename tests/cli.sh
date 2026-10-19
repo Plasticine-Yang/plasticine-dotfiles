@@ -148,7 +148,7 @@ assert_output "$test_root/stderr" "$test_root/expected"
 
 # Every installer argument remains a distinct, byte-for-byte shell argument.
 path_with_spaces="$test_root/a_key/owner key"
-assert_status 23 "$cli" -y --github-ssh --github-ssh-key "$path_with_spaces" --fnm --rust
+assert_status 23 "$cli" -y --github-ssh --github-ssh-key "$path_with_spaces" --fnm --rust --uv
 printf '%s\n' 'installer v1.2.3' >"$test_root/expected"
 assert_output "$test_root/stdout" "$test_root/expected"
 printf '%s\n' 'installer v1.2.3 stderr' >"$test_root/expected"
@@ -160,6 +160,7 @@ cat >"$test_root/expected" <<EOF
 <$path_with_spaces>
 <--fnm>
 <--rust>
+<--uv>
 EOF
 assert_output "$argv_file" "$test_root/expected"
 

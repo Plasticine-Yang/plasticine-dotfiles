@@ -168,6 +168,9 @@ spawn $env(PLASTICINE_TEST_INSTALLER)
 expect "选择要处理的工具"
 send "\r"
 expect "Apply these changes?"
+# Let the multi-choice prompt release the terminal before answering the plain
+# read; otherwise the confirmation byte can be consumed by the teardown.
+after 300
 send "n\r"
 expect "Cancelled; no changes were applied."
 expect eof

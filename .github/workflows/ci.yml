@@ -184,6 +184,12 @@ jobs:
       - name: Run Rust runtime tests
         run: ./scripts/run-test.sh 180 rust-runtime ./tests/rust-runtime.sh
 
+      - name: Run uv tests
+        run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 uv ./tests/uv.sh
+
+      - name: Run uv runtime tests
+        run: ./scripts/run-test.sh 180 uv-runtime ./tests/uv-runtime.sh
+
       - name: Run Neovim tests
         run: CHEZMOI_BIN=chezmoi ./scripts/run-test.sh 180 neovim ./tests/neovim.sh
 

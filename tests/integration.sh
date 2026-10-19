@@ -581,6 +581,7 @@ fi
 /bin/sh -n "$repo_dir/lib/login-shell-bootstrap.sh"
 /bin/sh -n "$repo_dir/lib/lazygit-bootstrap.sh"
 /bin/sh -n "$repo_dir/lib/neovim-bootstrap.sh"
+/bin/sh -n "$repo_dir/lib/uv-bootstrap.sh"
 # The shared composer has selection-dependent template branches; rendered
 # consumers above are syntax-checked instead of the unrendered template.
 for repository_script in "$repo_dir"/scripts/*.sh; do
@@ -596,6 +597,7 @@ if command -v shellcheck >/dev/null 2>&1; then
     shellcheck "$repo_dir/lib/shell-bootstrap.sh"
     shellcheck "$repo_dir/lib/npmrc-configuration.sh"
     shellcheck "$repo_dir/lib/rust-bootstrap.sh"
+    shellcheck "$repo_dir/lib/uv-bootstrap.sh"
     shellcheck "$repo_dir/lib/login-shell-bootstrap.sh"
     shellcheck "$repo_dir/lib/lazygit-bootstrap.sh"
     shellcheck "$repo_dir/lib/neovim-bootstrap.sh"
