@@ -220,6 +220,11 @@ new_case healthy-helper
 ( PLASTICINE_TEST_UV_ENV_HELPER=stock apply_case >/dev/null )
 cmp "$test_root/env.stock" "$scenario/home/.local/bin/env" || fail 'healthy PATH helper was rewritten'
 
+# The reviewed installer route writes no helper at all; nothing may be created.
+new_case no-helper
+( PLASTICINE_TEST_UV_ENV_HELPER=none apply_case >/dev/null )
+test ! -e "$scenario/home/.local/bin/env" || fail 'a missing PATH helper was created'
+
 # A missing uvx, missing receipt, or foreign receipt prefix repairs via the installer.
 for repair in uvx receipt prefix; do
     new_case "repair-$repair"

@@ -186,7 +186,7 @@ plasticine_uv_preview() {
         fi
     fi
     printf '%s\n' \
-        "  The installer's PATH helper at $uv_bin_dir/env is kept source-only: it loses any exec delegation and its execute bit, so a bare env keeps resolving to /usr/bin/env." \
+        "  A PATH helper left at $uv_bin_dir/env by an earlier installer is kept source-only: it loses any exec delegation and its execute bit, so a bare env keeps resolving to /usr/bin/env." \
         '  The official installer and its downloads share the upstream trust boundary; Plasticine adds no independent signature.' \
         '  Python versions, uv tools, cache, credentials and project environments are not installed, inspected, or changed.' \
         "  Standalone selection does not edit shell startup; ensure $uv_bin_dir is on PATH or select shell too." \

@@ -260,7 +260,7 @@ plasticine -y --uv --shell
 
 `--uv` 是独立、默认不选的工具，不隐式选择 `shell`、`fnm` 或 `rust`。它只维护 `~/.local/bin/uv` 与 `~/.local/bin/uvx` 这两个命令：缺失时完整下载 `https://astral.sh/uv/install.sh`，确认 apply 后以 `UV_INSTALL_DIR` 指向 `~/.local/bin`、`UV_NO_MODIFY_PATH=1` 执行官方安装器，并由安装器校验归档的 SHA-256；健康的受管安装改用 `uv self update`，随后重新验证两个命令。macOS 默认没有 `sha256sum`，准备阶段会提供一个只调用系统 `shasum -a 256` 的临时 shim，避免上游静默跳过校验；`sha256sum` 与 `shasum` 都缺失时停止并给出指引。该 digest 与下载都处于上游安装器的同一信任边界，不是独立签名。
 
-安装器把 updater receipt 写到 `~/.config/uv/uv-receipt.json`（尊重 `XDG_CONFIG_HOME`），后续 `uv self update` 依赖它原地更新。receipt 缺失、前缀不符、`uvx` 缺失或 `uv`/`uvx` 版本不一致时，Feature 重跑官方安装器修复，不手工拼接二进制。安装器还会写入 `~/.local/bin/env`（供 shell source 的 PATH helper）；Feature 把它还原成 source-only 形态：删掉以 `exec` 开头的委派行、去掉可执行位，其余内容不改。可执行位会让前置在 PATH 的 `~/.local/bin` 抢占 `env`，而 `exec` 委派会在被 source 时替换掉当前 shell。PATH 上其他位置（Homebrew、pipx 等）的 `uv` 或 `uvx` 会让本次选择停止，要求原 owner 更新；不健康、预发布或无法解析的受管版本同样停止，不降级、不另装遮蔽副本。
+安装器把 updater receipt 写到 `~/.config/uv/uv-receipt.json`（尊重 `XDG_CONFIG_HOME`），后续 `uv self update` 依赖它原地更新。receipt 缺失、前缀不符、`uvx` 缺失或 `uv`/`uvx` 版本不一致时，Feature 重跑官方安装器修复，不手工拼接二进制。官方安装器在允许修改 PATH 时还会写 `~/.local/bin/env`（供 shell source 的 PATH helper）；本 Feature 始终传 `UV_NO_MODIFY_PATH=1`，所以新装机器上不会有这个文件。若它因更早的 uv 安装而已经存在，Feature 会把它还原成 source-only 形态：删掉以 `exec` 开头的委派行、去掉可执行位，其余内容不改。可执行位会让前置在 PATH 的 `~/.local/bin` 抢占 `env`，而 `exec` 委派会在被 source 时替换掉当前 shell。PATH 上其他位置（Homebrew、pipx 等）的 `uv` 或 `uvx` 会让本次选择停止，要求原 owner 更新；不健康、预发布或无法解析的受管版本同样停止，不降级、不另装遮蔽副本。
 
 下载、校验、安装、自更新或最终健康检查失败都会使本次 Feature 失败并返回非零；已完成的原生效果保留，选中配置不应用，修复后可以重跑。Preview、dry-run、取消和未选中不联网，也不修改 uv 状态。
 
