@@ -30,6 +30,38 @@ case ${1:-} in
 esac
 UV
 
+cat > "$test_root/env.stock" <<'HELPER'
+#!/bin/sh
+# add binaries to PATH if they aren't added yet
+# affix colons on either side of $PATH to simplify matching
+case ":${PATH}:" in
+    *:"$HOME/.local/bin":*)
+        ;;
+    *)
+        # Prepending path in case a system-installed binary needs to be overridden
+        export PATH="$HOME/.local/bin:$PATH"
+        ;;
+esac
+HELPER
+
+# The shape a hand-edited helper takes: executable and delegating with exec.
+cat > "$test_root/env.shim" <<'HELPER'
+#!/bin/sh
+# add binaries to PATH if they aren't added yet
+# affix colons on either side of $PATH to simplify matching
+case ":${PATH}:" in
+    *:"$HOME/.local/bin":*)
+        ;;
+    *)
+        # Prepending path in case a system-installed binary needs to be overridden
+        export PATH="$HOME/.local/bin:$PATH"
+        ;;
+esac
+
+# Delegate to the real env; this script only adjusts PATH, it is not a replacement.
+exec /usr/bin/env "$@"
+HELPER
+
 cat > "$fixture_bin/curl" <<'CURL'
 #!/bin/sh
 set -eu
@@ -69,6 +101,17 @@ printf '%s\n' "$PLASTICINE_TEST_UV_VERSION" > "$UV_INSTALL_DIR/uvx.version"
 receipt_dir=${XDG_CONFIG_HOME:-$HOME/.config}/uv
 mkdir -p "$receipt_dir"
 printf '{"install_prefix":"%s","modify_path":false}\n' "$UV_INSTALL_DIR" > "$receipt_dir/uv-receipt.json"
+case ${PLASTICINE_TEST_UV_ENV_HELPER:-shim} in
+    none) ;;
+    stock)
+        cp "$PLASTICINE_TEST_UV_ENV_STOCK" "$UV_INSTALL_DIR/env"
+        chmod 644 "$UV_INSTALL_DIR/env"
+        ;;
+    *)
+        cp "$PLASTICINE_TEST_UV_ENV_SHIM" "$UV_INSTALL_DIR/env"
+        chmod 755 "$UV_INSTALL_DIR/env"
+        ;;
+esac
 INSTALLER
 CURL
 chmod 755 "$fixture_bin/curl"
@@ -94,9 +137,13 @@ apply_case() {
         PLASTICINE_TEST_UV_LATEST=${PLASTICINE_TEST_UV_LATEST:-}
         PLASTICINE_TEST_UV_HOME=$scenario_home
         PLASTICINE_TEST_UV_BIN_DIR=$scenario_home/.local/bin
+        PLASTICINE_TEST_UV_ENV_HELPER=${PLASTICINE_TEST_UV_ENV_HELPER:-shim}
+        PLASTICINE_TEST_UV_ENV_SHIM=$test_root/env.shim
+        PLASTICINE_TEST_UV_ENV_STOCK=$test_root/env.stock
         export PATH HOME PLASTICINE_CHEZMOI_DEST_DIR PLASTICINE_TEST_UV_CALLS \
             PLASTICINE_TEST_UV_TEMPLATE PLASTICINE_TEST_UV_VERSION \
-            PLASTICINE_TEST_UV_LATEST PLASTICINE_TEST_UV_HOME PLASTICINE_TEST_UV_BIN_DIR
+            PLASTICINE_TEST_UV_LATEST PLASTICINE_TEST_UV_HOME PLASTICINE_TEST_UV_BIN_DIR \
+            PLASTICINE_TEST_UV_ENV_HELPER PLASTICINE_TEST_UV_ENV_SHIM PLASTICINE_TEST_UV_ENV_STOCK
         exec "$chezmoi_bin" -S "$repo_dir" -D "$scenario_home" -c "$scenario/config/chezmoi.toml" \
             --persistent-state "$scenario/state" apply --no-tty "$@"
     )
@@ -146,6 +193,15 @@ grep -Fxq installer "$scenario/calls" || fail 'official installer was not execut
 grep -Fq "\"install_prefix\":\"$scenario_home/.local/bin\"" \
     "$scenario/home/.config/uv/uv-receipt.json" || fail 'updater receipt has the wrong prefix'
 assert_sha256_route
+helper=$scenario/home/.local/bin/env
+[ -f "$helper" ] || fail 'installer PATH helper is missing'
+[ ! -x "$helper" ] || fail 'installer PATH helper stayed executable'
+if grep -Eq '^[[:space:]]*exec' "$helper"; then fail 'installer PATH helper kept exec delegation'; fi
+# shellcheck disable=SC2016
+grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "$helper" || fail 'installer PATH helper lost its PATH block'
+# shellcheck disable=SC2016
+[ "$(sh -c '. "$1"; printf sourced' sh "$helper")" = sourced ] ||
+    fail 'sourcing the PATH helper replaced the shell'
 grep -Fxq owner "$scenario/home/.zshrc" || fail 'standalone uv changed .zshrc'
 test ! -e "$scenario/home/.zshenv" || fail 'standalone uv created a shell startup file'
 cmp "$scenario/project-before" "$scenario/home/project/.python-version"
@@ -158,6 +214,11 @@ grep -Fxq 'self update' "$scenario/calls" || fail 'healthy managed uv did not se
 if grep -Fxq download "$scenario/calls"; then fail 'rerun executed the installer'; fi
 [ "$(cat "$scenario/home/.local/bin/uv.version")" = 0.13.2 ] || fail 'self update did not advance uv'
 [ "$(cat "$scenario/home/.local/bin/uvx.version")" = 0.13.2 ] || fail 'self update did not advance uvx'
+
+# A helper that already matches the installer shape is left byte-for-byte alone.
+new_case healthy-helper
+( PLASTICINE_TEST_UV_ENV_HELPER=stock apply_case >/dev/null )
+cmp "$test_root/env.stock" "$scenario/home/.local/bin/env" || fail 'healthy PATH helper was rewritten'
 
 # A missing uvx, missing receipt, or foreign receipt prefix repairs via the installer.
 for repair in uvx receipt prefix; do
@@ -247,6 +308,13 @@ mkdir -p "$scenario/home/.config"
 printf '%s\n' not-a-directory > "$scenario/home/.config/uv"
 expect_failure 'receipt directory is a file'
 grep -Fq 'real directory' "$scenario/err" || fail 'receipt directory error is not actionable'
+
+new_case helper-symlink
+mkdir -p "$scenario/home/.local/bin"
+ln -s "$test_root/env.stock" "$scenario/home/.local/bin/env"
+( PLASTICINE_TEST_UV_ENV_HELPER=none expect_failure 'PATH helper symlink' )
+grep -Fq 'regular file' "$scenario/err" || fail 'PATH helper symlink error is not actionable'
+[ -L "$scenario/home/.local/bin/env" ] || fail 'PATH helper symlink was replaced'
 
 new_case dry-run
 apply_case --dry-run >/dev/null

@@ -186,14 +186,47 @@ plasticine_uv_preview() {
         fi
     fi
     printf '%s\n' \
+        "  The installer's PATH helper at $uv_bin_dir/env is kept source-only: it loses any exec delegation and its execute bit, so a bare env keeps resolving to /usr/bin/env." \
         '  The official installer and its downloads share the upstream trust boundary; Plasticine adds no independent signature.' \
         '  Python versions, uv tools, cache, credentials and project environments are not installed, inspected, or changed.' \
         "  Standalone selection does not edit shell startup; ensure $uv_bin_dir is on PATH or select shell too." \
         '  No shell completion is generated: interactive shell startup must not spawn uv.'
 }
 
+# The official installer writes $uv_bin_dir/env as a source-only PATH helper.
+# Its directory is prepended to PATH, so an executable copy shadows /usr/bin/env,
+# and an `exec` delegation replaces any shell that sources the file instead of
+# only adjusting PATH. Restore those two installer invariants and leave the rest
+# of the file alone: rewriting it would also discard the paths the installer
+# chose for a custom UV_INSTALL_DIR.
+plasticine_uv_restore_path_helper() {
+    plasticine_uv_helper=$uv_bin_dir/env
+    if [ ! -e "$plasticine_uv_helper" ] && [ ! -L "$plasticine_uv_helper" ]; then
+        return 0
+    fi
+    if [ ! -f "$plasticine_uv_helper" ] || [ -L "$plasticine_uv_helper" ]; then
+        plasticine_uv_error "the installer PATH helper must be a regular file: $plasticine_uv_helper; left untouched."
+        return 1
+    fi
+    plasticine_uv_helper_changed=0
+    if grep -Eq '^[[:space:]]*exec([[:space:]]|$)' "$plasticine_uv_helper"; then
+        plasticine_uv_helper_clean=$uv_work/env.normalized
+        grep -Ev '^[[:space:]]*exec([[:space:]]|$)' "$plasticine_uv_helper" > "$plasticine_uv_helper_clean" || return 1
+        chmod 644 "$plasticine_uv_helper_clean" || return 1
+        mv -f "$plasticine_uv_helper_clean" "$plasticine_uv_helper" || return 1
+        plasticine_uv_helper_changed=1
+    fi
+    if [ -x "$plasticine_uv_helper" ]; then
+        chmod 644 "$plasticine_uv_helper" || return 1
+        plasticine_uv_helper_changed=1
+    fi
+    if [ "$plasticine_uv_helper_changed" -eq 1 ]; then
+        plasticine_uv_log "uv: restored the source-only PATH helper at $plasticine_uv_helper (no exec delegation, not executable)."
+    fi
+}
+
 plasticine_uv_prepare() (
-    for plasticine_uv_command in curl tar mktemp rm sh awk sed grep mkdir chmod; do
+    for plasticine_uv_command in curl tar mktemp rm mv sh awk sed grep mkdir chmod; do
         command -v "$plasticine_uv_command" >/dev/null 2>&1 || {
             plasticine_uv_error "missing required command: $plasticine_uv_command"
             return 1
@@ -303,5 +336,6 @@ SHIM
         plasticine_uv_error "the updater receipt does not point to $uv_bin_dir; repair or remove the installation, then retry."
         return 1
     }
+    plasticine_uv_restore_path_helper || return 1
     plasticine_uv_log "uv: route=$uv_route; version=$uv_final; result=$uv_target."
 )
