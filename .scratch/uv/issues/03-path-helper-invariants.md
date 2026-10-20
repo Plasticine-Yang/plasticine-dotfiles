@@ -13,9 +13,12 @@ Blocked by:
 
 ## 背景
 
-官方安装器把 `env` 写进 `~/.local/bin` 作为 source-only 的 PATH helper。一旦它被改成可执行并被放到 PATH 前面，`env` 就会解析到这个脚本；再叠加一行 `exec /usr/bin/env "$@"`，被 shell 启动文件 source 时会直接替换当前 shell，导致其后所有 PATH 追加都不再生效，而把它当命令执行的调用方则依赖参数透传。两个后果互相拉扯，任何只手改一侧的修法都会让另一侧失效，因此由 Feature 保证这两个不变量。
+官方安装器在允许修改 PATH 时会把 `env` 写进 `~/.local/bin`，作为 source-only 的 PATH helper；Plasticine 传 `UV_NO_MODIFY_PATH=1`，所以只有更早的安装留下该文件时才会遇到它。一旦它被改成可执行并被放到 PATH 前面，`env` 就会解析到这个脚本；再叠加一行 `exec /usr/bin/env "$@"`，被 shell 启动文件 source 时会直接替换当前 shell，导致其后所有 PATH 追加都不再生效，而把它当命令执行的调用方则依赖参数透传。两个后果互相拉扯，任何只手改一侧的修法都会让另一侧失效，因此由 Feature 保证这两个不变量。
 
 ## Comments
 
 - 2026-10-20：在 `plasticine_uv_prepare` 收尾处加入 `plasticine_uv_restore_path_helper`，安装/修复/自更新三条路线都会还原 `env` helper 的两个不变量；`mv` 加入准备阶段的必需命令。README 与 uv spec 同步说明例外范围。
 - 验证：`./scripts/check.sh uv uv-runtime installer cli combined-installation` 全部通过；`tests/uv.sh` 新增还原、保持、非普通文件拒绝三个场景，并断言 source helper 不再替换当前 shell。另用本机被改坏的真实 helper（755 + `exec /usr/bin/env "$@"`）直接调用还原函数：权限降为 644、`exec` 行消失、重复执行不再改写，其余内容逐字节保留。
+
+- 2026-10-20 补充：发布后核对上游安装器源码（`write_env_script_sh` 受 `NO_MODIFY_PATH=0` 门控），确认本 Feature 的 `UV_NO_MODIFY_PATH=1` 不会写出该 helper，于是把 README / spec 中“安装器还会写入”修正为“更早的安装留下的文件才会被还原”，并把预览文案改成同样的措辞；`tests/uv.sh` 增加 `no-helper` 场景，断言缺省时不会创建该文件。
+- 2026-10-20 发布：v0.6.2（tag/commit `365bfcd`），发布记录见 `.scratch/release-pipeline/issues/03-release-v0.6.2.md`。
