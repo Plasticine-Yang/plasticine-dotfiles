@@ -25,9 +25,11 @@ function Set-PlasticineAccessControl {
         $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
         if ('System.IO.FileSystemAclExtensions' -as [type]) {
             [System.IO.FileSystemAclExtensions]::SetAccessControl($item, $Security)
-        } else {
-            $item.SetAccessControl($Security)
+            return
         }
+        # PowerShell 7 surfaces the extension class only after its assembly loads;
+        # the provider cmdlet is the documented fallback for that host.
+        Set-Acl -LiteralPath $Path -AclObject $Security -ErrorAction Stop
         return
     }
     if ($Security -is [Security.AccessControl.DirectorySecurity]) {

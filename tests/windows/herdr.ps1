@@ -106,7 +106,7 @@ class Program {
     }
 }
 "@
-    Add-Type -OutputAssembly $Path -OutputType ConsoleApplication -TypeDefinition $source -ErrorAction Stop
+    New-TestExecutable -Path $Path -Source $source
 }
 
 function New-Scenario {

@@ -175,7 +175,11 @@ function Expand-PlasticineArchive {
     )
     $null = Assert-PlasticineAbsolutePath -Path $Archive -Name 'archive path'
     $null = Assert-PlasticineAbsolutePath -Path $Destination -Name 'archive destination'
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    # Windows PowerShell 5.1 names the assembly System.IO.Compression.FileSystem;
+    # PowerShell 7 only exposes System.IO.Compression.ZipFile, so try both.
+    foreach ($assembly in @('System.IO.Compression.FileSystem', 'System.IO.Compression.ZipFile')) {
+        try { Add-Type -AssemblyName $assembly -ErrorAction Stop; break } catch { }
+    }
     $zip = [IO.Compression.ZipFile]::OpenRead($Archive)
     $observed = @()
     try {

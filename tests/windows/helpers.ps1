@@ -200,7 +200,7 @@ try {
     $custom = New-Object Security.AccessControl.FileSecurity
     $custom.SetAccessRuleProtection($true, $false)
     $custom.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($everyone, 'Read', 'Allow')))
-    [IO.File]::SetAccessControl($explicit, $custom)
+    Set-PlasticineAccessControl -Path $explicit -Security $custom
     $explicitBackup = Get-PlasticineAclBackup $explicit
     Assert-True $explicitBackup.Protected 'the custom DACL should be protected'
     Assert-Equal 1 (@($explicitBackup.Rules).Count) 'the custom DACL should hold one rule'
@@ -244,7 +244,7 @@ try {
     Set-Content -LiteralPath $mixedFile -Value 'secret' -NoNewline
     $mixedAcl = Get-Acl -LiteralPath $mixedFile
     $mixedAcl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($everyone, 'Read', 'Allow')))
-    [IO.File]::SetAccessControl($mixedFile, $mixedAcl)
+    Set-PlasticineAccessControl -Path $mixedFile -Security $mixedAcl
     $mixedBackup = Get-PlasticineAclBackup $mixedFile
     Assert-True (-not $mixedBackup.Protected) 'the mixed DACL backup should stay unprotected'
     Assert-Equal 1 (@($mixedBackup.Rules).Count) 'the mixed DACL backup lost its explicit ACE'
@@ -271,7 +271,7 @@ try {
     $permissive = Get-Acl -LiteralPath $treeChildFile
     $permissive.SetAccessRuleProtection($true, $false)
     $permissive.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($everyone, 'FullControl', 'Allow')))
-    [IO.File]::SetAccessControl($treeChildFile, $permissive)
+    Set-PlasticineAccessControl -Path $treeChildFile -Security $permissive
     $treeBackups = @(Get-PlasticineAclBackup -Path $treeRoot -Recurse)
     Assert-Equal 4 $treeBackups.Count 'the recursive ACL backup missed part of the tree'
     Set-PlasticineOwnerOnlyAclRecursive -Path $treeRoot

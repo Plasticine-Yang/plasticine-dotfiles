@@ -80,6 +80,27 @@ function Assert-ExitCode {
     Assert-Equal $Expected $Result.ExitCode $Message
 }
 
+# PowerShell 7 removed -OutputType from Add-Type, so executable stubs are
+# compiled with the .NET Framework C# compiler that both hosts can run.
+function New-TestExecutable {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Source
+    )
+    $candidates = @(
+        (Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
+        (Join-Path $env:SystemRoot 'Microsoft.NET\Framework\v4.0.30319\csc.exe')
+    )
+    $csc = $candidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+    if (-not $csc) { Fail 'no .NET Framework C# compiler is available for executable stubs' }
+    $sourcePath = [IO.Path]::ChangeExtension($Path, '.cs')
+    [IO.File]::WriteAllText($sourcePath, $Source)
+    & $csc /nologo /target:exe "/out:$Path" $sourcePath 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        Fail "could not compile the executable stub: $Path"
+    }
+}
+
 function New-TestStub {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -97,7 +118,7 @@ class Program {
     }
 }
 "@
-    Add-Type -OutputAssembly $Path -OutputType ConsoleApplication -TypeDefinition $source -ErrorAction Stop
+    New-TestExecutable -Path $Path -Source $source
 }
 
 function New-TestZip {
@@ -109,7 +130,9 @@ function New-TestZip {
     if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force }
     Compress-Archive -LiteralPath $File -DestinationPath $Path -ErrorAction Stop
     if ($ExtraEntry) {
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        foreach ($assembly in @('System.IO.Compression.FileSystem', 'System.IO.Compression.ZipFile')) {
+            try { Add-Type -AssemblyName $assembly -ErrorAction Stop; break } catch { }
+        }
         $zip = [IO.Compression.ZipFile]::Open($Path, [IO.Compression.ZipArchiveMode]::Update)
         try {
             foreach ($name in $ExtraEntry) {

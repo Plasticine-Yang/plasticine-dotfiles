@@ -301,7 +301,7 @@ class Program {
     if ($RunFail) { $runFailValue = 'true' }
     $source = $source.Replace('__VERSION__', $Version).Replace('__HOST__', $HostTuple).
         Replace('__UNHEALTHY__', $unhealthyValue).Replace('__NOHOST__', $noHostValue).Replace('__RUNFAIL__', $runFailValue)
-    Add-Type -OutputAssembly $Path -OutputType ConsoleApplication -TypeDefinition $source -ErrorAction Stop
+    New-TestExecutable -Path $Path -Source $source
 }
 
 function New-RustCommandStub {
@@ -317,7 +317,7 @@ class Program {
 }
 '@
     $source = $source.Replace('__LINE__', $VersionLine)
-    Add-Type -OutputAssembly $Path -OutputType ConsoleApplication -TypeDefinition $source -ErrorAction Stop
+    New-TestExecutable -Path $Path -Source $source
 }
 
 function New-Scenario {

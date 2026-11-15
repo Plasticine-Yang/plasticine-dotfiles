@@ -79,7 +79,7 @@ public class Program {
     }
 }
 '@
-    Add-Type -OutputAssembly $Path -OutputType ConsoleApplication -TypeDefinition $source -ErrorAction Stop
+    New-TestExecutable -Path $Path -Source $source
 }
 
 # The fixture root mirrors a source checkout: a real install.ps1 plus the real

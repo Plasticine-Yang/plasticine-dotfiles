@@ -70,7 +70,7 @@ class Program {
     }
 }
 "@
-    Add-Type -OutputAssembly $Path -OutputType ConsoleApplication -TypeDefinition $source -ErrorAction Stop
+    New-TestExecutable -Path $Path -Source $source
 }
 
 function New-Scenario {
@@ -198,7 +198,7 @@ class Program {
     }
 }
 "@
-    Add-Type -OutputAssembly $Path -OutputType ConsoleApplication -TypeDefinition $source -ErrorAction Stop
+    New-TestExecutable -Path $Path -Source $source
 }
 
 # The reviewed Windows distribution is one root directory, so the fixture keeps
