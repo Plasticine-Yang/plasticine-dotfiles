@@ -1,0 +1,25 @@
+{{- if eq .chezmoi.os "windows" -}}
+{{- if has "git-config" .tools -}}
+# Validate the ~/.gitconfig target and the backup directory shapes before
+# chezmoi changes any managed file. Observation only: nothing is created,
+# replaced or backed up here.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/publish.ps1')
+. (Join-Path $source_dir 'lib/windows/acl.ps1')
+. (Join-Path $source_dir 'lib/windows/config-apply.ps1')
+. (Join-Path $source_dir 'lib/windows/feature-git-config.ps1')
+
+try {
+    Invoke-PlasticineGitConfigValidate -HomeDirectory $dest_dir
+} catch {
+    if ($_.Exception.GetType().Name -ne 'PlasticineStopException') {
+        Write-PlasticineError $_.Exception.Message
+    }
+    exit 1
+}
+{{- end -}}
+{{- end -}}

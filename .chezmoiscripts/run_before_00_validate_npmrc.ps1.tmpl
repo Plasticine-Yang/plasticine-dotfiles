@@ -1,0 +1,24 @@
+{{- if eq .chezmoi.os "windows" -}}
+{{- if has "npmrc" .tools -}}
+# Validate ~/.npmrc and the backup directory shapes before any selected tool or
+# configuration changes. Observation only: the content is never printed.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/publish.ps1')
+. (Join-Path $source_dir 'lib/windows/acl.ps1')
+. (Join-Path $source_dir 'lib/windows/config-apply.ps1')
+. (Join-Path $source_dir 'lib/windows/feature-npmrc.ps1')
+
+try {
+    Invoke-PlasticineNpmrcValidate -HomeDirectory $dest_dir
+} catch {
+    if ($_.Exception.GetType().Name -ne 'PlasticineStopException') {
+        Write-PlasticineError $_.Exception.Message
+    }
+    exit 1
+}
+{{- end -}}
+{{- end -}}

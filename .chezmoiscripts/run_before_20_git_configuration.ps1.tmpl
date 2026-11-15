@@ -1,0 +1,28 @@
+{{- if eq .chezmoi.os "windows" -}}
+{{- if has "git-config" .tools -}}
+# Back up the previous ~/.gitconfig before chezmoi renders the managed
+# dot_gitconfig. Windows has no execute bit, so the Unix pending-mode journal and
+# its restore step do not exist here; only the first backup is retained.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/publish.ps1')
+. (Join-Path $source_dir 'lib/windows/acl.ps1')
+. (Join-Path $source_dir 'lib/windows/config-apply.ps1')
+. (Join-Path $source_dir 'lib/windows/feature-git-config.ps1')
+
+try {
+    $plasticine_result = Invoke-PlasticineGitConfigApply -HomeDirectory $dest_dir -SourceDirectory $source_dir
+} catch {
+    if ($_.Exception.GetType().Name -ne 'PlasticineStopException') {
+        Write-PlasticineError $_.Exception.Message
+    }
+    exit 1
+}
+if ($plasticine_result.BackupPath) {
+    Write-PlasticineLog "git-config: the previous configuration is retained at $($plasticine_result.BackupPath)"
+}
+{{- end -}}
+{{- end -}}

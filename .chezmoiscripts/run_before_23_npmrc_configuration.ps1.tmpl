@@ -1,0 +1,28 @@
+{{- if eq .chezmoi.os "windows" -}}
+{{- if has "npmrc" .tools -}}
+# Publish only the script-approval preference into ~/.npmrc: every unrelated
+# byte is preserved, the previous file is backed up once, and a changed file is
+# replaced atomically with an owner-only DACL. The content is never printed.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/publish.ps1')
+. (Join-Path $source_dir 'lib/windows/acl.ps1')
+. (Join-Path $source_dir 'lib/windows/config-apply.ps1')
+. (Join-Path $source_dir 'lib/windows/feature-npmrc.ps1')
+
+try {
+    $plasticine_result = Invoke-PlasticineNpmrcApply -HomeDirectory $dest_dir
+} catch {
+    if ($_.Exception.GetType().Name -ne 'PlasticineStopException') {
+        Write-PlasticineError $_.Exception.Message
+    }
+    exit 1
+}
+if ($plasticine_result.BackupPath) {
+    Write-PlasticineLog "npmrc: a private copy of the previous ~/.npmrc is retained at $($plasticine_result.BackupPath)"
+}
+{{- end -}}
+{{- end -}}
