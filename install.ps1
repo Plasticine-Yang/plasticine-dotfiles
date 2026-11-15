@@ -136,7 +136,11 @@ function Invoke-PlasticineEntry {
     Assert-PlasticineLongPathsEnabled
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-    if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    $isElevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    # GitHub's Windows runners are elevated by default; the offline suites use
+    # this seam to exercise the non-elevated route. Production never sets it.
+    if ($env:PLASTICINE_ELEVATED) { $isElevated = ($env:PLASTICINE_ELEVATED -eq '1') }
+    if ($isElevated) {
         Stop-Plasticine 'run as the target user, not an elevated administrator.'
     }
 

@@ -89,11 +89,12 @@ if grep -Fqx "\$PlasticineRepoRevision = ''" "$installer_ps1"; then
     printf '%s\n' 'release install.ps1 still contains the development revision' >&2
     exit 1
 fi
-grep -Fqx "\$PlasticineSourceSha256 = '$source_sha256'" "$installer_ps1" &&
-    grep -Fqx "\$PlasticinePluginsSha256 = '$plugins_sha256'" "$installer_ps1" || {
+if ! grep -Fqx "\$PlasticineSourceSha256 = '$source_sha256'" "$installer_ps1" ||
+    ! grep -Fqx "\$PlasticinePluginsSha256 = '$plugins_sha256'" "$installer_ps1"; then
     printf '%s\n' 'release install.ps1 does not pin the payload asset digests' >&2
     exit 1
-}
+fi
+# shellcheck disable=SC2016 # the single-quoted pattern is a literal PowerShell text match
 if grep -Eq '^\. \(Join-Path \$PSScriptRoot' "$installer_ps1"; then
     printf '%s\n' 'release install.ps1 still dot-sources lib/windows' >&2
     exit 1
@@ -112,6 +113,7 @@ if [ -n "$powershell_bin" ]; then
     fi
     # Pass the validated path through the environment: Windows PowerShell 5.1
     # does not forward arguments after -Command to $args.
+    # shellcheck disable=SC2016 # the payload is PowerShell source, not shell expansion
     PLASTICINE_PARSE_TARGET=$parsed_installer "$powershell_bin" -NoProfile -NonInteractive -Command '
         $tokens = $null
         $errors = $null

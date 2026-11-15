@@ -90,10 +90,12 @@ function New-InstallerFixture {
     $library = Join-Path $root 'lib\windows'
     New-Item -ItemType Directory -Path $library -Force | Out-Null
     Copy-Item -LiteralPath $repoInstall -Destination (Join-Path $root 'install.ps1') -Force
-    foreach ($module in @('common.ps1', 'publish.ps1', 'acl.ps1', 'user-path.ps1',
-            'chezmoi-bootstrap.ps1', 'release-payload.ps1', 'features.ps1')) {
-        Copy-Item -LiteralPath (Join-Path $repoDir ('lib\windows\' + $module)) -Destination (Join-Path $library $module) -Force
-    }
+    # Mirror the real library directory (except the Feature providers, which the
+    # fixture replaces with one recording stub), so a new installer module can
+    # never be missing from the fixture without failing here.
+    Get-ChildItem -LiteralPath (Join-Path $repoDir 'lib\windows') -Filter '*.ps1' |
+        Where-Object { $_.Name -notlike 'feature-*' } |
+        Copy-Item -Destination $library -Force
     $stub = @'
 $PlasticineTestFeatureLog = $env:PLASTICINE_TEST_FEATURE_LOG
 function Add-TestFeatureLog {
@@ -144,6 +146,7 @@ function New-EntryEnvironment {
         PLASTICINE_CHEZMOI_BIN         = $Fixture.Chezmoi
         PLASTICINE_DOTFILES_REPO_URL   = $Fixture.SourceRepo
         PLASTICINE_LONG_PATHS_ENABLED  = '1'
+        PLASTICINE_ELEVATED            = '0'
         PLASTICINE_TEST_CHEZMOI_LOG    = $Fixture.CallsLog
         PLASTICINE_TEST_FEATURE_LOG    = $Fixture.FeatureLog
         PLASTICINE_TOOLS               = ''

@@ -23,13 +23,13 @@ case $* in
             missing-job)
                 printf '%s\tsuccess\n' \
                     'Test (ubuntu-24.04)' \
-                    'Test (macos-14)' \
+                    'Test (macos-15)' \
                     'Debian 12 shell (ubuntu-24.04)'
                 ;;
             *)
                 printf '%s\tsuccess\n' \
                     'Test (ubuntu-24.04)' \
-                    'Test (macos-14)' \
+                    'Test (macos-15)' \
                     'Debian 12 shell (ubuntu-24.04)' \
                     'Debian 12 shell (ubuntu-24.04-arm)' \
                     'Windows (windows-2022)'

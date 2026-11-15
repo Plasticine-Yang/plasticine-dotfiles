@@ -179,6 +179,7 @@ awk -v revision="$revision" -v version="$release_version" \
     exit 1
 }
 rm -f "$powershell_library" "$powershell_features"
+# shellcheck disable=SC2016 # the single-quoted pattern is a literal PowerShell text match
 if LC_ALL=C grep -Eq '^\. \(Join-Path \$PSScriptRoot' "$output_dir/install.ps1"; then
     printf '%s\n' 'release install.ps1 still dot-sources lib/windows' >&2
     exit 1
@@ -211,6 +212,7 @@ validate_powershell_syntax() {
     fi
     # Pass the validated path through the environment: Windows PowerShell 5.1
     # does not forward arguments after -Command to $args.
+    # shellcheck disable=SC2016 # the payload is PowerShell source, not shell expansion
     PLASTICINE_PARSE_TARGET=$parsed_path "$powershell_bin" -NoProfile -NonInteractive -Command '
         $tokens = $null
         $errors = $null

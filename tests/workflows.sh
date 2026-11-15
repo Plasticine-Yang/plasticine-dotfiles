@@ -24,6 +24,7 @@ perl -0777ne 'exit(/container:\s*\n\s+image: debian:12-slim\s*\n\s+options: --in
 
 # The native Windows route runs the same suites on both supported hosts.
 grep -Fq 'windows-2022' "$ci"
+# shellcheck disable=SC2016 # the pattern is literal workflow text, not shell expansion
 grep -Fq 'scripts/check.ps1 -All -PowerShell "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"' "$ci"
 grep -Fq 'scripts/check.ps1 -All -PowerShell pwsh.exe' "$ci"
 grep -Fq 'Windows (windows-2022)' "$repo_dir/scripts/require-ci-success.sh"
