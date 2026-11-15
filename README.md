@@ -458,7 +458,7 @@ CHEZMOI_BIN=/path/to/chezmoi ./scripts/check.sh --all
 PLASTICINE_LIVE_NEOVIM_SMOKE=1 ./tests/neovim-live.sh
 ```
 
-Windows 套件在 Windows 上运行，Windows PowerShell 5.1 与 pwsh 7 都需要覆盖：
+Windows 套件在 Windows 上运行；Windows PowerShell 5.1 是必须覆盖的基线，装了 `pwsh` 时再补跑第二条（两条都通过才算双宿主覆盖）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check.ps1 -All
