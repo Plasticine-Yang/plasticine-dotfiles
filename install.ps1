@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 # Windows entry point for plasticine-dotfiles. Mirrors install.sh: same Feature
 # names, same environment contract, same preview, confirmation and apply flow.
 #
@@ -369,13 +369,15 @@ for ($index = 0; $index -lt $plasticineArguments.Count; $index++) {
         $name = $split[0]
         $value = $split[1]
     }
-    switch ($name.ToLowerInvariant()) {
+    # PowerShell-style (-GitConfig) and shell-style (--git-config) spellings are
+    # equally documented, so compare on the dash-free lower-case form.
+    switch (($name -replace '[-_]', '').ToLowerInvariant()) {
         'y' { $script:PlasticineYes = $true }
         'yes' { $script:PlasticineYes = $true }
-        'git-config' { $script:PlasticineFeatures['git-config'] = $true }
+        'gitconfig' { $script:PlasticineFeatures['git-config'] = $true }
         'npmrc' { $script:PlasticineFeatures['npmrc'] = $true }
-        'github-ssh' { $script:PlasticineFeatures['github-ssh'] = $true }
-        'github-ssh-key' {
+        'githubssh' { $script:PlasticineFeatures['github-ssh'] = $true }
+        'githubsshkey' {
             if (-not $value) {
                 if ($index + 1 -ge $plasticineArguments.Count) { Stop-PlasticineUsage '-GithubSshKey requires a path.' }
                 $index++
@@ -383,8 +385,8 @@ for ($index = 0; $index -lt $plasticineArguments.Count; $index++) {
             }
             $script:PlasticineGitHubSshKey = $value
         }
-        'github-ssh-test' { $script:PlasticineGitHubSshTest = $true }
-        'replace-github-ssh-key' { $script:PlasticineReplaceGitHubSshKey = $true }
+        'githubsshtest' { $script:PlasticineGitHubSshTest = $true }
+        'replacegithubsshkey' { $script:PlasticineReplaceGitHubSshKey = $true }
         'herdr' { $script:PlasticineFeatures['herdr'] = $true }
         'lazygit' { $script:PlasticineFeatures['lazygit'] = $true }
         'fnm' { $script:PlasticineFeatures['fnm'] = $true }

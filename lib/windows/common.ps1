@@ -1,4 +1,4 @@
-﻿# Shared Windows helpers for every Plasticine module.
+# Shared Windows helpers for every Plasticine module.
 # Baseline is Windows PowerShell 5.1; PowerShell 7+ syntax is forbidden.
 # Every module dot-sources this file before its own definitions, so loading it a
 # second time must not reset the seams below.
@@ -236,6 +236,7 @@ function Compare-PlasticineVersion {
 $PlasticineLongPathsOverride = $null
 
 function Get-PlasticineLongPathsEnabled {
+    if ($env:PLASTICINE_LONG_PATHS_ENABLED) { return ($env:PLASTICINE_LONG_PATHS_ENABLED -eq '1') }
     if ($null -ne $PlasticineLongPathsOverride) { return [bool]$PlasticineLongPathsOverride }
     try {
         $value = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
