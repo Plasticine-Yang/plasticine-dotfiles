@@ -63,6 +63,8 @@ Options:
   -h, --help                      Show this help
 
 Windows does not provide the shell, login-shell, plasticine CLI or self-update features.
+The built-in Windows PowerShell 5.1 is the supported baseline and the host the
+apply scripts run on; PowerShell 7+ is optional and only adds profile targets.
 '@
     if ($ToStandardError) { [Console]::Error.WriteLine($text) } else { [Console]::Out.WriteLine($text) }
 }

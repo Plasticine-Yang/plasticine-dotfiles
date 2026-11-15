@@ -166,11 +166,13 @@ PLASTICINE_DOTFILES_REPO_URL="$PWD" ./install.sh
 
 ## Windows（原生 PowerShell）
 
-Windows 走独立的原生 PowerShell 通道，复用 chezmoi 的 source/config/state 目录，不经过 POSIX 引擎。要求 Windows 10 1809+ / Windows 11、x64、Windows PowerShell 5.1（装了 `pwsh` 会优先用它）；arm64、缺少 `LongPathsEnabled` 或以管理员身份运行都会直接停止并给出指引。
+Windows 走独立的原生 PowerShell 通道，复用 chezmoi 的 source/config/state 目录，不经过 POSIX 引擎。要求 Windows 10 1809+ / Windows 11、x64、**系统自带的 Windows PowerShell 5.1**；arm64、缺少 `LongPathsEnabled` 或以管理员身份运行都会直接停止并给出指引。
 
 ```console
 powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
 ```
+
+**不需要安装 PowerShell 7。** 5.1 是基线，也是 apply 期脚本实际使用的宿主（生成的 chezmoi 配置固定 `[interpreters.ps1] command = "powershell"`）。装了 `pwsh` 只是可选增强：`powershell` 特性会同时维护 5.1 与 7 两个宿主的 profile 标记块，herdr 的 `default_shell` 会优先用 `pwsh.exe`，其余行为不变；两种宿主都有对应的测试套件（`scripts/check.ps1 -All -PowerShell pwsh.exe` 是可选的额外验证）。
 
 参数与环境变量与 `install.sh` 对齐：`-Yes`（别名 `y`/`yes`）、`-GitConfig`、`-Npmrc`、`-GithubSsh`、`-GithubSshKey <path>`、`-GithubSshTest`、`-ReplaceGithubSshKey`、`-Herdr`、`-Lazygit`、`-Fnm`、`-Rust`、`-Uv`、`-Neovim`、`-Powershell`、`-Help`；环境变量前缀同为 `PLASTICINE_`，工具参数必须配合 `-Yes`。预览、确认、`chezmoi apply --error-on-conflict` 与冲突路径报告的行为与 POSIX 安装器一致。
 
