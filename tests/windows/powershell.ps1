@@ -8,7 +8,7 @@ $PlasticineTestName = 'windows powershell'
 . (Join-Path $repoDir 'lib\windows\common.ps1')
 . (Join-Path $repoDir 'lib\windows\user-path.ps1')
 . (Join-Path $repoDir 'lib\windows\acl.ps1')
-. (Join-Path $repoDir 'lib\windows\powershell-config.ps1')
+. (Join-Path $repoDir 'lib\windows\feature-powershell.ps1')
 
 # Observation helpers are exercised deterministically; the suite never changes
 # the machine execution policy or the real user PATH.

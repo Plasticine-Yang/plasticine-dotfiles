@@ -1,4 +1,4 @@
-﻿# Coverage for the Windows Neovim apply side: configuration shape validation,
+# Coverage for the Windows Neovim apply side: configuration shape validation,
 # pre-apply backups, the %LOCALAPPDATA% junctions Neovim needs, and the plugin
 # sync/readiness flow. No editor process, no real LOCALAPPDATA, no network.
 

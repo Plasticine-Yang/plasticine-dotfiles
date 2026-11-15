@@ -1,4 +1,4 @@
-﻿# Coverage for the Windows entry point: option parsing and exit codes, the
+# Coverage for the Windows entry point: option parsing and exit codes, the
 # preview/confirm/apply contract, and the conflict report. Every native effect
 # runs against a disposable home, a fixture source repository and a stub
 # chezmoi, so no real installation happens.

@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
 $dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
 . (Join-Path $source_dir 'lib/windows/common.ps1')
-. (Join-Path $source_dir 'lib/windows/powershell-config.ps1')
+. (Join-Path $source_dir 'lib/windows/feature-powershell.ps1')
 
 # The profile lives in the Owner's Documents known folder, not in the chezmoi
 # destination. An isolated or test destination must never touch the real

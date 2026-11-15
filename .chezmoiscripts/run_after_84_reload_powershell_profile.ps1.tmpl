@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
 $dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
 . (Join-Path $source_dir 'lib/windows/common.ps1')
-. (Join-Path $source_dir 'lib/windows/powershell-config.ps1')
+. (Join-Path $source_dir 'lib/windows/feature-powershell.ps1')
 
 if (-not (Test-PlasticinePowershellProfileMaintenance -DestDirectory $dest_dir)) {
     exit 0

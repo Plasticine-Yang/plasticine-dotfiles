@@ -1,4 +1,4 @@
-﻿# Coverage for the Windows herdr apply side: [terminal] policy composition, the
+# Coverage for the Windows herdr apply side: [terminal] policy composition, the
 # candidate check through the installed herdr, backups, and the reload marker.
 # No real %APPDATA%, no herdr process, no network.
 

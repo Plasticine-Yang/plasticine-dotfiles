@@ -1,4 +1,4 @@
-#!/bin/sh
+﻿#!/bin/sh
 set -eu
 
 repo_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
@@ -124,7 +124,7 @@ append_powershell_module() {
 }
 
 : > "$powershell_library"
-for module in common publish acl user-path chezmoi-bootstrap release-payload features; do
+for module in common publish acl user-path chezmoi-bootstrap release-payload features config-apply; do
     append_powershell_module "$powershell_library_dir/$module.ps1" >> "$powershell_library"
 done
 find "$powershell_library_dir" -mindepth 1 -maxdepth 1 -type f -name 'feature-*.ps1' |

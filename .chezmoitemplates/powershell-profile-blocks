@@ -1,4 +1,4 @@
-# Plasticine profile integration block for the powershell Feature.
+﻿# Plasticine profile integration block for the powershell Feature.
 #
 # The block is inserted at the top of $PROFILE.CurrentUserAllHosts so that later
 # Owner code in the profile can override it. It only sources the managed
@@ -8,7 +8,7 @@
 # This file must stay pure PowerShell: it is included by
 # .chezmoiscripts/*powershell*.ps1.tmpl and dot-sourced directly by tests, so no
 # chezmoi template actions are allowed here. The scan/replace/prepare mechanics
-# live in lib/windows/powershell-config.ps1 because the release install.ps1
+# live in lib/windows/feature-powershell.ps1 because the release install.ps1
 # inlines lib/windows/*.ps1 without access to .chezmoitemplates.
 
 $PlasticinePowershellProfileBlockStart = '# >>> Plasticine powershell >>>'

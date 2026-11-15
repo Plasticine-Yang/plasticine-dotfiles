@@ -1,4 +1,4 @@
-﻿{{- if and (eq .chezmoi.os "windows") (has "herdr" .tools) -}}
+{{- if and (eq .chezmoi.os "windows") (has "herdr" .tools) -}}
 # Windows keeps the herdr configuration in %APPDATA%\herdr; validate its shape
 # and the backup directories before composing anything.
 $ErrorActionPreference = 'Stop'

@@ -22,7 +22,8 @@ if (Test-Path -LiteralPath $PlasticineLibraryDirectory -PathType Container) {
         'user-path.ps1',
         'chezmoi-bootstrap.ps1',
         'release-payload.ps1',
-        'features.ps1'
+        'features.ps1',
+        'config-apply.ps1'
     )
     foreach ($module in $PlasticineLibraryModules) {
         . (Join-Path $PlasticineLibraryDirectory $module)
