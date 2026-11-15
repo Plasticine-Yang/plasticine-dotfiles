@@ -1,0 +1,37 @@
+{{- if and (eq .chezmoi.os "windows") (has "powershell" .tools) -}}
+# Reconcile the Plasticine marker block in every installed host's
+# $PROFILE.CurrentUserAllHosts. Bytes outside the block are preserved exactly,
+# and a changed profile is backed up under ~/.plasticine/backups/powershell
+# before it is replaced.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/powershell-config.ps1')
+
+{{ template "powershell-profile-blocks" . }}
+
+# See the validate script: never edit the real Documents folder from an
+# isolated destination. Offline suites redirect it explicitly.
+if (-not (Test-PlasticinePowershellProfileMaintenance -DestDirectory $dest_dir)) {
+    Write-PlasticineLog 'powershell: the destination is not the current user home; skipping profile block maintenance (isolated or test run).'
+    exit 0
+}
+
+# The block is inserted at the top so later Owner code can override it. Each
+# host is maintained only when its executable is installed: Windows PowerShell
+# is the baseline, PowerShell 7+ only appears when pwsh.exe resolves.
+$null = Assert-PlasticinePowershellDocumentsDirectory
+Assert-PlasticinePowershellExecutionPolicy
+$plasticine_block = Get-PlasticinePowershellProfileBlock
+$plasticine_backup_dir = Join-Path $dest_dir '.plasticine\backups\powershell'
+foreach ($plasticine_target in @(Get-PlasticinePowershellProfileTargets)) {
+    $plasticine_result = Update-PlasticinePowershellProfile -Path $plasticine_target.Path `
+        -Block $plasticine_block -BackupDirectory $plasticine_backup_dir `
+        -Label $plasticine_target.BackupLabel -Position prepend
+    if ($plasticine_result.Changed) {
+        Write-PlasticineLog "powershell: updated the $($plasticine_target.Label) profile block: $($plasticine_target.Path)"
+    }
+}
+{{- end }}

@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if eq (trim (includeTemplate "zsh-integration-selected" .)) "true" -}}
 #!/bin/sh
 set -eu
@@ -39,3 +40,4 @@ for shell_parent in "$dest_dir/.plasticine" "$dest_dir/.plasticine/zsh"; do
 done
 {{- end }}
 {{- end }}
+{{- end -}}

@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if has "neovim" .tools -}}
 #!/bin/sh
 set -eu
@@ -6,3 +7,4 @@ pending_modes=$dest_dir/.plasticine/backups/neovim/pending-modes
 {{ template "whole-file-protection" . }}
 plasticine_whole_file_restore_modes "$pending_modes" "$dest_dir" neovim
 {{- end }}
+{{- end -}}

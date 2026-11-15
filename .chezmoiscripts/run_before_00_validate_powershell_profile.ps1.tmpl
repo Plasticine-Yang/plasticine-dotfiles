@@ -1,0 +1,39 @@
+{{- if and (eq .chezmoi.os "windows") (has "powershell" .tools) -}}
+# Validate every PowerShell configuration target before chezmoi changes any
+# managed file. Observation only: nothing is created or modified here.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/powershell-config.ps1')
+
+# The profile lives in the Owner's Documents known folder, not in the chezmoi
+# destination. An isolated or test destination must never touch the real
+# profile; offline suites redirect it with PLASTICINE_POWERSHELL_DOCUMENTS_DIR.
+if (-not (Test-PlasticinePowershellProfileMaintenance -DestDirectory $dest_dir)) {
+    Write-PlasticineLog 'powershell: the destination is not the current user home; skipping profile validation (isolated or test run).'
+    exit 0
+}
+
+# Managed fragments and backup directories, mirroring the zsh shell protection
+# set: an existing non-regular entry is a conflict, never something to replace.
+$plasticine_root = Join-Path $dest_dir '.plasticine'
+$plasticine_fragments = Join-Path $plasticine_root 'powershell'
+$plasticine_backups = Join-Path $plasticine_root 'backups'
+$plasticine_backup = Join-Path $plasticine_backups 'powershell'
+Assert-PlasticinePowershellRealDirectory -Path $plasticine_root
+Assert-PlasticinePowershellRealDirectory -Path $plasticine_fragments
+Assert-PlasticinePowershellRegularFile -Path (Join-Path $plasticine_fragments 'environment.ps1')
+Assert-PlasticinePowershellRegularFile -Path (Join-Path $plasticine_fragments 'shared.ps1')
+Assert-PlasticinePowershellRealDirectory -Path $plasticine_backups
+Assert-PlasticinePowershellRealDirectory -Path $plasticine_backup
+
+# $PROFILE.CurrentUserAllHosts is authoritative for the running host. The other
+# installed host's path is derived from the Documents known folder (OneDrive
+# redirection included), and a host is only maintained when it is installed.
+Assert-PlasticinePowershellCurrentHostProfile
+$null = Assert-PlasticinePowershellDocumentsDirectory
+Assert-PlasticinePowershellProfileTargets -Targets @(Get-PlasticinePowershellProfileTargets)
+Assert-PlasticinePowershellExecutionPolicy
+{{- end }}

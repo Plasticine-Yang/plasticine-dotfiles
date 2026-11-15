@@ -1,0 +1,14 @@
+{{- if and (eq .chezmoi.os "windows") (has "powershell" .tools) -}}
+# Report how the updated profile takes effect. Nothing is changed here.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/powershell-config.ps1')
+
+if (-not (Test-PlasticinePowershellProfileMaintenance -DestDirectory $dest_dir)) {
+    exit 0
+}
+Write-PlasticineLog 'powershell: profile blocks are ready; reopen PowerShell or run . $PROFILE.CurrentUserAllHosts to update the current session.'
+{{- end }}

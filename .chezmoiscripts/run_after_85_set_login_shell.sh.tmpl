@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if has "login-shell" .tools -}}
 #!/bin/sh
 set -eu
@@ -9,3 +10,4 @@ source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
 plasticine_login_shell_plan || exit 1
 plasticine_login_shell_apply || exit 1
 {{- end }}
+{{- end -}}

@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if has "shell" .tools -}}
 #!/bin/sh
 set -eu
@@ -13,3 +14,4 @@ source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
 plasticine_shell_plan "$dest_dir" || exit 1
 plasticine_shell_sync_plugins || exit 1
 {{- end }}
+{{- end -}}

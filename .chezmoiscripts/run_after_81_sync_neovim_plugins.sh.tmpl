@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if has "neovim" .tools -}}
 #!/bin/sh
 set -eu
@@ -7,3 +8,4 @@ source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
 . "$source_dir/lib/neovim-bootstrap.sh"
 plasticine_neovim_sync "$dest_dir"
 {{- end }}
+{{- end -}}

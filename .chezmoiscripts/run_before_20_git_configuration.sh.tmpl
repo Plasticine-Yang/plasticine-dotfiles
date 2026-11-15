@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if has "git-config" .tools -}}
 #!/bin/sh
 set -eu
@@ -27,3 +28,4 @@ if [ -f "$git_config" ]; then
         "$backup_dir"
 fi
 {{- end }}
+{{- end -}}

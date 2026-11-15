@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if and (has "github-ssh" .tools) .githubSSHTest -}}
 #!/bin/sh
 set -u
@@ -18,3 +19,4 @@ case $output in
         ;;
 esac
 {{- end }}
+{{- end -}}

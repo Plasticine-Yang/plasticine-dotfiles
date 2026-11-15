@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if has "github-ssh" .tools -}}
 #!/bin/sh
 set -eu
@@ -28,3 +29,4 @@ if [ -f "$config_file" ] && ! grep -Fqx "$begin_marker" "$config_file"; then
     fi
 fi
 {{- end }}
+{{- end -}}

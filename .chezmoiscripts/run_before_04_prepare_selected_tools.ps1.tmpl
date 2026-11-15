@@ -1,0 +1,33 @@
+{{- if eq .chezmoi.os "windows" -}}
+{{- if or (has "rust" .tools) (has "uv" .tools) (has "fnm" .tools) (has "herdr" .tools) (has "lazygit" .tools) (has "neovim" .tools) (has "powershell" .tools) -}}
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+
+$library = Join-Path $source_dir 'lib\windows'
+foreach ($module in @('common.ps1', 'publish.ps1', 'acl.ps1', 'user-path.ps1', 'chezmoi-bootstrap.ps1', 'release-payload.ps1', 'features.ps1')) {
+    . (Join-Path $library $module)
+}
+Get-ChildItem -LiteralPath $library -Filter 'feature-*.ps1' | Sort-Object Name | ForEach-Object { . $_.FullName }
+
+# This is the only selected-tool mutation stage. Configuration backup and
+# application begin only after every selected tool succeeds.
+$selected = @(
+{{- range .tools }}
+    '{{ . }}',
+{{- end }}
+)
+
+foreach ($feature in $PlasticineFeatureOrder) {
+    if ($selected -notcontains $feature) { continue }
+    if (-not (Test-PlasticineFunction (Get-PlasticineFeaturePrepareFunction $feature))) { continue }
+    try {
+        Invoke-PlasticineFeaturePrepare -Feature $feature -HomeDirectory $dest_dir
+    } catch {
+        Write-PlasticineError ($feature + ': tool preparation completed only in part; no selected configuration applied.')
+        exit 1
+    }
+}
+{{- end -}}
+{{- end -}}

@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if has "npmrc" .tools -}}
 #!/bin/sh
 set -eu
@@ -7,3 +8,4 @@ source_dir={{ template "shell-quote" .chezmoi.sourceDir }}
 . "$source_dir/lib/npmrc-configuration.sh"
 plasticine_npmrc_apply {{ template "shell-quote" .chezmoi.destDir }}
 {{- end }}
+{{- end -}}

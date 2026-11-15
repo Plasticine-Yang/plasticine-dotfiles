@@ -1,5 +1,6 @@
 README.md
 install.sh
+install.ps1
 tests
 tests/**
 lib
@@ -15,11 +16,44 @@ scripts
 scripts/**
 release
 release/**
+.agent-tmp
+.agent-tmp/**
 .scratch
 .scratch/**
+.worktrees
+.worktrees/**
 skills-lock.json
 plasticine-demo
 plasticine-demo/**
+{{ if eq .chezmoi.os "windows" }}
+# Windows has no Zsh targets, and herdr keeps its configuration in %APPDATA%.
+.zshenv
+.zprofile
+.zsh_plugins.txt
+.p10k.zsh
+.plasticine/zsh
+.plasticine/zsh/**
+.config/herdr
+.config/herdr/**
+{{ if not (has "powershell" .tools) }}
+.plasticine
+.plasticine/**
+{{ end }}
+{{ else }}
+AppData
+AppData/**
+.plasticine/powershell
+.plasticine/powershell/**
+{{ if not (has "shell" .tools) }}
+.zshenv
+.zprofile
+{{ range $target := (index . "plasticineShellTargets" | default (list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh")) }}
+{{ $target }}
+{{ end }}
+.plasticine
+.plasticine/**
+{{ end }}
+{{ end }}
 {{ if not (has "github-ssh" .tools) }}
 .ssh
 .ssh/**
@@ -29,15 +63,6 @@ plasticine-demo/**
 {{ end }}
 {{ if ne (trim (includeTemplate "zsh-integration-selected" .)) "true" }}
 .zshrc
-{{ end }}
-{{ if not (has "shell" .tools) }}
-.zshenv
-.zprofile
-{{ range $target := (index . "plasticineShellTargets" | default (list ".zsh_plugins.txt" ".p10k.zsh" ".plasticine/zsh/shared.zsh")) }}
-{{ $target }}
-{{ end }}
-.plasticine
-.plasticine/**
 {{ end }}
 {{ if and (not (has "neovim" .tools)) (not (has "herdr" .tools)) }}
 .config

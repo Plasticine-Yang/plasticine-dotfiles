@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if has "shell" .tools -}}
 #!/bin/sh
 set -eu
@@ -44,3 +45,4 @@ for shell_target in "$plugins" "$p10k" "$shared" "$environment"; do
 done
 plasticine_whole_file_publish_modes "$work_dir/modes" "$pending_modes" "$backup_dir"
 {{- end }}
+{{- end -}}

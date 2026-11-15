@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if has "github-ssh" .tools -}}
 #!/bin/sh
 set -eu
@@ -32,3 +33,4 @@ fi
 
 {{ template "github-ssh-config-validation" . }}
 {{- end }}
+{{- end -}}

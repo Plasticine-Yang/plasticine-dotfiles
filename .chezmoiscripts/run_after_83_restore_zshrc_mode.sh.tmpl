@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if eq (trim (includeTemplate "zsh-integration-selected" .)) "true" -}}
 #!/bin/sh
 set -eu
@@ -11,3 +12,4 @@ for startup_name in .zshenv .zprofile; do
 done
 {{- end }}
 {{- end }}
+{{- end -}}

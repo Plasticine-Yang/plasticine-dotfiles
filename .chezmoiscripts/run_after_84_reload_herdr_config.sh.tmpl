@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if has "herdr" .tools -}}
 #!/bin/sh
 set -eu
@@ -20,3 +21,4 @@ if "$herdr_command" status server >/dev/null 2>&1; then
 fi
 rm -f "$reload_pending"
 {{- end }}
+{{- end -}}

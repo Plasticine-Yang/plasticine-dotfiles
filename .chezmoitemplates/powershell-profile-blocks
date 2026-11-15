@@ -1,0 +1,36 @@
+# Plasticine profile integration block for the powershell Feature.
+#
+# The block is inserted at the top of $PROFILE.CurrentUserAllHosts so that later
+# Owner code in the profile can override it. It only sources the managed
+# fragments; their absence is not an error, so disabling the Feature later
+# leaves a harmless no-op behind.
+#
+# This file must stay pure PowerShell: it is included by
+# .chezmoiscripts/*powershell*.ps1.tmpl and dot-sourced directly by tests, so no
+# chezmoi template actions are allowed here. The scan/replace/prepare mechanics
+# live in lib/windows/powershell-config.ps1 because the release install.ps1
+# inlines lib/windows/*.ps1 without access to .chezmoitemplates.
+
+$PlasticinePowershellProfileBlockStart = '# >>> Plasticine powershell >>>'
+$PlasticinePowershellProfileBlockEnd = '# <<< Plasticine powershell <<<'
+
+function Get-PlasticinePowershellProfileBlock {
+    $lines = @(
+        $PlasticinePowershellProfileBlockStart
+        '# Owned by the powershell Feature; edits inside this block are overwritten.'
+        '$plasticineEnvironmentFragment = Join-Path $HOME ''.plasticine\powershell\environment.ps1'''
+        'if (Test-Path -LiteralPath $plasticineEnvironmentFragment -PathType Leaf) {'
+        '    # A broken fragment must not break the profile.'
+        '    try { . $plasticineEnvironmentFragment } catch { }'
+        '}'
+        '$plasticineSharedFragment = Join-Path $HOME ''.plasticine\powershell\shared.ps1'''
+        'if (Test-Path -LiteralPath $plasticineSharedFragment -PathType Leaf) {'
+        '    try { . $plasticineSharedFragment } catch {'
+        "        [Console]::Error.WriteLine('plasticine: shared PowerShell configuration unavailable; continuing profile load')"
+        '    }'
+        '}'
+        'Remove-Variable -Name plasticineEnvironmentFragment, plasticineSharedFragment -ErrorAction SilentlyContinue'
+        $PlasticinePowershellProfileBlockEnd
+    )
+    return (($lines -join "`r`n") + "`r`n")
+}

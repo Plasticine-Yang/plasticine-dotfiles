@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if has "git-config" .tools -}}
 #!/bin/sh
 set -eu
@@ -8,3 +9,4 @@ pending_mode=$dest_dir/.plasticine/backups/git-config/pending-mode
 {{ template "whole-file-protection" . }}
 plasticine_whole_file_restore_modes "$pending_mode" "$dest_dir" git-config .gitconfig
 {{- end }}
+{{- end -}}

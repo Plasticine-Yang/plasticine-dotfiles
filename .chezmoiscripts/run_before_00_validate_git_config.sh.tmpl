@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if has "git-config" .tools -}}
 #!/bin/sh
 set -eu
@@ -13,3 +14,4 @@ plasticine_whole_file_validate_dir "$dest_dir/.plasticine" git-config
 plasticine_whole_file_validate_dir "$backup_root" git-config
 plasticine_whole_file_validate_dir "$backup_dir" git-config
 {{- end }}
+{{- end -}}

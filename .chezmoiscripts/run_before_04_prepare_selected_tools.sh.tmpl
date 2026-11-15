@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if or (has "rust" .tools) (has "uv" .tools) (has "fnm" .tools) (has "herdr" .tools) (has "lazygit" .tools) (has "neovim" .tools) (has "shell" .tools) -}}
 #!/bin/sh
 set -eu
@@ -80,3 +81,4 @@ plasticine_neovim_plan "$dest_dir" || exit 1
 plasticine_neovim_prepare || exit 1
 {{- end }}
 {{- end }}
+{{- end -}}

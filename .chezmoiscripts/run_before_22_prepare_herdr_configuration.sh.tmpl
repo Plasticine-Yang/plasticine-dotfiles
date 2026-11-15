@@ -1,3 +1,4 @@
+{{- if ne .chezmoi.os "windows" -}}
 {{- if has "herdr" .tools -}}
 #!/bin/sh
 set -eu
@@ -47,3 +48,4 @@ fi
 plasticine_whole_file_secure_backup_dir "$backup_dir"
 : > "$reload_pending"
 {{- end }}
+{{- end -}}
