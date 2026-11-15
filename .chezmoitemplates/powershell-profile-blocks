@@ -1,4 +1,4 @@
-﻿# Plasticine profile integration block for the powershell Feature.
+# Plasticine profile integration block for the powershell Feature.
 #
 # The block is inserted at the top of $PROFILE.CurrentUserAllHosts so that later
 # Owner code in the profile can override it. It only sources the managed

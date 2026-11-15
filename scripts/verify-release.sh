@@ -106,16 +106,22 @@ if [ -z "$powershell_bin" ]; then
     powershell_bin=$(command -v powershell 2>/dev/null || true)
 fi
 if [ -n "$powershell_bin" ]; then
-    "$powershell_bin" -NoProfile -NonInteractive -Command '
+    parsed_installer=$installer_ps1
+    if command -v cygpath >/dev/null 2>&1; then
+        parsed_installer=$(cygpath -w "$installer_ps1")
+    fi
+    # Pass the validated path through the environment: Windows PowerShell 5.1
+    # does not forward arguments after -Command to $args.
+    PLASTICINE_PARSE_TARGET=$parsed_installer "$powershell_bin" -NoProfile -NonInteractive -Command '
         $tokens = $null
         $errors = $null
-        [void][System.Management.Automation.Language.Parser]::ParseFile($args[0], [ref]$tokens, [ref]$errors)
+        [void][System.Management.Automation.Language.Parser]::ParseFile($env:PLASTICINE_PARSE_TARGET, [ref]$tokens, [ref]$errors)
         if ($null -ne $errors -and $errors.Count -gt 0) {
             foreach ($parseError in $errors) {
                 [Console]::Error.WriteLine(($parseError.Extent.StartLineNumber.ToString() + ": " + $parseError.Message))
             }
             exit 1
-        }' "$installer_ps1" || {
+        }' || {
         printf 'release install.ps1 does not parse on %s\n' "$powershell_bin" >&2
         exit 1
     }
@@ -126,6 +132,9 @@ fi
     cd "$asset_dir"
     awk '
         NF != 2 || length($1) != 64 || $1 ~ /[^0-9A-Fa-f]/ { exit 1 }
+        {
+            if ($2 ~ /^[*]/) { $2 = substr($2, 2) }
+        }
         $2 == "install.sh" || $2 == "install.ps1" || $2 == "plasticine-cli.tar.gz" ||
             $2 == "plasticine-managed-plugins.tar.gz" ||
             $2 == "plasticine-source.bundle" { seen[$2]++; next }
