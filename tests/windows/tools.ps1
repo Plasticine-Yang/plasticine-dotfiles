@@ -11,6 +11,17 @@ $PlasticineTestName = 'windows tools'
 . (Join-Path $repoDir 'lib\windows\features.ps1')
 . (Join-Path $repoDir 'lib\windows\feature-lazygit.ps1')
 . (Join-Path $repoDir 'lib\windows\feature-fnm.ps1')
+. (Join-Path $repoDir 'lib\windows\feature-neovim.ps1')
+
+# The neovim route publishes its command through the user-level PATH. Keep every
+# suite write inside a disposable registry subkey and never broadcast to the
+# desktop from a test process.
+$savedUserEnvironmentSubKey = $PlasticineUserEnvironmentSubKey
+$script:PlasticineUserEnvironmentSubKey = 'Software\PlasticineWindowsTests\' + [guid]::NewGuid().ToString('N')
+function Send-PlasticineEnvironmentSettingChange {
+    param([ValidateRange(0, 60000)][int]$TimeoutMilliseconds = 5000)
+    return $true
+}
 
 $callsFile = Join-Path $PlasticineTestRoot 'calls'
 $fixture = New-TestDirectory 'fixture'
@@ -164,6 +175,100 @@ function Assert-FnmNoStaging {
     }
 }
 
+function New-NeovimStub {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [string]$Version = '0.12.5',
+        [switch]$Unhealthy,
+        [switch]$Prerelease
+    )
+    if ($Unhealthy) {
+        $body = 'Environment.Exit(9);'
+    } elseif ($Prerelease) {
+        $body = 'Console.WriteLine("NVIM v0.13.0-dev"); return;'
+    } else {
+        $body = 'Console.WriteLine("NVIM v' + $Version + '"); return;'
+    }
+    $source = @"
+using System;
+class Program {
+    static void Main(string[] args) {
+        if (args.Length > 0 && args[0] == "--version") { $body }
+        Environment.Exit(9);
+    }
+}
+"@
+    Add-Type -OutputAssembly $Path -OutputType ConsoleApplication -TypeDefinition $source -ErrorAction Stop
+}
+
+# The reviewed Windows distribution is one root directory, so the fixture keeps
+# that shape and can omit the runtime or add a foreign root member.
+function Set-NeovimFixtureArchive {
+    param(
+        [Parameter(Mandatory = $true)][string]$Stub,
+        [switch]$Incomplete,
+        [string[]]$ExtraPath
+    )
+    $tree = New-TestDirectory ('nvim-tree.' + [guid]::NewGuid().ToString('N'))
+    $distribution = Join-Path $tree 'nvim-win64'
+    New-Item -ItemType Directory -Path (Join-Path $distribution 'bin') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $distribution 'share\nvim\runtime') -Force | Out-Null
+    Copy-Item -LiteralPath $Stub -Destination (Join-Path $distribution 'bin\nvim.exe') -Force
+    if (-not $Incomplete) {
+        Set-Content -LiteralPath (Join-Path $distribution 'share\nvim\runtime\filetype.lua') -Value '-- runtime' -NoNewline
+    }
+    $paths = @($distribution)
+    foreach ($extra in @($ExtraPath)) {
+        if ($extra) { $paths += $extra }
+    }
+    Compress-Archive -Path $paths -DestinationPath (Join-Path $fixture 'nvim-win64.zip') -Force
+    $digest = Get-PlasticineFileHash (Join-Path $fixture 'nvim-win64.zip')
+    $script:PlasticineNeovimDigest = $digest
+    return $digest
+}
+
+function Get-NeovimInstallDirectory {
+    param([Parameter(Mandatory = $true)][string]$HomeDirectory)
+    return Join-Path $HomeDirectory '.local\opt\neovim'
+}
+
+function Assert-NeovimNoStaging {
+    param([Parameter(Mandatory = $true)][string]$HomeDirectory)
+    $opt = Join-Path $HomeDirectory '.local\opt'
+    if (Test-Path -LiteralPath $opt) {
+        Assert-Equal 0 (@(Get-ChildItem -LiteralPath $opt -Force -Filter '.neovim.plasticine.*').Count) `
+            'a run left a staged neovim distribution behind'
+    }
+}
+
+function Set-NeovimDirectDistribution {
+    param(
+        [Parameter(Mandatory = $true)][string]$HomeDirectory,
+        [Parameter(Mandatory = $true)][string]$Stub
+    )
+    $install = Get-NeovimInstallDirectory -HomeDirectory $HomeDirectory
+    New-Item -ItemType Directory -Path (Join-Path $install 'bin') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $install 'share\nvim\runtime') -Force | Out-Null
+    Copy-Item -LiteralPath $Stub -Destination (Join-Path $install 'bin\nvim.exe') -Force
+    Set-Content -LiteralPath (Join-Path $install 'share\nvim\runtime\filetype.lua') -Value '-- runtime' -NoNewline
+}
+
+function Assert-NeovimPathEntry {
+    param(
+        [Parameter(Mandatory = $true)][string]$HomeDirectory,
+        [switch]$Present
+    )
+    $pathDirectory = Join-Path (Get-NeovimInstallDirectory -HomeDirectory $HomeDirectory) 'bin'
+    $entries = @((Get-PlasticineUserPath) -split ';')
+    $found = $false
+    foreach ($entry in $entries) { if ($entry.Trim().TrimEnd('\') -ieq $pathDirectory.TrimEnd('\')) { $found = $true } }
+    if ($Present) {
+        Assert-True $found "the neovim command directory is missing from the user PATH: $pathDirectory"
+    } else {
+        Assert-True (-not $found) "the neovim command directory reached the user PATH: $pathDirectory"
+    }
+}
+
 try {
     $stubDirectory = New-TestDirectory 'stubs'
     $stubs = @{}
@@ -186,6 +291,16 @@ try {
     New-TestStub -Path $fnmUnhealthyStub -Version '1.39.0' -Unhealthy
     $fnmPrereleaseStub = Join-Path $stubDirectory 'fnm-prerelease.exe'
     New-TestStub -Path $fnmPrereleaseStub -Version '1.39.0-rc1'
+    $nvimStubs = @{}
+    foreach ($version in @('0.12.5', '0.12.0', '0.13.0', '0.11.0')) {
+        $path = Join-Path $stubDirectory ("nvim-$version.exe")
+        New-NeovimStub -Path $path -Version $version
+        $nvimStubs[$version] = $path
+    }
+    $nvimUnhealthyStub = Join-Path $stubDirectory 'nvim-unhealthy.exe'
+    New-NeovimStub -Path $nvimUnhealthyStub -Unhealthy
+    $nvimPrereleaseStub = Join-Path $stubDirectory 'nvim-prerelease.exe'
+    New-NeovimStub -Path $nvimPrereleaseStub -Prerelease
     Set-Content -LiteralPath (Join-Path $payload 'LICENSE') -Value 'license' -NoNewline
     Set-Content -LiteralPath (Join-Path $payload 'README.md') -Value 'readme' -NoNewline
 
@@ -491,6 +606,185 @@ try {
     Assert-True $run.Threw 'a directory fnm target was accepted'
     Assert-True ($run.Error -match 'installation target is not a regular file') 'the irregular fnm target was not reported'
 
+    # --- neovim: plan and preview describe the reviewed distribution layout. ---
+    $scenarioHome = New-Scenario 'nvim-plan'
+    $nvimDigest = Set-NeovimFixtureArchive -Stub $nvimStubs['0.12.5']
+    $nvimPlan = Get-PlasticineNeovimPlan -HomeDirectory $scenarioHome
+    Assert-Equal (Get-NeovimInstallDirectory -HomeDirectory $scenarioHome) $nvimPlan.InstallDirectory `
+        'the neovim plan did not target ~/.local/opt/neovim'
+    Assert-Equal (Join-Path (Get-NeovimInstallDirectory -HomeDirectory $scenarioHome) 'bin') $nvimPlan.PathDirectory `
+        'the neovim plan did not publish the distribution bin directory'
+    Assert-Equal '0.12.5' $nvimPlan.Version 'the neovim plan lost the pinned baseline'
+    Assert-Equal $nvimDigest $nvimPlan.Digest 'the neovim plan lost the reviewed digest'
+    Assert-True ($nvimPlan.ReleaseUrl -match '/v0\.12\.5/nvim-win64\.zip$') 'the neovim plan did not pin the official release asset'
+    Assert-Equal 'nvim-win64' $nvimPlan.ArchiveRoot 'the neovim plan lost the reviewed archive root'
+    Assert-True $nvimPlan.PathMissing 'a fresh user PATH was not reported as missing the command directory'
+    Assert-True ($null -eq $nvimPlan.Observed) 'a missing editor was reported as observed'
+    $preview = Invoke-TestCapture { Write-PlasticineNeovimPreview -Plan $nvimPlan }
+    Assert-True (-not $preview.Threw) "the neovim preview failed: $($preview.Message)"
+    Assert-True ($preview.Output -match 'pinned baseline 0\.12\.5') 'the neovim preview lost the pinned baseline'
+    Assert-True ($preview.Output -match [regex]::Escape($nvimPlan.InstallDirectory)) 'the neovim preview did not name the distribution'
+    Assert-True ($preview.Output -match 'user-level PATH') 'the neovim preview lost the PATH contract'
+    Assert-Equal 0 @(Get-Calls).Count 'the neovim preview made a release request'
+
+    # --- neovim: a missing editor installs the distribution and the PATH entry. ---
+    $scenarioHome = New-Scenario 'nvim-fresh'
+    $null = Set-NeovimFixtureArchive -Stub $nvimStubs['0.12.5']
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'neovim' -HomeDirectory $scenarioHome }
+    Assert-True (-not $run.Threw) "the neovim install failed: $($run.Message)"
+    Assert-True ($run.Output -match 'fresh completed at stable target 0\.12\.5') 'the neovim install was not reported'
+    Assert-Equal 1 @(Get-Calls).Count 'the neovim install made more than one request'
+    Assert-True (@(Get-Calls)[0] -match '/v0\.12\.5/nvim-win64\.zip$') 'the reviewed neovim asset was not selected'
+    Assert-Equal '0.12.5' (Get-PlasticineNeovimVersion (Join-Path (Get-NeovimInstallDirectory -HomeDirectory $scenarioHome) 'bin\nvim.exe')) `
+        'the pinned neovim distribution was not installed'
+    Assert-NeovimNoStaging $scenarioHome
+    Assert-NeovimPathEntry -HomeDirectory $scenarioHome -Present
+    $localAcl = (Get-Acl -LiteralPath (Join-Path $scenarioHome '.local')).Sddl
+    $optAcl = (Get-Acl -LiteralPath (Join-Path $scenarioHome '.local\opt')).Sddl
+    Assert-True ($localAcl -match 'D:PAI') "the new .local directory is not owner-only: $localAcl"
+    Assert-True ($optAcl -match 'D:PAI') "the new opt directory is not owner-only: $optAcl"
+
+    # --- neovim: the managed distribution is reused without release traffic. ---
+    $managedCommand = Join-Path (Get-NeovimInstallDirectory -HomeDirectory $scenarioHome) 'bin\nvim.exe'
+    $managedHash = Get-PlasticineFileHash $managedCommand
+    Reset-Calls
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'neovim' -HomeDirectory $scenarioHome }
+    Assert-True (-not $run.Threw) "the neovim reuse run failed: $($run.Message)"
+    Assert-True ($run.Output -match 'is satisfied by stable 0\.12\.5') 'neovim reuse was not reported'
+    Assert-Equal 0 @(Get-Calls).Count 'a satisfied neovim made a release request'
+    Assert-Equal $managedHash (Get-PlasticineFileHash $managedCommand) 'the current neovim distribution was replaced'
+    Assert-Equal 1 @((Get-PlasticineUserPath) -split ';' | Where-Object { $_ -match 'nvim' }).Count 'the neovim PATH entry was duplicated'
+
+    # --- neovim: a newer external owner is retained without a PATH mutation. ---
+    $scenarioHome = New-Scenario 'nvim-external'
+    $externalBin = New-TestDirectory 'nvim-external-bin'
+    Copy-Item -LiteralPath $nvimStubs['0.13.0'] -Destination (Join-Path $externalBin 'nvim.exe') -Force
+    $env:PATH = $externalBin + ';' + $emptyPath
+    $null = Set-NeovimFixtureArchive -Stub $nvimStubs['0.12.5']
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'neovim' -HomeDirectory $scenarioHome }
+    Assert-True (-not $run.Threw) "the newer external neovim failed: $($run.Message)"
+    Assert-Equal 0 @(Get-Calls).Count 'a newer external neovim caused release traffic'
+    Assert-True (-not (Test-Path -LiteralPath (Get-NeovimInstallDirectory -HomeDirectory $scenarioHome))) `
+        'a shadow neovim distribution was installed'
+    Assert-NeovimPathEntry -HomeDirectory $scenarioHome
+
+    # --- neovim: an outdated managed distribution is replaced in place. ---
+    $scenarioHome = New-Scenario 'nvim-upgrade'
+    Set-NeovimDirectDistribution -HomeDirectory $scenarioHome -Stub $nvimStubs['0.12.0']
+    $outdatedHash = Get-PlasticineFileHash (Join-Path (Get-NeovimInstallDirectory -HomeDirectory $scenarioHome) 'bin\nvim.exe')
+    $null = Set-NeovimFixtureArchive -Stub $nvimStubs['0.12.5']
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'neovim' -HomeDirectory $scenarioHome }
+    Assert-True (-not $run.Threw) "the neovim upgrade failed: $($run.Message)"
+    Assert-True ($run.Output -match 'upgrade completed at stable target 0\.12\.5') 'the neovim upgrade was not reported'
+    Assert-Equal 1 @(Get-Calls).Count 'the neovim upgrade did not request the reviewed asset'
+    Assert-True ($outdatedHash -ne (Get-PlasticineFileHash (Join-Path (Get-NeovimInstallDirectory -HomeDirectory $scenarioHome) 'bin\nvim.exe'))) `
+        'the outdated neovim distribution was retained'
+    Assert-NeovimNoStaging $scenarioHome
+
+    # --- neovim: an outdated installation owned elsewhere is never shadowed. ---
+    $scenarioHome = New-Scenario 'nvim-foreign'
+    $foreignBin = New-TestDirectory 'nvim-foreign-bin'
+    Copy-Item -LiteralPath $nvimStubs['0.12.0'] -Destination (Join-Path $foreignBin 'nvim.exe') -Force
+    $env:PATH = $foreignBin + ';' + $emptyPath
+    $null = Set-NeovimFixtureArchive -Stub $nvimStubs['0.12.5']
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'neovim' -HomeDirectory $scenarioHome }
+    Assert-True $run.Threw 'an unsupported neovim owner reported success'
+    Assert-True ($run.Error -match 'unsupported owner path') 'the neovim owner failure was not reported'
+    Assert-Equal 0 @(Get-Calls).Count 'the unsupported neovim owner caused release traffic'
+    Assert-True (-not (Test-Path -LiteralPath (Get-NeovimInstallDirectory -HomeDirectory $scenarioHome))) `
+        'a shadow neovim distribution was installed'
+
+    # --- neovim: unhealthy and prerelease installations are left alone. ---
+    $scenarioHome = New-Scenario 'nvim-unhealthy'
+    Set-NeovimDirectDistribution -HomeDirectory $scenarioHome -Stub $nvimUnhealthyStub
+    $null = Set-NeovimFixtureArchive -Stub $nvimStubs['0.12.5']
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'neovim' -HomeDirectory $scenarioHome }
+    Assert-True $run.Threw 'an unhealthy neovim reported success'
+    Assert-True ($run.Error -match 'existing editor is unhealthy') 'the unhealthy neovim was not reported'
+    Assert-Equal 0 @(Get-Calls).Count 'an unhealthy neovim caused release traffic'
+
+    $scenarioHome = New-Scenario 'nvim-prerelease'
+    $prereleaseBin = New-TestDirectory 'nvim-prerelease-bin'
+    Copy-Item -LiteralPath $nvimPrereleaseStub -Destination (Join-Path $prereleaseBin 'nvim.exe') -Force
+    $env:PATH = $prereleaseBin + ';' + $emptyPath
+    $null = Set-NeovimFixtureArchive -Stub $nvimStubs['0.12.5']
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'neovim' -HomeDirectory $scenarioHome }
+    Assert-True $run.Threw 'a prerelease neovim reported success'
+    Assert-True ($run.Error -match 'prerelease/custom/unverifiable version') 'the prerelease neovim was not reported'
+    Assert-Equal 0 @(Get-Calls).Count 'a prerelease neovim caused release traffic'
+
+    # --- neovim: an unowned distribution at the managed destination is refused. ---
+    $scenarioHome = New-Scenario 'nvim-unowned'
+    New-Item -ItemType Directory -Path (Get-NeovimInstallDirectory -HomeDirectory $scenarioHome) -Force | Out-Null
+    $null = Set-NeovimFixtureArchive -Stub $nvimStubs['0.12.5']
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'neovim' -HomeDirectory $scenarioHome }
+    Assert-True $run.Threw 'an unowned managed distribution reported success'
+    Assert-True ($run.Error -match 'unowned distribution') 'the unowned distribution was not reported'
+    Assert-Equal 0 @(Get-Calls).Count 'an unowned distribution caused release traffic'
+
+    # --- neovim: a digest mismatch never publishes a distribution. ---
+    $scenarioHome = New-Scenario 'nvim-digest'
+    $null = Set-NeovimFixtureArchive -Stub $nvimStubs['0.12.5']
+    $nvimPlan = Get-PlasticineNeovimPlan -HomeDirectory $scenarioHome
+    $nvimPlan.Digest = ('0' * 64)
+    $run = Invoke-TestCapture { Invoke-PlasticineNeovimPrepare -Plan $nvimPlan }
+    Assert-True $run.Threw 'a neovim digest mismatch reported success'
+    Assert-True ($run.Error -match 'SHA-256 digest mismatch') 'the neovim digest mismatch was not reported'
+    Assert-True (-not (Test-Path -LiteralPath (Get-NeovimInstallDirectory -HomeDirectory $scenarioHome))) `
+        'the neovim digest mismatch published a distribution'
+
+    # --- neovim: an incomplete distribution is refused. ---
+    $scenarioHome = New-Scenario 'nvim-incomplete'
+    $null = Set-NeovimFixtureArchive -Stub $nvimStubs['0.12.5'] -Incomplete
+    $nvimPlan = Get-PlasticineNeovimPlan -HomeDirectory $scenarioHome
+    $run = Invoke-TestCapture { Invoke-PlasticineNeovimPrepare -Plan $nvimPlan }
+    Assert-True $run.Threw 'an incomplete neovim distribution reported success'
+    Assert-True ($run.Error -match 'not a complete Neovim distribution') 'the incomplete distribution was not reported'
+    Assert-True (-not (Test-Path -LiteralPath (Get-NeovimInstallDirectory -HomeDirectory $scenarioHome))) `
+        'the incomplete distribution was published'
+
+    # --- neovim: an unexpected archive root is refused. ---
+    $scenarioHome = New-Scenario 'nvim-members'
+    $extraFile = Join-Path (New-TestDirectory 'nvim-extra') 'extra.txt'
+    Set-Content -LiteralPath $extraFile -Value 'extra' -NoNewline
+    $null = Set-NeovimFixtureArchive -Stub $nvimStubs['0.12.5'] -ExtraPath @($extraFile)
+    $nvimPlan = Get-PlasticineNeovimPlan -HomeDirectory $scenarioHome
+    $run = Invoke-TestCapture { Invoke-PlasticineNeovimPrepare -Plan $nvimPlan }
+    Assert-True $run.Threw 'an unexpected neovim archive root reported success'
+    Assert-True ($run.Error -match 'archive members do not match the reviewed layout') 'the neovim member failure was not reported'
+
+    # --- neovim: a candidate that is not the pinned version is refused. ---
+    $scenarioHome = New-Scenario 'nvim-candidate'
+    $null = Set-NeovimFixtureArchive -Stub $nvimStubs['0.11.0']
+    $nvimPlan = Get-PlasticineNeovimPlan -HomeDirectory $scenarioHome
+    $run = Invoke-TestCapture { Invoke-PlasticineNeovimPrepare -Plan $nvimPlan }
+    Assert-True $run.Threw 'a wrong neovim candidate reported success'
+    Assert-True ($run.Error -match 'does not match target 0\.12\.5') 'the neovim candidate failure was not reported'
+    Assert-True (-not (Test-Path -LiteralPath (Get-NeovimInstallDirectory -HomeDirectory $scenarioHome))) `
+        'the wrong neovim candidate was published'
+
+    # --- neovim: a download failure preserves the working distribution. ---
+    $scenarioHome = New-Scenario 'nvim-download-failure'
+    Set-NeovimDirectDistribution -HomeDirectory $scenarioHome -Stub $nvimStubs['0.12.0']
+    $before = Get-PlasticineFileHash (Join-Path (Get-NeovimInstallDirectory -HomeDirectory $scenarioHome) 'bin\nvim.exe')
+    $null = Set-NeovimFixtureArchive -Stub $nvimStubs['0.12.5']
+    $env:PLASTICINE_TEST_DOWNLOAD_FAIL = '1'
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'neovim' -HomeDirectory $scenarioHome }
+    Remove-Item Env:\PLASTICINE_TEST_DOWNLOAD_FAIL -ErrorAction SilentlyContinue
+    Assert-True $run.Threw 'a neovim download failure reported success'
+    Assert-True ($run.Error -match 'official archive download failed') 'the neovim download failure was not reported'
+    Assert-Equal $before (Get-PlasticineFileHash (Join-Path (Get-NeovimInstallDirectory -HomeDirectory $scenarioHome) 'bin\nvim.exe')) `
+        'the neovim download failure changed the working distribution'
+    Assert-NeovimNoStaging $scenarioHome
+
+    # --- neovim: an irregular distribution target is refused before any work. ---
+    $scenarioHome = New-Scenario 'nvim-target-file'
+    New-Item -ItemType Directory -Path (Join-Path $scenarioHome '.local\opt') -Force | Out-Null
+    Set-Content -LiteralPath (Get-NeovimInstallDirectory -HomeDirectory $scenarioHome) -Value 'not a directory' -NoNewline
+    $run = Invoke-TestCapture { Get-PlasticineNeovimPlan -HomeDirectory $scenarioHome }
+    Assert-True $run.Threw 'a file distribution target was accepted'
+    Assert-True ($run.Error -match 'distribution target is not a regular directory') 'the irregular neovim target was not reported'
+
     Complete-Test 'windows tools tests passed'
 } catch {
     [Console]::Error.WriteLine($_.Exception.Message)
@@ -498,5 +792,10 @@ try {
 } finally {
     $env:PATH = $savedPath
     Remove-Item Env:\PLASTICINE_TEST_DOWNLOAD_FAIL -ErrorAction SilentlyContinue
+    $script:PlasticineUserEnvironmentSubKey = $savedUserEnvironmentSubKey
+    try {
+        [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree('Software\PlasticineWindowsTests', $false)
+    } catch {
+    }
     Remove-Item -LiteralPath $PlasticineTestRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
