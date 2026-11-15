@@ -186,7 +186,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
 | `powershell` | `$PROFILE.CurrentUserAllHosts` 的受管标记块、用户级 PATH 与 fnm 激活 |
 | herdr 配置 | `%APPDATA%\herdr\config.toml`（不是 `~/.config/herdr`） |
 
-限制：不支持 `shell` 与 `login-shell`（Zsh 生态没有 Windows 等价物）；`plasticine` CLI、self-update 与 arm64 不在 v1 范围。Neovim 的 `nvim.exe` 依赖同目录的 `lua51.dll`/`DbgHelp.dll` 和 `../share/nvim/runtime`，硬链接或复制到 `~/.local/bin` 无法运行，因此发布的是私有分布的 `bin` 目录而非单文件命令。Rust 需要 MSVC Build Tools，缺失时明确失败并给安装指引，不代装。`~/.config/nvim` 与 `~/.local/share/nvim`、`%LOCALAPPDATA%\nvim` 与 `%LOCALAPPDATA%\nvim-data` 之间由 apply 期脚本维护 junction。
+限制：不支持 `shell` 与 `login-shell`（Zsh 生态没有 Windows 等价物）；`plasticine` CLI、self-update 与 arm64 不在 v1 范围。Neovim 的 `nvim.exe` 依赖同目录的 `lua51.dll`/`DbgHelp.dll` 和 `../share/nvim/runtime`，硬链接或复制到 `~/.local/bin` 无法运行，因此发布的是私有分布的 `bin` 目录而非单文件命令。Rust 装到 `~/.local/opt` 下的私有 `CARGO_HOME`/`RUSTUP_HOME`，安装器会把这两个变量写进用户级环境变量，否则 rustup 代理找不到工具链；需要 MSVC Build Tools 时明确失败并给安装指引，不代装。`~/.config/nvim` 与 `~/.local/share/nvim`、`%LOCALAPPDATA%\nvim` 与 `%LOCALAPPDATA%\nvim-data` 之间由 apply 期脚本维护 junction。chezmoi 在 Windows 上不能执行 `modify_` 脚本，因此 `~/.ssh/config` 由 `run_before` 脚本合成，其余 `~/.ssh` 内容仍由 chezmoi 托管。
 
 ## GitHub SSH 行为
 

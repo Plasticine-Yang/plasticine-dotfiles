@@ -157,3 +157,63 @@ function Add-PlasticineUserPathEntry {
     }
     return $true
 }
+
+# Some managed tools live outside their upstream default locations (the Windows
+# Rust route keeps CARGO_HOME/RUSTUP_HOME under ~/.local/opt), so the route must
+# publish the variables the same way it publishes PATH: user scope, backed up
+# before the first write, with the same best-effort environment broadcast.
+function Get-PlasticineUserEnvironmentValue {
+    param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Name)
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($PlasticineUserEnvironmentSubKey)
+    if (-not $key) { return $null }
+    try {
+        $value = $key.GetValue($Name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        if ($null -eq $value) { return $null }
+        return [string]$value
+    } finally {
+        $key.Dispose()
+    }
+}
+
+function Set-PlasticineUserEnvironmentValue {
+    param(
+        [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Name,
+        [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Value,
+        [string]$BackupDirectory,
+        [switch]$NoBroadcast,
+        [switch]$PassThru
+    )
+    $current = Get-PlasticineUserEnvironmentValue -Name $Name
+    if ($null -ne $current -and $current -eq $Value) {
+        if ($PassThru) { return [pscustomobject]@{ Changed = $false; PreviousValue = $current; Value = $Value } }
+        return $false
+    }
+    if ($BackupDirectory) {
+        $null = Assert-PlasticineAbsolutePath -Path $BackupDirectory -Name 'user environment backup directory'
+        if (-not (Get-PlasticineItem $BackupDirectory)) {
+            New-Item -ItemType Directory -Path $BackupDirectory -ErrorAction Stop | Out-Null
+        }
+        Assert-PlasticineRealDirectory $BackupDirectory
+        $record = Join-Path $BackupDirectory ('user-env-' + $Name + '.txt')
+        if (-not (Test-Path -LiteralPath $record)) {
+            if ($null -eq $current) {
+                [IO.File]::WriteAllText($record, '', [Text.Encoding]::UTF8)
+                [IO.File]::WriteAllText((Join-Path $BackupDirectory ('user-env-' + $Name + '.unset')), '', [Text.Encoding]::UTF8)
+            } else {
+                [IO.File]::WriteAllText($record, $current, [Text.Encoding]::UTF8)
+            }
+        }
+    }
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($PlasticineUserEnvironmentSubKey, $true)
+    if (-not $key) {
+        $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($PlasticineUserEnvironmentSubKey)
+    }
+    try {
+        $key.SetValue($Name, $Value, [Microsoft.Win32.RegistryValueKind]::String)
+    } finally {
+        $key.Dispose()
+    }
+    if (-not $NoBroadcast) { $null = Send-PlasticineEnvironmentSettingChange }
+    if ($PassThru) { return [pscustomobject]@{ Changed = $true; PreviousValue = $current; Value = $Value } }
+    return $true
+}
