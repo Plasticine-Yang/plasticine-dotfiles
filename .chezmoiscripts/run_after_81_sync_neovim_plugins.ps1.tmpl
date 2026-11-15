@@ -1,0 +1,13 @@
+﻿{{- if and (eq .chezmoi.os "windows") (has "neovim" .tools) -}}
+# Bridge the %LOCALAPPDATA% paths Neovim reads, then synchronize plugins and run
+# the runtime readiness probe through the managed distribution.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/config-apply.ps1')
+. (Join-Path $source_dir 'lib/windows/neovim-config.ps1')
+
+Invoke-PlasticineNeovimRuntimePreparation -HomeDirectory $dest_dir
+{{- end }}

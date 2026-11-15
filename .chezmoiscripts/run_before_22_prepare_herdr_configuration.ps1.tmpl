@@ -1,0 +1,13 @@
+﻿{{- if and (eq .chezmoi.os "windows") (has "herdr" .tools) -}}
+# Compose only the [terminal] policy, validate the candidate with the installed
+# herdr, back up the previous bytes, and mark the reload as pending.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/config-apply.ps1')
+. (Join-Path $source_dir 'lib/windows/herdr-config.ps1')
+
+Invoke-PlasticineHerdrConfigApply -HomeDirectory $dest_dir
+{{- end }}

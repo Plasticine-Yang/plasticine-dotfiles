@@ -1,0 +1,13 @@
+﻿{{- if and (eq .chezmoi.os "windows") (has "neovim" .tools) -}}
+# Snapshot changed managed files before chezmoi writes them. Windows has no
+# execute bits, so the Unix mode journal has no Windows equivalent.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/config-apply.ps1')
+. (Join-Path $source_dir 'lib/windows/neovim-config.ps1')
+
+Invoke-PlasticineNeovimConfigurationApply -HomeDirectory $dest_dir -SourceDirectory $source_dir
+{{- end }}

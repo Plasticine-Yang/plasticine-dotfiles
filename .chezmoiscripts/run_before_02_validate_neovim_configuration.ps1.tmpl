@@ -1,0 +1,13 @@
+﻿{{- if and (eq .chezmoi.os "windows") (has "neovim" .tools) -}}
+# Shape-only validation: the managed 12-file Lua inventory and its directories
+# must be regular entries before chezmoi replaces anything.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/config-apply.ps1')
+. (Join-Path $source_dir 'lib/windows/neovim-config.ps1')
+
+Assert-PlasticineNeovimConfiguration -HomeDirectory $dest_dir
+{{- end }}

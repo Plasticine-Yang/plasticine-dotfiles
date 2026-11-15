@@ -1,0 +1,12 @@
+﻿{{- if and (eq .chezmoi.os "windows") (has "herdr" .tools) -}}
+# Reload a running herdr server only when this apply changed its configuration.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/config-apply.ps1')
+. (Join-Path $source_dir 'lib/windows/herdr-config.ps1')
+
+Invoke-PlasticineHerdrConfigReload -HomeDirectory $dest_dir
+{{- end }}

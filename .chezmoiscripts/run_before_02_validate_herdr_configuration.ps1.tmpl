@@ -1,0 +1,13 @@
+﻿{{- if and (eq .chezmoi.os "windows") (has "herdr" .tools) -}}
+# Windows keeps the herdr configuration in %APPDATA%\herdr; validate its shape
+# and the backup directories before composing anything.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/config-apply.ps1')
+. (Join-Path $source_dir 'lib/windows/herdr-config.ps1')
+
+Assert-PlasticineHerdrConfiguration -HomeDirectory $dest_dir
+{{- end }}
