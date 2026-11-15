@@ -10,6 +10,7 @@ $PlasticineTestName = 'windows tools'
 . (Join-Path $repoDir 'lib\windows\acl.ps1')
 . (Join-Path $repoDir 'lib\windows\features.ps1')
 . (Join-Path $repoDir 'lib\windows\feature-lazygit.ps1')
+. (Join-Path $repoDir 'lib\windows\feature-fnm.ps1')
 
 $callsFile = Join-Path $PlasticineTestRoot 'calls'
 $fixture = New-TestDirectory 'fixture'
@@ -124,6 +125,45 @@ function Assert-DirectInstall {
     Copy-Item -LiteralPath $Stub -Destination (Join-Path $bin 'lazygit.exe') -Force -ErrorAction Stop
 }
 
+# The fnm route is a single reviewed member, so its fixture rebuilds that archive
+# name alone and pins the module to the resulting digest.
+function Set-FnmFixtureArchive {
+    param(
+        [Parameter(Mandatory = $true)][string]$Stub,
+        [string[]]$ExtraEntry
+    )
+    $payload = New-TestDirectory 'fnm-payload'
+    Copy-Item -LiteralPath $Stub -Destination (Join-Path $payload 'fnm.exe') -Force
+    New-TestZip -Path (Join-Path $fixture 'fnm-windows.zip') -File @((Join-Path $payload 'fnm.exe')) -ExtraEntry $ExtraEntry
+    $digest = Get-PlasticineFileHash (Join-Path $fixture 'fnm-windows.zip')
+    $script:PlasticineFnmDigest = $digest
+    return $digest
+}
+
+function Get-FnmTarget {
+    param([Parameter(Mandatory = $true)][string]$HomeDirectory)
+    return Join-Path $HomeDirectory '.local\bin\fnm.exe'
+}
+
+function Assert-FnmDirectInstall {
+    param(
+        [Parameter(Mandatory = $true)][string]$HomeDirectory,
+        [Parameter(Mandatory = $true)][string]$Stub
+    )
+    $bin = Join-Path $HomeDirectory '.local\bin'
+    New-Item -ItemType Directory -Path $bin -Force -ErrorAction Stop | Out-Null
+    Copy-Item -LiteralPath $Stub -Destination (Join-Path $bin 'fnm.exe') -Force -ErrorAction Stop
+}
+
+function Assert-FnmNoStaging {
+    param([Parameter(Mandatory = $true)][string]$HomeDirectory)
+    $bin = Join-Path $HomeDirectory '.local\bin'
+    if (Test-Path -LiteralPath $bin) {
+        Assert-Equal 0 (@(Get-ChildItem -LiteralPath $bin -Force -Filter '.fnm.plasticine.*').Count) `
+            'a run left a staged fnm file behind'
+    }
+}
+
 try {
     $stubDirectory = New-TestDirectory 'stubs'
     $stubs = @{}
@@ -136,6 +176,16 @@ try {
     New-LazygitStub -Path $unhealthyStub -Unhealthy
     $prereleaseStub = Join-Path $stubDirectory 'lazygit-prerelease.exe'
     New-LazygitStub -Path $prereleaseStub -Prerelease
+    $fnmStubs = @{}
+    foreach ($version in @('1.39.0', '1.38.0', '1.40.0')) {
+        $path = Join-Path $stubDirectory ("fnm-$version.exe")
+        New-TestStub -Path $path -Version $version
+        $fnmStubs[$version] = $path
+    }
+    $fnmUnhealthyStub = Join-Path $stubDirectory 'fnm-unhealthy.exe'
+    New-TestStub -Path $fnmUnhealthyStub -Version '1.39.0' -Unhealthy
+    $fnmPrereleaseStub = Join-Path $stubDirectory 'fnm-prerelease.exe'
+    New-TestStub -Path $fnmPrereleaseStub -Version '1.39.0-rc1'
     Set-Content -LiteralPath (Join-Path $payload 'LICENSE') -Value 'license' -NoNewline
     Set-Content -LiteralPath (Join-Path $payload 'README.md') -Value 'readme' -NoNewline
 
@@ -313,6 +363,133 @@ try {
     Assert-True ($run.Error -match 'installation target changed during preparation') 'the preparation race was not reported'
     Remove-Item -LiteralPath (Get-Target $scenarioHome) -Force -ErrorAction SilentlyContinue
     Assert-NoStaging $scenarioHome
+
+    # --- fnm: plan and preview pin the reviewed release tuple. ---
+    $scenarioHome = New-Scenario 'fnm-plan'
+    $fnmDigest = Set-FnmFixtureArchive -Stub $fnmStubs['1.39.0']
+    $fnmPlan = Get-PlasticineFnmPlan -HomeDirectory $scenarioHome
+    Assert-Equal (Get-FnmTarget $scenarioHome) $fnmPlan.Target 'the fnm plan did not target ~/.local/bin/fnm.exe'
+    Assert-Equal '1.39.0' $fnmPlan.Version 'the fnm plan lost the pinned baseline'
+    Assert-Equal $fnmDigest $fnmPlan.Digest 'the fnm plan lost the reviewed digest'
+    Assert-True ($fnmPlan.ReleaseUrl -match '/v1\.39\.0/fnm-windows\.zip$') 'the fnm plan did not pin the official release asset'
+    Assert-Equal 'fnm.exe' (@($fnmPlan.Member) -join ' ') 'the fnm plan lost the reviewed member set'
+    Assert-True ($null -eq $fnmPlan.Observed) 'a missing fnm was reported as observed'
+    $preview = Invoke-TestCapture { Write-PlasticineFnmPreview -Plan $fnmPlan }
+    Assert-True (-not $preview.Threw) "the fnm preview failed: $($preview.Message)"
+    Assert-True ($preview.Output -match 'pinned baseline 1\.39\.0') 'the fnm preview lost the pinned baseline'
+    Assert-True ($preview.Output -match [regex]::Escape($fnmPlan.Target)) 'the fnm preview did not name the destination'
+    Assert-True ($preview.Output -match 'no checksum list') 'the fnm preview lost the upstream checksum note'
+    Assert-True ($preview.Output -match 'Node versions') 'the fnm preview lost the untouched-runtime note'
+    Assert-Equal 0 @(Get-Calls).Count 'the fnm preview made a release request'
+
+    # --- fnm: a missing tool installs the pinned release through the registry. ---
+    $scenarioHome = New-Scenario 'fnm-fresh'
+    $null = Set-FnmFixtureArchive -Stub $fnmStubs['1.39.0']
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'fnm' -HomeDirectory $scenarioHome }
+    Assert-True (-not $run.Threw) "the fnm install failed: $($run.Message)"
+    Assert-True ($run.Output -match 'action=install') 'the fnm install action was not reported'
+    Assert-Equal 1 @(Get-Calls).Count 'the fnm install made more than one request'
+    Assert-True (@(Get-Calls)[0] -match '/v1\.39\.0/fnm-windows\.zip$') 'the reviewed fnm asset was not selected'
+    Assert-Equal '1.39.0' (Get-PlasticineExecutableVersion (Get-FnmTarget $scenarioHome)) 'the pinned fnm release was not installed'
+    Assert-FnmNoStaging $scenarioHome
+
+    # --- fnm: a satisfied baseline is reused without release traffic. ---
+    $installedHash = Get-PlasticineFileHash (Get-FnmTarget $scenarioHome)
+    Reset-Calls
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'fnm' -HomeDirectory $scenarioHome }
+    Assert-True (-not $run.Threw) "the fnm reuse run failed: $($run.Message)"
+    Assert-True ($run.Output -match 'is satisfied by stable 1\.39\.0') 'fnm reuse was not reported'
+    Assert-Equal 0 @(Get-Calls).Count 'a satisfied fnm made a release request'
+    Assert-Equal $installedHash (Get-PlasticineFileHash (Get-FnmTarget $scenarioHome)) 'the current fnm was replaced'
+
+    # --- fnm: a newer direct installation is retained. ---
+    $scenarioHome = New-Scenario 'fnm-newer'
+    Assert-FnmDirectInstall -HomeDirectory $scenarioHome -Stub $fnmStubs['1.40.0']
+    $newerHash = Get-PlasticineFileHash (Get-FnmTarget $scenarioHome)
+    $null = Set-FnmFixtureArchive -Stub $fnmStubs['1.39.0']
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'fnm' -HomeDirectory $scenarioHome }
+    Assert-True (-not $run.Threw) "the fnm newer run failed: $($run.Message)"
+    Assert-Equal 0 @(Get-Calls).Count 'a newer fnm caused release traffic'
+    Assert-Equal $newerHash (Get-PlasticineFileHash (Get-FnmTarget $scenarioHome)) 'a newer fnm was downgraded'
+
+    # --- fnm: an outdated direct installation at the managed target is replaced. ---
+    $scenarioHome = New-Scenario 'fnm-upgrade'
+    Assert-FnmDirectInstall -HomeDirectory $scenarioHome -Stub $fnmStubs['1.38.0']
+    $null = Set-FnmFixtureArchive -Stub $fnmStubs['1.39.0']
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'fnm' -HomeDirectory $scenarioHome }
+    Assert-True (-not $run.Threw) "the fnm upgrade failed: $($run.Message)"
+    Assert-True ($run.Output -match 'action=update') 'the fnm update action was not reported'
+    Assert-Equal 1 @(Get-Calls).Count 'the fnm upgrade did not request the reviewed asset'
+    Assert-Equal '1.39.0' (Get-PlasticineExecutableVersion (Get-FnmTarget $scenarioHome)) 'the outdated fnm was not replaced'
+    Assert-FnmNoStaging $scenarioHome
+
+    # --- fnm: an outdated installation owned elsewhere is never shadowed. ---
+    $scenarioHome = New-Scenario 'fnm-foreign'
+    $fnmForeignBin = New-TestDirectory 'fnm-foreign-bin'
+    Copy-Item -LiteralPath $fnmStubs['1.38.0'] -Destination (Join-Path $fnmForeignBin 'fnm.exe') -Force
+    $env:PATH = $fnmForeignBin + ';' + $emptyPath
+    $null = Set-FnmFixtureArchive -Stub $fnmStubs['1.39.0']
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'fnm' -HomeDirectory $scenarioHome }
+    Assert-True $run.Threw 'an unsupported fnm owner reported success'
+    Assert-True ($run.Error -match 'owned by an unsupported route') 'the fnm owner failure was not reported'
+    Assert-Equal 0 @(Get-Calls).Count 'the unsupported fnm owner caused release traffic'
+    Assert-True (-not (Test-Path -LiteralPath (Get-FnmTarget $scenarioHome))) 'a shadow fnm was installed'
+
+    # --- fnm: unhealthy and prerelease installations are left alone. ---
+    $scenarioHome = New-Scenario 'fnm-unhealthy'
+    Assert-FnmDirectInstall -HomeDirectory $scenarioHome -Stub $fnmUnhealthyStub
+    $null = Set-FnmFixtureArchive -Stub $fnmStubs['1.39.0']
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'fnm' -HomeDirectory $scenarioHome }
+    Assert-True $run.Threw 'an unhealthy fnm reported success'
+    Assert-True ($run.Error -match 'existing executable is unhealthy') 'the unhealthy fnm was not reported'
+    Assert-Equal 0 @(Get-Calls).Count 'an unhealthy fnm caused release traffic'
+
+    $scenarioHome = New-Scenario 'fnm-prerelease'
+    Assert-FnmDirectInstall -HomeDirectory $scenarioHome -Stub $fnmPrereleaseStub
+    $null = Set-FnmFixtureArchive -Stub $fnmStubs['1.39.0']
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'fnm' -HomeDirectory $scenarioHome }
+    Assert-True $run.Threw 'a prerelease fnm reported success'
+    Assert-True ($run.Error -match 'unverifiable/prerelease/custom version') 'the prerelease fnm was not reported'
+    Assert-Equal 0 @(Get-Calls).Count 'a prerelease fnm caused release traffic'
+
+    # --- fnm: a digest mismatch never publishes a target. ---
+    $scenarioHome = New-Scenario 'fnm-digest'
+    $null = Set-FnmFixtureArchive -Stub $fnmStubs['1.39.0']
+    $fnmPlan = Get-PlasticineFnmPlan -HomeDirectory $scenarioHome
+    $fnmPlan.Digest = ('0' * 64)
+    $run = Invoke-TestCapture { Invoke-PlasticineFnmPrepare -Plan $fnmPlan }
+    Assert-True $run.Threw 'a fnm digest mismatch reported success'
+    Assert-True ($run.Error -match 'release archive SHA-256 mismatch') 'the fnm digest mismatch was not reported'
+    Assert-True (-not (Test-Path -LiteralPath (Get-FnmTarget $scenarioHome))) 'the fnm digest mismatch published a target'
+
+    # --- fnm: an unexpected archive member set is refused. ---
+    $scenarioHome = New-Scenario 'fnm-members'
+    $null = Set-FnmFixtureArchive -Stub $fnmStubs['1.39.0'] -ExtraEntry @('extra.txt')
+    $fnmPlan = Get-PlasticineFnmPlan -HomeDirectory $scenarioHome
+    $run = Invoke-TestCapture { Invoke-PlasticineFnmPrepare -Plan $fnmPlan }
+    Assert-True $run.Threw 'an unexpected fnm archive member reported success'
+    Assert-True ($run.Error -match 'archive members do not match the reviewed layout') 'the fnm member failure was not reported'
+    Assert-True (-not (Test-Path -LiteralPath (Get-FnmTarget $scenarioHome))) 'the fnm member failure published a target'
+
+    # --- fnm: a download failure preserves the working executable. ---
+    $scenarioHome = New-Scenario 'fnm-download-failure'
+    Assert-FnmDirectInstall -HomeDirectory $scenarioHome -Stub $fnmStubs['1.38.0']
+    $before = Get-PlasticineFileHash (Get-FnmTarget $scenarioHome)
+    $null = Set-FnmFixtureArchive -Stub $fnmStubs['1.39.0']
+    $env:PLASTICINE_TEST_DOWNLOAD_FAIL = '1'
+    $run = Invoke-TestCapture { Invoke-PlasticineFeaturePrepare -Feature 'fnm' -HomeDirectory $scenarioHome }
+    Remove-Item Env:\PLASTICINE_TEST_DOWNLOAD_FAIL -ErrorAction SilentlyContinue
+    Assert-True $run.Threw 'a fnm download failure reported success'
+    Assert-True ($run.Error -match 'release archive download failed; existing executable preserved') 'the fnm download failure was not reported'
+    Assert-Equal $before (Get-PlasticineFileHash (Get-FnmTarget $scenarioHome)) 'the fnm download failure changed the working executable'
+    Assert-FnmNoStaging $scenarioHome
+
+    # --- fnm: a target that is not a regular file is refused before any work. ---
+    $scenarioHome = New-Scenario 'fnm-target-directory'
+    New-Item -ItemType Directory -Path (Get-FnmTarget $scenarioHome) -Force | Out-Null
+    $run = Invoke-TestCapture { Get-PlasticineFnmPlan -HomeDirectory $scenarioHome }
+    Assert-True $run.Threw 'a directory fnm target was accepted'
+    Assert-True ($run.Error -match 'installation target is not a regular file') 'the irregular fnm target was not reported'
 
     Complete-Test 'windows tools tests passed'
 } catch {
