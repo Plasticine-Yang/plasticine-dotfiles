@@ -81,7 +81,8 @@ while :; do
             'Test (ubuntu-24.04)' \
             'Test (macos-14)' \
             'Debian 12 shell (ubuntu-24.04)' \
-            'Debian 12 shell (ubuntu-24.04-arm)'; do
+            'Debian 12 shell (ubuntu-24.04-arm)' \
+            'Windows (windows-2022)'; do
             if ! conclusion=$(awk -F '\t' -v required="$required_job" \
                 '$1 == required { print $2; found=1; exit } END { if (!found) exit 1 }' \
                 "$jobs_file"); then

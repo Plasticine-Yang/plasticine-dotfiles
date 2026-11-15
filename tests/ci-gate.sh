@@ -31,7 +31,8 @@ case $* in
                     'Test (ubuntu-24.04)' \
                     'Test (macos-14)' \
                     'Debian 12 shell (ubuntu-24.04)' \
-                    'Debian 12 shell (ubuntu-24.04-arm)'
+                    'Debian 12 shell (ubuntu-24.04-arm)' \
+                    'Windows (windows-2022)'
                 ;;
         esac
         ;;

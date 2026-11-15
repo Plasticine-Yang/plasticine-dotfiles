@@ -42,13 +42,14 @@ fi
 }
 [ -f "$asset_dir/plasticine-source.bundle" ] &&
     [ -f "$asset_dir/plasticine-managed-plugins.tar.gz" ] &&
-    [ -f "$asset_dir/plasticine-cli.tar.gz" ] || {
+    [ -f "$asset_dir/plasticine-cli.tar.gz" ] &&
+    [ -f "$asset_dir/install.ps1" ] || {
     printf '%s\n' 'release payload assets are missing' >&2
     exit 1
 }
-[ "$(find "$asset_dir" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d ' ')" -eq 5 ] &&
-    [ "$(find "$asset_dir" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" -eq 5 ] || {
-    printf '%s\n' 'release directory must contain exactly five expected assets' >&2
+[ "$(find "$asset_dir" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d ' ')" -eq 6 ] &&
+    [ "$(find "$asset_dir" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" -eq 6 ] || {
+    printf '%s\n' 'release directory must contain exactly six expected assets' >&2
     exit 1
 }
 
@@ -72,22 +73,72 @@ if ! grep -Fqx "readonly_source_sha256='$source_sha256'" "$asset_dir/install.sh"
     printf '%s\n' 'release installer does not pin the payload asset digests' >&2
     exit 1
 fi
+
+# The Windows entry pins the same release metadata and inlines the PowerShell
+# library; it is a payload asset rather than an executable script.
+installer_ps1=$asset_dir/install.ps1
+grep -Fqx "\$PlasticineRepoRevision = '$revision'" "$installer_ps1" || {
+    printf '%s\n' 'release install.ps1 does not pin the expected revision' >&2
+    exit 1
+}
+grep -Fqx "\$PlasticineReleaseVersion = '$release_version'" "$installer_ps1" || {
+    printf '%s\n' 'release install.ps1 does not contain the expected version' >&2
+    exit 1
+}
+if grep -Fqx "\$PlasticineRepoRevision = ''" "$installer_ps1"; then
+    printf '%s\n' 'release install.ps1 still contains the development revision' >&2
+    exit 1
+fi
+grep -Fqx "\$PlasticineSourceSha256 = '$source_sha256'" "$installer_ps1" &&
+    grep -Fqx "\$PlasticinePluginsSha256 = '$plugins_sha256'" "$installer_ps1" || {
+    printf '%s\n' 'release install.ps1 does not pin the payload asset digests' >&2
+    exit 1
+}
+if grep -Eq '^\. \(Join-Path \$PSScriptRoot' "$installer_ps1"; then
+    printf '%s\n' 'release install.ps1 still dot-sources lib/windows' >&2
+    exit 1
+fi
+powershell_bin=${PLASTICINE_POWERSHELL_BIN:-}
+if [ -z "$powershell_bin" ]; then
+    powershell_bin=$(command -v pwsh 2>/dev/null || true)
+fi
+if [ -z "$powershell_bin" ]; then
+    powershell_bin=$(command -v powershell 2>/dev/null || true)
+fi
+if [ -n "$powershell_bin" ]; then
+    "$powershell_bin" -NoProfile -NonInteractive -Command '
+        $tokens = $null
+        $errors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile($args[0], [ref]$tokens, [ref]$errors)
+        if ($null -ne $errors -and $errors.Count -gt 0) {
+            foreach ($parseError in $errors) {
+                [Console]::Error.WriteLine(($parseError.Extent.StartLineNumber.ToString() + ": " + $parseError.Message))
+            }
+            exit 1
+        }' "$installer_ps1" || {
+        printf 'release install.ps1 does not parse on %s\n' "$powershell_bin" >&2
+        exit 1
+    }
+else
+    printf 'warning: no PowerShell interpreter found; not validating install.ps1\n' >&2
+fi
 (
     cd "$asset_dir"
     awk '
         NF != 2 || length($1) != 64 || $1 ~ /[^0-9A-Fa-f]/ { exit 1 }
-        $2 == "install.sh" || $2 == "plasticine-cli.tar.gz" ||
+        $2 == "install.sh" || $2 == "install.ps1" || $2 == "plasticine-cli.tar.gz" ||
             $2 == "plasticine-managed-plugins.tar.gz" ||
             $2 == "plasticine-source.bundle" { seen[$2]++; next }
         { exit 1 }
         END {
-            exit length(seen) != 4 || seen["install.sh"] != 1 ||
+            exit length(seen) != 5 || seen["install.sh"] != 1 ||
+                seen["install.ps1"] != 1 ||
                 seen["plasticine-cli.tar.gz"] != 1 ||
                 seen["plasticine-managed-plugins.tar.gz"] != 1 ||
                 seen["plasticine-source.bundle"] != 1
         }
     ' SHA256SUMS || {
-        printf '%s\n' 'release SHA256SUMS must cover exactly the four payload assets' >&2
+        printf '%s\n' 'release SHA256SUMS must cover exactly the five payload assets' >&2
         exit 1
     }
 )

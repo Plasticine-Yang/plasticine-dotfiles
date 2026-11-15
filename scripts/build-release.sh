@@ -235,8 +235,8 @@ rm -rf "$version_package"
 
 (
     cd "$output_dir"
-    shasum -a 256 install.sh plasticine-cli.tar.gz plasticine-source.bundle \
-        plasticine-managed-plugins.tar.gz > SHA256SUMS
+    shasum -a 256 install.sh install.ps1 plasticine-cli.tar.gz \
+        plasticine-source.bundle plasticine-managed-plugins.tar.gz > SHA256SUMS
 )
 
 printf 'built release assets for %s in %s\n' "$revision" "$output_dir"

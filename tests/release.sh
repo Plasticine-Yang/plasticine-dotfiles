@@ -49,6 +49,7 @@ tar -czf "$test_root/plugins.tar.gz" -C "$plugins_fixture" managed-plugins
 
 cat >"$test_root/expected-assets" <<'EOF'
 SHA256SUMS
+install.ps1
 install.sh
 plasticine-cli.tar.gz
 plasticine-managed-plugins.tar.gz
@@ -61,8 +62,8 @@ cmp -s "$test_root/expected-assets" "$test_root/actual-assets" || {
     printf '%s\n' 'release gate did not build the exact asset contract' >&2
     exit 1
 }
-[ "$(wc -l <"$asset_dir/SHA256SUMS" | tr -d ' ')" -eq 4 ]
-for payload in install.sh plasticine-cli.tar.gz plasticine-managed-plugins.tar.gz \
+[ "$(wc -l <"$asset_dir/SHA256SUMS" | tr -d ' ')" -eq 5 ]
+for payload in install.sh install.ps1 plasticine-cli.tar.gz plasticine-managed-plugins.tar.gz \
     plasticine-source.bundle; do
     [ "$(awk -v asset="$payload" '$2 == asset { matches++ } END { print matches + 0 }' \
         "$asset_dir/SHA256SUMS")" -eq 1 ] || {

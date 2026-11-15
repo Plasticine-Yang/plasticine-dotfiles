@@ -205,6 +205,27 @@ jobs:
       - name: Run credential-free release payload tests
         run: ./scripts/run-test.sh 180 release-payload ./tests/release-payload.sh
 
+  windows:
+    name: Windows (windows-2022)
+    runs-on: windows-2022
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Check out the tested revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      # The Windows route promises Windows PowerShell 5.1 as its baseline and
+      # prefers PowerShell 7 when installed, so both hosts run the same suites.
+      - name: Run the Windows suites on Windows PowerShell 5.1
+        run: ./scripts/check.ps1 -All -PowerShell "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+
+      - name: Run the Windows suites on PowerShell 7
+        run: ./scripts/check.ps1 -All -PowerShell pwsh.exe
+
   debian-shell:
     name: Debian 12 shell (${{ matrix.os }})
     strategy:

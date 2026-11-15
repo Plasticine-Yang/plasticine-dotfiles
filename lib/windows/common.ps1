@@ -1,4 +1,4 @@
-# Shared Windows helpers for every Plasticine module.
+﻿# Shared Windows helpers for every Plasticine module.
 # Baseline is Windows PowerShell 5.1; PowerShell 7+ syntax is forbidden.
 # Every module dot-sources this file before its own definitions, so loading it a
 # second time must not reset the seams below.
@@ -228,4 +228,25 @@ function Compare-PlasticineVersion {
         if ([int]$a[$i] -gt [int]$b[$i]) { return 1 }
     }
     return 0
+}
+
+# The managed tree nests deeper than MAX_PATH (the Neovim distribution plus
+# plugin data), so writing it with long paths disabled fails late and far from
+# the cause. The installer guides instead of editing machine policy.
+$PlasticineLongPathsOverride = $null
+
+function Get-PlasticineLongPathsEnabled {
+    if ($null -ne $PlasticineLongPathsOverride) { return [bool]$PlasticineLongPathsOverride }
+    try {
+        $value = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
+            -Name 'LongPathsEnabled' -ErrorAction Stop).LongPathsEnabled
+        return ([int]$value -eq 1)
+    } catch {
+        return $false
+    }
+}
+
+function Assert-PlasticineLongPathsEnabled {
+    if (Get-PlasticineLongPathsEnabled) { return }
+    Stop-Plasticine 'Windows long paths are disabled; set HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled to 1 and retry. The managed installer does not change registry policy.'
 }

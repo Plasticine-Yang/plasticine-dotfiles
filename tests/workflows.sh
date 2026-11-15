@@ -22,6 +22,12 @@ perl -0777ne 'exit(/container:\s*\n\s+image: debian:12-slim\s*\n\s+options: --in
     exit 1
 }
 
+# The native Windows route runs the same suites on both supported hosts.
+grep -Fq 'windows-2022' "$ci"
+grep -Fq 'scripts/check.ps1 -All -PowerShell "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"' "$ci"
+grep -Fq 'scripts/check.ps1 -All -PowerShell pwsh.exe' "$ci"
+grep -Fq 'Windows (windows-2022)' "$repo_dir/scripts/require-ci-success.sh"
+
 if grep -Fq 'uses: ./.github/workflows/ci.yml' "$release"; then
     printf '%s\n' 'Release still reruns the complete CI workflow' >&2
     exit 1
@@ -39,10 +45,10 @@ grep -Fq './scripts/require-ci-success.sh "$GITHUB_REPOSITORY" "$RELEASE_SHA"' "
 grep -Fq './scripts/release-gate.sh "$RELEASE_SHA" dist "$VERSION" "$GITHUB_WORKSPACE"' "$release"
 grep -Fq 'dist/plasticine-cli.tar.gz' "$release"
 # shellcheck disable=SC2016
-grep -Fq '[[ "$(jq -r '"'"'.assets | length'"'"' <<<"$release_json")" == 5 ]]' "$release"
-grep -Fq 'SHA256SUMS install.sh plasticine-cli.tar.gz plasticine-managed-plugins.tar.gz plasticine-source.bundle' "$release"
+grep -Fq '[[ "$(jq -r '"'"'.assets | length'"'"' <<<"$release_json")" == 6 ]]' "$release"
+grep -Fq 'SHA256SUMS install.sh install.ps1 plasticine-cli.tar.gz plasticine-managed-plugins.tar.gz plasticine-source.bundle' "$release"
 # Every uploaded payload is checked against both SHA256SUMS and GitHub's digest.
-grep -Fq 'for asset in install.sh plasticine-cli.tar.gz plasticine-managed-plugins.tar.gz plasticine-source.bundle; do' "$release"
+grep -Fq 'for asset in install.sh install.ps1 plasticine-cli.tar.gz plasticine-managed-plugins.tar.gz plasticine-source.bundle; do' "$release"
 # shellcheck disable=SC2016
 grep -Fq 'select(.name == \"$asset\") | .digest' "$release"
 

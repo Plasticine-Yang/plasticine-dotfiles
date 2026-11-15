@@ -1,6 +1,6 @@
 # plasticine-dotfiles
 
-使用 [chezmoi](https://www.chezmoi.io/) 在 macOS 和 Linux 上选择并恢复个人开发环境。目前支持 Git 配置、GitHub SSH 配置、fnm、Rust、uv、Herdr、Lazygit、Neovim、Zsh 环境和 npm 用户配置。
+使用 [chezmoi](https://www.chezmoi.io/) 在 macOS、Linux 和 Windows 上选择并恢复个人开发环境。目前支持 Git 配置、GitHub SSH 配置、fnm、Rust、uv、Herdr、Lazygit、Neovim、Zsh 环境、PowerShell 环境和 npm 用户配置。Windows 走独立的原生 PowerShell 通道，不经过 POSIX 引擎。
 
 ## 一行安装
 
@@ -17,6 +17,8 @@ chezmoi 维护和 source 获取属于安装器前置工作，会发生在 Featur
 选择 `neovim` 或 `shell` 时，发布版还会下载同一 Release 中固定版本的受管插件快照。首次安装从快照恢复公开插件，不执行 GitHub Git clone、fetch 或 pull，因此不要求 GitHub 用户名、Token、SSH key，也不依赖 `git-config` 或 `github-ssh`。这两个身份 Feature 仍然完全独立：没有选择就不会修改 `.gitconfig`、SSH key 或 SSH 配置。Release 资产下载本身使用匿名 HTTPS；若该网络路径不可用，安装会明确失败，不会转为凭据提示。
 
 安装过程会选择工具、收集所需参数、自动显示变更，并在确认后应用。当前支持 Git 配置（`git-config`）、GitHub SSH、fnm（`fnm`）、Rust（`rust`）、uv（`uv`）、Herdr（`herdr`）、Lazygit（`lazygit`）、Neovim（`neovim`）、Zsh 环境（`shell`）、默认登录 Shell（`login-shell`）和 npm 用户配置（`npmrc`）；初始选择为空，不选择某个工具表示本次不处理它。
+
+Windows 使用原生入口 `install.ps1`（见下文 Windows 小节），不接受上面的 POSIX 安装器。
 
 ## 本地 `plasticine` 命令
 
@@ -161,6 +163,30 @@ Plasticine 生成的 chezmoi 配置默认从 `chezmoi diff` 中隐藏待执行�
 ```sh
 PLASTICINE_DOTFILES_REPO_URL="$PWD" ./install.sh
 ```
+
+## Windows（原生 PowerShell）
+
+Windows 走独立的原生 PowerShell 通道，复用 chezmoi 的 source/config/state 目录，不经过 POSIX 引擎。要求 Windows 10 1809+ / Windows 11、x64、Windows PowerShell 5.1（装了 `pwsh` 会优先用它）；arm64、缺少 `LongPathsEnabled` 或以管理员身份运行都会直接停止并给出指引。
+
+```console
+powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
+```
+
+参数与环境变量与 `install.sh` 对齐：`-Yes`（别名 `y`/`yes`）、`-GitConfig`、`-Npmrc`、`-GithubSsh`、`-GithubSshKey <path>`、`-GithubSshTest`、`-ReplaceGithubSshKey`、`-Herdr`、`-Lazygit`、`-Fnm`、`-Rust`、`-Uv`、`-Neovim`、`-Powershell`、`-Help`；环境变量前缀同为 `PLASTICINE_`，工具参数必须配合 `-Yes`。预览、确认、`chezmoi apply --error-on-conflict` 与冲突路径报告的行为与 POSIX 安装器一致。
+
+可用的 Feature 与 Windows 目标：
+
+| Feature | Windows 目标 |
+| --- | --- |
+| `git-config` / `npmrc` | `%USERPROFILE%\.gitconfig` / `%USERPROFILE%\.npmrc` |
+| `github-ssh` | `%USERPROFILE%\.ssh`（系统 OpenSSH，私钥与 `~/.npmrc` 用 owner-only ACL） |
+| `lazygit` / `fnm` / `uv` / `herdr` | `%USERPROFILE%\.local\bin\*.exe` |
+| `neovim` | `%USERPROFILE%\.local\opt\neovim`，其 `bin` 目录加入用户级 PATH |
+| `rust` | `%USERPROFILE%\.local\opt\{.cargo,.rustup}`（`x86_64-pc-windows-gnu`） |
+| `powershell` | `$PROFILE.CurrentUserAllHosts` 的受管标记块、用户级 PATH 与 fnm 激活 |
+| herdr 配置 | `%APPDATA%\herdr\config.toml`（不是 `~/.config/herdr`） |
+
+限制：不支持 `shell` 与 `login-shell`（Zsh 生态没有 Windows 等价物）；`plasticine` CLI、self-update 与 arm64 不在 v1 范围。Neovim 的 `nvim.exe` 依赖同目录的 `lua51.dll`/`DbgHelp.dll` 和 `../share/nvim/runtime`，硬链接或复制到 `~/.local/bin` 无法运行，因此发布的是私有分布的 `bin` 目录而非单文件命令。Rust 需要 MSVC Build Tools，缺失时明确失败并给安装指引，不代装。`~/.config/nvim` 与 `~/.local/share/nvim`、`%LOCALAPPDATA%\nvim` 与 `%LOCALAPPDATA%\nvim-data` 之间由 apply 期脚本维护 junction。
 
 ## GitHub SSH 行为
 
@@ -428,6 +454,13 @@ CHEZMOI_BIN=/path/to/chezmoi ./scripts/check.sh --all
 
 # 真实上游 Neovim smoke 仍需显式选择。
 PLASTICINE_LIVE_NEOVIM_SMOKE=1 ./tests/neovim-live.sh
+```
+
+Windows 套件在 Windows 上运行，Windows PowerShell 5.1 与 pwsh 7 都需要覆盖：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check.ps1 -All
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check.ps1 -All -PowerShell pwsh.exe
 ```
 
 `scripts/check.sh` 在 `.agent-tmp/checks/` 创建并清理一次性 Git 快照，包含已跟踪和未忽略的新文件及未提交改动；原工作区和暂存区保持不变。测试副本采用 `umask 022` 和正常 checkout 权限，隔离 HOME、TMPDIR 与个人环境变量；TMPDIR 经符号链接指向临时目录，以匹配 macOS CI 的路径形状。PATH 只包含所选 suite 必需的运行时和系统目录。缺少 ShellCheck、chezmoi、Zsh、Expect 或 Neovim 等所需依赖时立即报错，不静默跳过相关验证；可用 `CHEZMOI_BIN`、`NVIM_BIN` 指定工具路径。npmrc 检查要求支持脚本策略的 npm，CI 使用 Node `24.21.0` 和 npm `12.0.2`。入口不会自动安装依赖或修改个人 npmrc。

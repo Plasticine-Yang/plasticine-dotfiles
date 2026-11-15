@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # Windows entry point for plasticine-dotfiles. Mirrors install.sh: same Feature
 # names, same environment contract, same preview, confirmation and apply flow.
 #
@@ -130,6 +130,7 @@ function Invoke-PlasticineEntry {
     }
 
     Assert-PlasticineWindowsPlatform
+    Assert-PlasticineLongPathsEnabled
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
     if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
