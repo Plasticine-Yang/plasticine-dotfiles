@@ -1,0 +1,25 @@
+{{- if eq .chezmoi.os "windows" -}}
+{{- if has "github-ssh" .tools -}}
+# Validate the GitHub SSH configuration before the Windows apply scripts touch
+# ~/.ssh. Observation only: nothing is created or modified here.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/acl.ps1')
+. (Join-Path $source_dir 'lib/windows/config-apply.ps1')
+. (Join-Path $source_dir 'lib/windows/feature-github-ssh.ps1')
+
+try {
+    Assert-PlasticineGithubSshConfiguration -HomeDirectory $dest_dir
+} catch {
+    # Stop-Plasticine already wrote its diagnostic; only unexpected failures are
+    # reported here so nothing is printed twice.
+    if ($_.Exception -isnot [PlasticineStopException]) {
+        Write-PlasticineError ('github-ssh: ' + [string]$_.Exception.Message)
+    }
+    exit 1
+}
+{{- end -}}
+{{- end -}}

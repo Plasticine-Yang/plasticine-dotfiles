@@ -1,0 +1,25 @@
+{{- if eq .chezmoi.os "windows" -}}
+{{- if and (has "github-ssh" .tools) .githubSSHTest -}}
+# Opt-in post-apply GitHub SSH probe. Authentication results and connectivity
+# results are reported separately: a network failure is never reported as an
+# authentication failure.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/acl.ps1')
+. (Join-Path $source_dir 'lib/windows/config-apply.ps1')
+. (Join-Path $source_dir 'lib/windows/feature-github-ssh.ps1')
+
+try {
+    $result = Invoke-PlasticineGithubSshConnectionTest -HomeDirectory $dest_dir
+    if ($result.ExitCode -ne 0) { exit 1 }
+} catch {
+    if ($_.Exception -isnot [PlasticineStopException]) {
+        Write-PlasticineError ('github-ssh: ' + [string]$_.Exception.Message)
+    }
+    exit 1
+}
+{{- end -}}
+{{- end -}}

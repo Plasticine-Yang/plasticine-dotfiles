@@ -1,0 +1,29 @@
+{{- if eq .chezmoi.os "windows" -}}
+{{- if has "github-ssh" .tools -}}
+# Install the supplied GitHub SSH private key at ~/.ssh/id_github. An existing
+# key is kept; an approved replacement is backed up first. Every written copy
+# gets the owner-only DACL and the key contents are never printed.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+$source_key = {{ template "powershell-quote" .githubSSHKeyPath }}
+$expected_source_fingerprint = {{ template "powershell-quote" .githubSSHKeyFingerprint }}
+$approved_target_fingerprint = {{ template "powershell-quote" .githubSSHReplaceFingerprint }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/acl.ps1')
+. (Join-Path $source_dir 'lib/windows/config-apply.ps1')
+. (Join-Path $source_dir 'lib/windows/feature-github-ssh.ps1')
+
+try {
+    Install-PlasticineGithubSshKey -HomeDirectory $dest_dir -SourceKey $source_key `
+        -ExpectedFingerprint $expected_source_fingerprint `
+        -ApprovedReplaceFingerprint $approved_target_fingerprint
+} catch {
+    if ($_.Exception -isnot [PlasticineStopException]) {
+        Write-PlasticineError ('github-ssh: ' + [string]$_.Exception.Message)
+    }
+    exit 1
+}
+{{- end -}}
+{{- end -}}

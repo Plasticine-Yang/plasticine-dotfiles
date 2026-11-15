@@ -1,0 +1,25 @@
+{{- if eq .chezmoi.os "windows" -}}
+{{- if has "github-ssh" .tools -}}
+# Back up the pre-managed ~/.ssh/config before the Windows compose script
+# replaces it. The first backup wins: rerunning apply never overwrites the
+# pristine copy with an already-managed file.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/acl.ps1')
+. (Join-Path $source_dir 'lib/windows/config-apply.ps1')
+. (Join-Path $source_dir 'lib/windows/feature-github-ssh.ps1')
+
+try {
+    $null = Assert-PlasticineGithubSshShapes -HomeDirectory $dest_dir
+    $null = Save-PlasticineGithubSshConfigBackup -HomeDirectory $dest_dir
+} catch {
+    if ($_.Exception -isnot [PlasticineStopException]) {
+        Write-PlasticineError ('github-ssh: ' + [string]$_.Exception.Message)
+    }
+    exit 1
+}
+{{- end -}}
+{{- end -}}

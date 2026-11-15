@@ -35,6 +35,9 @@ plasticine-demo/**
 .plasticine/zsh/**
 .config/herdr
 .config/herdr/**
+# chezmoi cannot execute a modify_ script without a POSIX shell; the Windows
+# run_before script composes ~/.ssh/config instead.
+.ssh/config
 {{ if not (has "powershell" .tools) }}
 .plasticine
 .plasticine/**

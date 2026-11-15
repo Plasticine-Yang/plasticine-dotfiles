@@ -1,0 +1,25 @@
+{{- if eq .chezmoi.os "windows" -}}
+{{- if has "github-ssh" .tools -}}
+# Windows cannot execute the Unix modify_ script, so ~/.ssh/config is composed
+# here: the managed marker block includes the chezmoi-managed github-ssh
+# fragment and every byte outside the block is preserved. Runs after the key
+# installation.
+$ErrorActionPreference = 'Stop'
+
+$source_dir = {{ template "powershell-quote" .chezmoi.sourceDir }}
+$dest_dir = {{ template "powershell-quote" .chezmoi.destDir }}
+. (Join-Path $source_dir 'lib/windows/common.ps1')
+. (Join-Path $source_dir 'lib/windows/acl.ps1')
+. (Join-Path $source_dir 'lib/windows/config-apply.ps1')
+. (Join-Path $source_dir 'lib/windows/feature-github-ssh.ps1')
+
+try {
+    Invoke-PlasticineGithubSshConfigApply -HomeDirectory $dest_dir
+} catch {
+    if ($_.Exception -isnot [PlasticineStopException]) {
+        Write-PlasticineError ('github-ssh: ' + [string]$_.Exception.Message)
+    }
+    exit 1
+}
+{{- end -}}
+{{- end -}}
