@@ -168,9 +168,30 @@ PLASTICINE_DOTFILES_REPO_URL="$PWD" ./install.sh
 
 Windows 走独立的原生 PowerShell 通道，复用 chezmoi 的 source/config/state 目录，不经过 POSIX 引擎。要求 Windows 10 1809+ / Windows 11、x64、**系统自带的 Windows PowerShell 5.1**；arm64、缺少 `LongPathsEnabled` 或以管理员身份运行都会直接停止并给出指引。
 
-```console
-powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
+新机器先下载安装器，再运行（在线，推荐）：
+
+```powershell
+curl.exe -fL -o "$env:USERPROFILE\Downloads\plasticine-install.ps1" `
+  https://github.com/Plasticine-Yang/plasticine-dotfiles/releases/latest/download/install.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\Downloads\plasticine-install.ps1"
 ```
+
+不加参数是交互模式：chezmoi 里勾选 Feature → 逐个预览 → 显示 diff → 确认后才 apply。非交互示例（工具参数必须配合 `-Yes`）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\Downloads\plasticine-install.ps1" -Yes -GitConfig -Npmrc -Lazygit -Fnm -Uv
+```
+
+新机器的一次性前置：系统自带的 Windows PowerShell 5.1；`git` 在 PATH；系统 OpenSSH 客户端可用（`%SystemRoot%\System32\OpenSSH\ssh.exe`）；`LongPathsEnabled=1`（未开启时安装器会停止并给指引，管理员执行 `Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -Value 1 -Type DWord`）；在非管理员终端运行。首次运行会把固定版本 chezmoi `2.72.1` 装到 `%USERPROFILE%\.local\bin`，然后从该 Release 恢复 source bundle。
+
+内网或离线环境：把某个 Release 的 6 个附件放进一个目录，运行时用 `PLASTICINE_RELEASE_ASSET_DIR` 指向它，安装器就不再访问 GitHub：
+
+```powershell
+$env:PLASTICINE_RELEASE_ASSET_DIR = 'D:\plasticine\release-v0.7.2'
+powershell -NoProfile -ExecutionPolicy Bypass -File 'D:\plasticine\install.ps1'
+```
+
+更新就是重复执行同一条命令：健康的同版本或更新版本直接复用，只前进不降级；配置改动前的旧内容在 `%USERPROFILE%\.plasticine\backups\<feature>`（首次备份优先）。
 
 **不需要安装 PowerShell 7。** 5.1 是基线，也是 apply 期脚本实际使用的宿主（生成的 chezmoi 配置固定 `[interpreters.ps1] command = "powershell"`）。装了 `pwsh` 只是可选增强：`powershell` 特性会同时维护 5.1 与 7 两个宿主的 profile 标记块，herdr 的 `default_shell` 会优先用 `pwsh.exe`，其余行为不变；两种宿主都有对应的测试套件（`scripts/check.ps1 -All -PowerShell pwsh.exe` 是可选的额外验证）。
 
