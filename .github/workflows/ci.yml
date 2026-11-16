@@ -119,7 +119,7 @@ jobs:
         run: ./scripts/run-test.sh 30 ci-gate ./tests/ci-gate.sh
 
       - name: Install the npm script-policy test runtime
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.21.0'
 
