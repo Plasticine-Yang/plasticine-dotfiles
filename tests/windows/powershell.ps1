@@ -51,6 +51,26 @@ try {
         Assert-Equal 0 @($fragmentErrors).Count "$fragmentName does not parse on this PowerShell version"
     }
 
+    # --- Interactive classifier: a host that keeps the session open with
+    # -NoExit (herdr starts each pane that way) must still get the aliases,
+    # while scripted invocations must not. ---
+    $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if (Test-Path -LiteralPath $windowsPowerShell -PathType Leaf) {
+        $sharedSource = Join-Path $repoDir 'dot_plasticine\powershell\shared.ps1'
+        $sharedLiteral = $sharedSource.Replace("'", "''")
+        $aliasPresent = "& { . '$sharedLiteral'; if (Get-Alias -Name lg -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 } }"
+        $aliasAbsent = "& { . '$sharedLiteral'; if (Get-Alias -Name lg -ErrorAction SilentlyContinue) { exit 1 } else { exit 0 } }"
+        $classifierCases = @(
+            @{ Name = 'a -NoExit session lost the interactive aliases'; Argument = @('-NoProfile', '-NoExit', '-Command', $aliasPresent) },
+            @{ Name = 'a plain -Command session became interactive'; Argument = @('-NoProfile', '-Command', $aliasAbsent) },
+            @{ Name = 'a -NonInteractive session became interactive'; Argument = @('-NoProfile', '-NonInteractive', '-Command', $aliasAbsent) }
+        )
+        foreach ($classifierCase in $classifierCases) {
+            & $windowsPowerShell @($classifierCase.Argument) 2>&1 | Out-Null
+            Assert-Equal 0 $LASTEXITCODE $classifierCase.Name
+        }
+    }
+
     # --- Base fragment: prepend ~/.local/bin, add ~/.cargo/bin when present,
     # keep the inherited order, stay silent and stay idempotent. ---
     $fragmentHome = New-TestDirectory 'fragment-home'

@@ -27,15 +27,27 @@ if (-not (Get-Variable -Name _plasticine_powershell_environment_loaded -Scope Gl
         -ErrorAction SilentlyContinue
 }
 
-# The profile also runs for -Command/-File/-NonInteractive invocations. Skip the
-# native prompt defaults there so scripted hosts stay fast and quiet.
+# The profile also runs for -Command/-File/-NonInteractive invocations. A host
+# that keeps the session open with -NoExit (herdr starts every pane as
+# `powershell.exe -NoExit -Command ...`) is interactive and needs the aliases;
+# scripted hosts stay fast and quiet.
 $plasticineInteractive = $true
+$plasticineNoExit = $false
+$plasticineScripted = $false
 $plasticineCommandLine = @([Environment]::GetCommandLineArgs())
 for ($plasticineIndex = 1; $plasticineIndex -lt $plasticineCommandLine.Length; $plasticineIndex++) {
-    $plasticineArgument = [string]$plasticineCommandLine[$plasticineIndex]
-    if ($plasticineArgument -match '^-(command|c|file|f|encodedcommand|e|ec|noninteractive)$') {
+    $plasticineArgument = ([string]$plasticineCommandLine[$plasticineIndex]).ToLowerInvariant()
+    if ($plasticineArgument -eq '-noexit') {
+        $plasticineNoExit = $true
+    } elseif ($plasticineArgument -match '^-(command|c|file|f|encodedcommand|e|ec|noninteractive)$') {
+        $plasticineScripted = $true
+    }
+    if ($plasticineArgument -eq '-noninteractive') {
         $plasticineInteractive = $false
     }
+}
+if ($plasticineScripted -and -not $plasticineNoExit) {
+    $plasticineInteractive = $false
 }
 
 if ($plasticineInteractive) {
@@ -54,5 +66,6 @@ if ($plasticineInteractive) {
     Set-Alias -Name lg -Value lazygit -Scope Global -ErrorAction SilentlyContinue
 }
 
-Remove-Variable -Name plasticineInteractive, plasticineCommandLine, plasticineIndex,
-    plasticineArgument, plasticineFnm, plasticineFnmEnvironment -ErrorAction SilentlyContinue
+Remove-Variable -Name plasticineInteractive, plasticineNoExit, plasticineScripted,
+    plasticineCommandLine, plasticineIndex, plasticineArgument, plasticineFnm,
+    plasticineFnmEnvironment -ErrorAction SilentlyContinue
