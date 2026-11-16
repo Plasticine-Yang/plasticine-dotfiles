@@ -9,6 +9,10 @@ $PlasticineChezmoiVersion = '2.72.1'
 $PlasticineChezmoiAssets = @{
     'chezmoi_2.72.1_windows_amd64.zip' = '75b22917f6baa0a40fec7bf9ad16fd8ea8cf4943f8d8cc1ddb07586d4376bf34'
 }
+# The official Windows zip also ships the license, a readme and shell
+# completions; only chezmoi.exe is published, but the reviewed archive layout
+# covers every top-level member so an unexpected addition still stops.
+$PlasticineChezmoiArchiveMember = @('LICENSE', 'README.md', 'completions', 'chezmoi.exe')
 
 function Stop-PlasticineChezmoi {
     param([Parameter(Mandatory = $true)][string]$Message)
@@ -95,7 +99,7 @@ function Invoke-PlasticineChezmoiBootstrap {
             Stop-PlasticineChezmoi 'release archive SHA-256 mismatch; existing executable preserved.'
         }
         $candidateDir = Join-Path $work 'candidate'
-        Expand-PlasticineArchive -Archive $archive -Destination $candidateDir -Member @('chezmoi.exe')
+        Expand-PlasticineArchive -Archive $archive -Destination $candidateDir -Member $PlasticineChezmoiArchiveMember
         $candidate = Join-Path $candidateDir 'chezmoi.exe'
         if ((Get-PlasticineExecutableVersion $candidate) -ne $PlasticineChezmoiVersion) {
             Stop-PlasticineChezmoi 'release candidate failed version/health validation; existing executable preserved.'

@@ -72,6 +72,28 @@ function Invoke-StopProbe {
     return [pscustomobject]@{ Exception = $exception; Error = $captured.ToString() }
 }
 
+# The reviewed official archive carries the license, a readme and completions;
+# the fixture rebuilds that exact top-level layout around the candidate stub.
+function New-ChezmoiArchive {
+    param(
+        [Parameter(Mandatory = $true)][string]$PayloadDir,
+        [string[]]$ExtraEntry
+    )
+    foreach ($name in @('LICENSE', 'README.md')) {
+        Set-Content -LiteralPath (Join-Path $PayloadDir $name) -Value $name -NoNewline
+    }
+    $entries = @('completions/chezmoi.ps1')
+    foreach ($entry in @($ExtraEntry)) { if ($entry) { $entries += $entry } }
+    New-TestZip -Path (Join-Path $fixture $assetName) -File @(
+        (Join-Path $PayloadDir 'LICENSE'),
+        (Join-Path $PayloadDir 'README.md'),
+        (Join-Path $PayloadDir 'chezmoi.exe')
+    ) -ExtraEntry $entries
+    # Every rebuild produces new archive bytes (embedded timestamps), so the
+    # reviewed digest table always tracks the archive the suite just created.
+    $PlasticineChezmoiAssets[$assetName] = Get-PlasticineFileHash (Join-Path $fixture $assetName)
+}
+
 try {
     Assert-True (-not (Get-PlasticineCommandPath 'chezmoi')) `
         'the suite needs a PATH without chezmoi; remove it or run in a clean environment'
@@ -91,7 +113,7 @@ try {
 
     $payloadDir = New-TestDirectory 'payload'
     Copy-Item -LiteralPath $stubs['2.72.1'] -Destination (Join-Path $payloadDir 'chezmoi.exe')
-    New-TestZip -Path (Join-Path $fixture $assetName) -File @((Join-Path $payloadDir 'chezmoi.exe'))
+    New-ChezmoiArchive -PayloadDir $payloadDir
     $reviewedDigest = Get-PlasticineFileHash (Join-Path $fixture $assetName)
     $PlasticineChezmoiAssets[$assetName] = $reviewedDigest
 
@@ -169,22 +191,22 @@ try {
     $before = Get-PlasticineFileHash (Get-Target $scenarioHome)
     $wrongPayload = New-TestDirectory 'wrong-payload'
     Copy-Item -LiteralPath $stubs['2.73.0'] -Destination (Join-Path $wrongPayload 'chezmoi.exe')
-    New-TestZip -Path (Join-Path $fixture $assetName) -File @((Join-Path $wrongPayload 'chezmoi.exe'))
+    New-ChezmoiArchive -PayloadDir $wrongPayload
     $PlasticineChezmoiAssets[$assetName] = Get-PlasticineFileHash (Join-Path $fixture $assetName)
     $run = Invoke-TestCapture { Invoke-PlasticineChezmoiBootstrap -HomeDirectory $scenarioHome }
     $PlasticineChezmoiAssets[$assetName] = $reviewedDigest
-    New-TestZip -Path (Join-Path $fixture $assetName) -File @((Join-Path $payloadDir 'chezmoi.exe'))
+    New-ChezmoiArchive -PayloadDir $payloadDir
     Assert-True $run.Threw 'a wrong candidate version reported success'
     Assert-True ($run.Error -match 'release candidate failed version/health validation') 'the candidate failure was not reported'
     Assert-Equal $before (Get-PlasticineFileHash (Get-Target $scenarioHome)) 'the candidate failure changed the working executable'
 
     # --- An archive with an unexpected member is refused. ---
     $scenarioHome = New-Scenario 'archive-members'
-    New-TestZip -Path (Join-Path $fixture $assetName) -File @((Join-Path $payloadDir 'chezmoi.exe')) -ExtraEntry @('extra.txt')
+    New-ChezmoiArchive -PayloadDir $payloadDir -ExtraEntry @('extra.txt')
     $PlasticineChezmoiAssets[$assetName] = Get-PlasticineFileHash (Join-Path $fixture $assetName)
     $run = Invoke-TestCapture { Invoke-PlasticineChezmoiBootstrap -HomeDirectory $scenarioHome }
     $PlasticineChezmoiAssets[$assetName] = $reviewedDigest
-    New-TestZip -Path (Join-Path $fixture $assetName) -File @((Join-Path $payloadDir 'chezmoi.exe'))
+    New-ChezmoiArchive -PayloadDir $payloadDir
     Assert-True $run.Threw 'an unexpected archive member reported success'
     Assert-True ($run.Error -match 'archive members do not match the reviewed layout') 'the member failure was not reported'
     Assert-True (-not (Test-Path -LiteralPath (Get-Target $scenarioHome))) 'the member failure published a target'
@@ -222,7 +244,7 @@ try {
     $run = Invoke-TestCapture { Invoke-PlasticineChezmoiBootstrap -HomeDirectory $scenarioHome }
     ${function:Expand-PlasticineArchive} = $originalExpand
     Assert-True $run.Threw 'a racing target was accepted'
-    Assert-True ($run.Error -match 'installation target changed during preparation; update aborted') 'the race was not reported'
+    Assert-True ($run.Error -match 'installation target changed during preparation; update aborted') ('the race was not reported: ' + $run.Error)
     Assert-Equal 'competing owner' (Get-Content -LiteralPath (Get-Target $scenarioHome) -Raw) 'the racing owner was overwritten'
     Assert-NoStaging $scenarioHome
 
