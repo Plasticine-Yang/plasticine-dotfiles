@@ -13,11 +13,10 @@ Get-ChildItem -LiteralPath $library -Filter 'feature-*.ps1' | Sort-Object Name |
 
 # This is the only selected-tool mutation stage. Configuration backup and
 # application begin only after every selected tool succeeds.
-$selected = @(
+$selected = @()
 {{- range .tools }}
-    '{{ . }}',
+$selected += '{{ . }}'
 {{- end }}
-)
 
 foreach ($feature in $PlasticineFeatureOrder) {
     if ($selected -notcontains $feature) { continue }

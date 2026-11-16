@@ -218,6 +218,43 @@ jobs:
         with:
           persist-credentials: false
 
+      # The render suite needs the same pinned chezmoi the installer uses: it
+      # renders every apply template and parses the result, so a template that
+      # emits invalid PowerShell fails here instead of during a real install.
+      - name: Install pinned chezmoi
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '2.72.1'
+          $asset = "chezmoi_${version}_windows_amd64.zip"
+          $digest = '75b22917f6baa0a40fec7bf9ad16fd8ea8cf4943f8d8cc1ddb07586d4376bf34'
+          $url = "https://github.com/twpayne/chezmoi/releases/download/v$version/$asset"
+          $download = Join-Path $env:RUNNER_TEMP $asset
+          $downloaded = $false
+          for ($attempt = 1; $attempt -le 5; $attempt++) {
+            try {
+              Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $download
+              $downloaded = $true
+              break
+            } catch {
+              if ($attempt -eq 5) { throw }
+              Start-Sleep -Seconds 5
+            }
+          }
+          if (-not $downloaded) { throw 'chezmoi prerequisite download did not complete' }
+          $actual = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $digest) { throw "chezmoi prerequisite digest mismatch: $actual" }
+          $bin = Join-Path $env:RUNNER_TEMP 'bin'
+          New-Item -ItemType Directory -Path $bin -Force | Out-Null
+          Expand-Archive -LiteralPath $download -DestinationPath $bin -Force
+          if (-not (Test-Path (Join-Path $bin 'chezmoi.exe'))) { throw 'chezmoi prerequisite archive layout is unexpected' }
+          Write-Host ('chezmoi prerequisite ready: ' + (Join-Path $bin 'chezmoi.exe'))
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          # check.ps1 isolates PATH for every suite, so hand the render suite the
+          # pinned binary explicitly.
+          ("PLASTICINE_TEST_CHEZMOI_BIN=" + (Join-Path $bin 'chezmoi.exe')) |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       # The Windows route promises Windows PowerShell 5.1 as its baseline and
       # prefers PowerShell 7 when installed, so both hosts run the same suites.
       - name: Run the Windows suites on Windows PowerShell 5.1
